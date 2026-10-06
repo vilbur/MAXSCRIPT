@@ -1,0 +1,44 @@
+000 START Vertex Level Aligner project 1.116
+001 MAIN execution started
+020 MAIN before UI load
+100 UI file execution started
+101 UI source path resolved
+105 UI frontend module loading
+110 UI before API struct instance
+111 UI API struct instance created
+115 UI literal static title ready
+120 UI rollout definition complete
+199 UI frontend module loaded
+021 MAIN after UI load
+030 MAIN runtime mode = embedded
+040 MAIN before embedded registration
+041 MAIN embedded registration complete
+099 MAIN execution complete
+100 UI file execution started
+101 UI source path resolved
+105 UI frontend module loading
+110 UI before API struct instance
+111 UI API struct instance created
+115 UI literal static title ready
+120 UI rollout definition complete
+199 UI frontend module loaded
+300 UI rollout open entered
+302 UI static rollout title already set
+303 UI before loadUiState
+304 UI after loadUiState
+305 UI before initial selected-object scan
+400 SCAN selection entered
+401 SCAN selected node count = 1
+409 SCAN complete = true | Axis Z | 14 groups | 0 broken | 1333 grouped verts | all exact levels retained
+306 UI initial selected-object scan complete
+310 UI rollout open complete
+300 UI rollout open entered
+302 UI static rollout title already set
+303 UI before loadUiState
+304 UI after loadUiState
+305 UI before initial selected-object scan
+400 SCAN selection entered
+401 SCAN selected node count = 1
+409 SCAN complete = true | Axis Z | 14 groups | 0 broken | 1333 grouped verts | all exact levels retained
+306 UI initial selected-object scan complete
+310 UI rollout open complete

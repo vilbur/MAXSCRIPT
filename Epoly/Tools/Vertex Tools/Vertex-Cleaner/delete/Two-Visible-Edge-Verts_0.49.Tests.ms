@@ -1,0 +1,212 @@
+/*
+    Two Visible Edge Verts 0.49 RMB stored-index regression test.
+    Verifies exact selected vertex IDs are processed highest-to-lowest without position remapping.
+    An unselected isolated vertex deliberately shares a selected vertex position so position-based source lookup would fail this test.
+*/
+
+global two_edge_test_editable
+global two_edge_test_edit_poly
+global two_edge_test_modifier
+global TwoVisibleEdgeVerts
+global EPOLY_TOOLS_RUNTIME_MODE
+
+/*
+Loads the exact tool revision under test without forcing its standalone dialog open.
+*/
+function loadTestTool =
+(
+    tool_path = getFilenamePath (getSourceFileName()) + "Two-Visible-Edge-Verts_0.49.ms"
+    if not(doesFileExist tool_path) then throw ("Missing test target: " + tool_path)
+
+    previous_runtime_mode = EPOLY_TOOLS_RUNTIME_MODE
+    EPOLY_TOOLS_RUNTIME_MODE = #library
+    fileIn tool_path quiet:true
+    EPOLY_TOOLS_RUNTIME_MODE = previous_runtime_mode
+
+    if TwoVisibleEdgeVerts == undefined then throw "TwoVisibleEdgeVerts failed to load."
+    if TwoVisibleEdgeVerts.file_version != 0.49 then throw "Unexpected TwoVisibleEdgeVerts file version."
+    if TwoVisibleEdgeVerts.project_version != TwoVisibleEdgeVerts.file_version then throw "Project version must equal file version."
+
+    true
+    -- return
+)
+
+/*
+Creates one eight-sided polygon plus an isolated ninth vertex at the same position as selected polygon vertex 5.
+*/
+function createEightSidedPoly object_name object_position =
+(
+    poly_node = editable_mesh name:object_name
+    convertTo poly_node Editable_Poly
+
+    polyop.createVert poly_node [0,0,0]
+    polyop.createVert poly_node [20,0,0]
+    polyop.createVert poly_node [40,0,0]
+    polyop.createVert poly_node [60,0,0]
+    polyop.createVert poly_node [60,30,0]
+    polyop.createVert poly_node [40,30,0]
+    polyop.createVert poly_node [20,30,0]
+    polyop.createVert poly_node [0,30,0]
+    polyop.createPolygon poly_node #(1,2,3,4,5,6,7,8)
+    polyop.createVert poly_node [60,30,0] -- vertex 9 intentionally duplicates selected vertex 5 position but is not part of the polygon
+
+    poly_node.position = object_position
+    poly_node.showCage = off
+    update poly_node
+
+    poly_node
+    -- return
+)
+
+/*
+Part 1 creates clean Editable Poly and Edit Poly regression objects.
+*/
+function partOfTest1 =
+(
+    undo "TEST 1 - Create 2-Edge RMB Objects" on
+    (
+        old_editable = getNodeByName "TEST_2Edge_RMB_Editable"
+        if old_editable != undefined and isValidNode old_editable then delete old_editable
+
+        old_edit_poly = getNodeByName "TEST_2Edge_RMB_EditPoly"
+        if old_edit_poly != undefined and isValidNode old_edit_poly then delete old_edit_poly
+
+        two_edge_test_editable = createEightSidedPoly "TEST_2Edge_RMB_Editable" [-80,0,0]
+        two_edge_test_edit_poly = createEightSidedPoly "TEST_2Edge_RMB_EditPoly" [80,0,0]
+
+        two_edge_test_modifier = Edit_Poly()
+        two_edge_test_modifier.name = "TEST 2-EDGE RMB"
+        two_edge_test_modifier.showCage = off
+        addModifier two_edge_test_edit_poly two_edge_test_modifier
+    )
+
+    true
+    -- return
+)
+
+/*
+Part 2 selects four consecutive valid 2-edge targets so weld-induced index changes cannot be hidden by gaps in the selection.
+*/
+function partOfTest2 =
+(
+    undo "TEST 2 - Select Consecutive Vertices" on
+    (
+        TwoVisibleEdgeVerts.ignore_border_corners = false
+
+        polyop.setVertSelection two_edge_test_editable #{2,3,4,5}
+
+        select two_edge_test_edit_poly
+        max modify mode
+        two_edge_test_modifier.SetPrimaryNode two_edge_test_edit_poly
+        two_edge_test_modifier.useStackSelection = false
+        two_edge_test_modifier.selectMode = 0
+        two_edge_test_modifier.showCage = false
+        modPanel.setCurrentObject two_edge_test_modifier node:two_edge_test_edit_poly
+        two_edge_test_modifier.SetEPolySelLevel #Vertex
+        subObjectLevel = 1
+
+        old_selection = two_edge_test_modifier.GetSelection #Vertex node:two_edge_test_edit_poly
+        if old_selection == undefined then old_selection = #{}
+        if old_selection.numberSet > 0 then two_edge_test_modifier.Select #Vertex old_selection select:false node:two_edge_test_edit_poly
+        two_edge_test_modifier.Select #Vertex #{2,3,4,5} select:true node:two_edge_test_edit_poly
+        two_edge_test_modifier.RefreshScreen()
+    )
+
+    true
+    -- return
+)
+
+/*
+Part 3 runs public RMB removal, verifies four selected IDs are removed, and proves the overlapping unselected isolated vertex survives.
+*/
+function partOfTest3 =
+(
+    editable_remove_positions = for vertex_index in #(2,3,4) collect (polyop.getVert two_edge_test_editable vertex_index)
+    editable_duplicate_position = polyop.getVert two_edge_test_editable 9
+    editable_keep_positions = for vertex_index in #(1,6,7,8) collect (polyop.getVert two_edge_test_editable vertex_index)
+
+    select two_edge_test_editable
+    editable_before = polyop.getNumVerts two_edge_test_editable
+    editable_ok = TwoVisibleEdgeVerts.removeTwoEdgeVerts()
+    editable_after = polyop.getNumVerts two_edge_test_editable
+
+    if not(editable_ok) then throw "Editable Poly RMB removal returned false."
+    if editable_before - editable_after != 4 then throw ("Editable Poly expected 4 removed verts, got " + ((editable_before - editable_after) as string) + ".")
+
+    for remove_position in editable_remove_positions do
+    (
+        if TwoVisibleEdgeVerts.findEditablePolyVertexByPosition two_edge_test_editable.baseObject remove_position > 0 then
+        (
+            throw ("Editable Poly kept an originally selected target position at " + (remove_position as string) + ".")
+        )
+    )
+
+    for keep_position in editable_keep_positions do
+    (
+        if TwoVisibleEdgeVerts.findEditablePolyVertexByPosition two_edge_test_editable.baseObject keep_position <= 0 then
+        (
+            throw ("Editable Poly removed an originally unselected vertex at " + (keep_position as string) + ".")
+        )
+    )
+
+    editable_duplicate_vertex = TwoVisibleEdgeVerts.findEditablePolyVertexByPosition two_edge_test_editable.baseObject editable_duplicate_position
+    if editable_duplicate_vertex <= 0 then throw "Editable Poly removed the overlapping unselected isolated vertex."
+    if (TwoVisibleEdgeVerts.getVisibleEditablePolyEdgesUsingVert two_edge_test_editable.baseObject editable_duplicate_vertex).numberSet != 0 then
+    (
+        throw "Editable Poly kept the selected polygon vertex instead of the overlapping isolated vertex; source identity was remapped by position."
+    )
+
+    select two_edge_test_edit_poly
+    max modify mode
+    two_edge_test_modifier.SetPrimaryNode two_edge_test_edit_poly
+    two_edge_test_modifier.useStackSelection = false
+    two_edge_test_modifier.selectMode = 0
+    two_edge_test_modifier.showCage = false
+    modPanel.setCurrentObject two_edge_test_modifier node:two_edge_test_edit_poly
+    two_edge_test_modifier.SetEPolySelLevel #Vertex
+    subObjectLevel = 1
+
+    edit_poly_remove_positions = for vertex_index in #(2,3,4) collect (EditPolyMod.GetVertex two_edge_test_modifier vertex_index node:two_edge_test_edit_poly)
+    edit_poly_duplicate_position = EditPolyMod.GetVertex two_edge_test_modifier 9 node:two_edge_test_edit_poly
+    edit_poly_keep_positions = for vertex_index in #(1,6,7,8) collect (EditPolyMod.GetVertex two_edge_test_modifier vertex_index node:two_edge_test_edit_poly)
+    edit_poly_before = EditPolyMod.GetNumVertices two_edge_test_modifier node:two_edge_test_edit_poly
+    edit_poly_ok = TwoVisibleEdgeVerts.removeTwoEdgeVerts()
+    edit_poly_after = EditPolyMod.GetNumVertices two_edge_test_modifier node:two_edge_test_edit_poly
+
+    if not(edit_poly_ok) then throw "Edit Poly RMB removal returned false."
+    if edit_poly_before - edit_poly_after != 4 then throw ("Edit Poly expected 4 removed verts, got " + ((edit_poly_before - edit_poly_after) as string) + ".")
+
+    for remove_position in edit_poly_remove_positions do
+    (
+        if TwoVisibleEdgeVerts.findEditPolyVertexByPosition two_edge_test_edit_poly two_edge_test_modifier remove_position > 0 then
+        (
+            throw ("Edit Poly kept an originally selected target position at " + (remove_position as string) + ".")
+        )
+    )
+
+    for keep_position in edit_poly_keep_positions do
+    (
+        if TwoVisibleEdgeVerts.findEditPolyVertexByPosition two_edge_test_edit_poly two_edge_test_modifier keep_position <= 0 then
+        (
+            throw ("Edit Poly removed an originally unselected vertex at " + (keep_position as string) + ".")
+        )
+    )
+
+    edit_poly_duplicate_vertex = TwoVisibleEdgeVerts.findEditPolyVertexByPosition two_edge_test_edit_poly two_edge_test_modifier edit_poly_duplicate_position
+    if edit_poly_duplicate_vertex <= 0 then throw "Edit Poly removed the overlapping unselected isolated vertex."
+    if (TwoVisibleEdgeVerts.getVisibleEditPolyEdgesUsingVert two_edge_test_edit_poly two_edge_test_modifier edit_poly_duplicate_vertex).numberSet != 0 then
+    (
+        throw "Edit Poly kept the selected polygon vertex instead of the overlapping isolated vertex; source identity was remapped by position."
+    )
+
+    format "Two Edge RMB INDEX TEST PASS | Editable Poly removed:% | Edit Poly removed:%\n" (editable_before - editable_after) (edit_poly_before - edit_poly_after)
+    format "UNDO ORDER (top first): Remove 2-Edge Verts [Edit Poly] -> Remove 2-Edge Verts [Editable Poly] -> TEST 2 - Select Consecutive Vertices -> TEST 1 - Create 2-Edge RMB Objects\n"
+
+    true
+    -- return
+)
+
+loadTestTool()
+partOfTest1()
+partOfTest2()
+partOfTest3()

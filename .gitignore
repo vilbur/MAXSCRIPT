@@ -1,0 +1,9 @@
+*.bak
+*.ini
+*.lnk
+*.max
+test.ms
+*-cache.ms
+
+Logs
+/backup-*/

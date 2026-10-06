@@ -1,0 +1,25 @@
+# Two Edge Verts — Changes
+
+## 2026-10-01 — project 0.820
+
+- `Two-Edge-Verts-FN.ms` 0.65: removed the remaining fragile `copy` return-value usage from manual candidate-queue updates, verifies queue writes by ordered values, and uses explicit Boolean weld-operation state instead of native/`try` return values.
+- `Two-Edge-Verts-Audit-Test.ms`: now requires backend 0.65 / project 0.820 so runtime verification covers the corrected queue-consumption and Edit Poly success-reporting paths.
+
+## 2026-10-01 — audit harness, project 0.819
+
+- Audit hardening: added aggregate PASS/FAIL/EXCEPTION counters, phase-level exception reporting, explicit end-of-file stage execution, and post-removal assertions that surviving neighbors remain edge-connected and the weld target stays at its original position for both Editable Poly and Edit Poly.
+
+## 2026-09-30 — project 0.819
+
+- `Two-Edge-Verts-FN.ms` 0.64: fixed the public candidate-state API so `storeCandidateIds()` and `getStoredCandidateIds()` return real Arrays in 3ds Max instead of the `OK` value produced by `copy` as a standalone final expression.
+- `Two-Edge-Verts-Audit-Test.ms`: now targets backend 0.64 / project 0.819, verifies both candidate-array return contracts explicitly, and type-guards array/BitArray checks so API regressions report `FAIL` instead of crashing the audit.
+- Audit correction: stored candidate Array readback is compared by count and ordered element values instead of MAXScript Array `==`, preventing false failures when separate Arrays contain identical IDs.
+
+## 2026-09-30 — project 0.818
+
+- `Two-Edge-Verts-FN.ms` 0.63: removed the legacy bulk RMB/remap path and border-corner exclusion; Edit Poly detection now preserves live vertex identity and caches evaluated visible-edge endpoint pairs; protected `modifier` identifiers were renamed; manual removal remains closest-visible-neighbor only.
+- `Two-Edge-Verts-UI.ms` 0.65: removed SEARCH RMB, border-corner checkbox, and debug clear control; SEARCH now requires one object; added F1 reload and immediate dialog message processing.
+- `Two-Edge-Verts.ms` 0.05: added generic versioned-sibling reload resolution used by RESTART/F1.
+- `design.md`: documented single-object candidate state, no border-corner exception, and live Edit Poly candidate identity.
+
+Compatibility note: frontend self-registration with `EPolyToolsIntegration` is retained because the current manager/API registry still consumes that contract. Moving registration fully upward requires a coordinated EPolyManager change outside this Tool repository.
