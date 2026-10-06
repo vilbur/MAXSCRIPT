@@ -34,6 +34,48 @@ When the goal is an interactive tool where LMB must visibly select components in
 Do not rely on `SetSelection` as the primary interactive selection mechanism.
 
 
+## Sub-object selection performance
+
+Sub-object selection can be expensive in both `Editable_Poly` and `Edit_Poly`.
+
+Always collect all target vertex, edge, or face IDs first and apply the complete selection in one call whenever possible.
+
+Prefer one `BitArray` containing the full result:
+
+```maxscript
+selected_edges = #{2, 5, 9, 12}
+polyop.setEdgeSelection obj selected_edges
+```
+
+or for an Edit Poly modifier:
+
+```maxscript
+selected_edges = #{2, 5, 9, 12}
+edit_poly_mod.Select #Edge selected_edges
+```
+
+Do not repeatedly change selection one sub-object at a time inside a loop:
+
+```maxscript
+-- Avoid this pattern.
+for edge_id in edge_ids do
+(
+    edit_poly_mod.Select #Edge #{edge_id}
+)
+```
+
+Required performance rules:
+
+1. Detect and collect all target sub-object IDs before writing selection.
+2. Build one `BitArray` or equivalent complete selection set.
+3. Apply the selection once per component type and target object/modifier.
+4. Do not call `polyop.set...Selection` or `Edit_Poly.Select` once per vertex, edge, or face when the same result can be submitted as one set.
+5. Do not refresh the modifier, redraw the viewport, change sub-object level, or update the Modify panel for each individual component.
+6. Perform refresh/redraw once after the batch selection, and only when visible feedback is required.
+7. If several selection changes are genuinely required, combine them into the fewest possible API calls.
+
+Treat one-by-one sub-object selection as an exception for genuinely interactive incremental behavior, not as the default implementation.
+
 ## Setting sub-object selection
 
 Selection data and visible sub-object UI state are separate concerns.
@@ -731,3 +773,4 @@ Always follow these rules:
 19. Do not reselect an already-active modifier in the stack.
 20. Batch operations on the same modifier before switching elsewhere.
 21. Minimize viewport redraws during non-interactive batch work.
+22. Collect sub-object IDs first and apply selection as one batch `BitArray`; never select components one by one when one selection call can produce the same result.

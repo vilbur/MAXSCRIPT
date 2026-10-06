@@ -5,7 +5,7 @@ The tool title button uses the production host appearance and LMB restart patter
 
 struct ToolTitleButton_v
 (
-    file_version = "0.01",
+    file_version = "0.03",
 
     /*
     Applies the canonical tool title button appearance and tool-name label.
@@ -19,6 +19,7 @@ struct ToolTitleButton_v
         local flat_style_class = dotNetClass "System.Windows.Forms.FlatStyle"
         local dark_color = color_class.FromArgb 45 45 48
         local title_color = color_class.FromArgb 62 158 255
+        local current_font = button_control.Font
 
         button_control.Text = tool_name
         button_control.UseVisualStyleBackColor = false
@@ -34,14 +35,23 @@ struct ToolTitleButton_v
         button_control.FlatAppearance.MouseOverBackColor = dark_color
         button_control.FlatAppearance.MouseDownBackColor = dark_color
 
-        button_control.height = 24
+        if current_font != undefined then
+        (
+            button_control.Font = dotNetObject \
+                "System.Drawing.Font" \
+                current_font.FontFamily \
+                (current_font.Size + 2.0) \
+                current_font.Style
+        )
+
+        button_control.height = 18
 
         true
         -- return
     ),
 
     /*
-    Resizes the tool title button to the full available width and standard height.
+    Resizes the tool title button to the full available width and standard 18 px height.
     */
     function resizeToolTitleButton button_control available_width =
     (
@@ -50,7 +60,7 @@ struct ToolTitleButton_v
         if available_width < 1 then available_width = 1
 
         button_control.width = available_width
-        button_control.height = 24
+        button_control.height = 18
 
         true
         -- return

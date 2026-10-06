@@ -1,3 +1,88 @@
+## 2026-10-06 — 1.148
+
+- `Script-Manager.ms` advances to `1.148` while preserving the 1.147 same-name/empty-directory SOURCES stopper behavior.
+- Added a persisted `IGNORE:` edit field above the SOURCES tree. The default mask is `.git`; ENTER applies the current mask and refreshes SOURCES/SCRIPTS without loading scripts.
+- Ignore masks are pipe-separated and case-insensitive. Plain names match literally, regular-expression patterns are accepted, and `*` is supported as wildcard shorthand so examples such as `.git|.*-DELETED|*-OLD|` work as entered. Matching directories are omitted together with their complete subtrees.
+- `tests/Script-Manager-test.ms` advances to file version `1.147` / project `1.148` and verifies the default `.git` exclusion plus custom `-DELETED` and `-OLD` masks. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.147
+
+- `Script-Manager.ms` advances to `1.147` while preserving the 1.146 exact same-basename SOURCES hierarchy-stopper rule and checkbox rendering.
+- Completely empty directories now use the same display-only SOURCES behavior: the directory row remains visible, has no checkbox, and has no children.
+- Non-empty directories without a same-name `.ms` file remain selectable sources exactly as in 1.146.
+- `tests/Script-Manager-test.ms` advances to file version `1.146` / project `1.147` and adds an explicit empty-directory no-checkbox regression case. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.146
+
+- `Script-Manager.ms` advances to `1.146` and keeps the 1.144/1.143 custom SOURCES checkbox rendering.
+- Corrected the hierarchy-stopper rule to match the exact folder/file basename condition at every nesting depth: if a folder contains `<FolderName>.ms`, that folder is a display-only stopper row with no checkbox.
+- A stopper row never shows child directories in SOURCES. The previous direct-root reachability exception was removed because it violated the same-name stopper rule and could make checkboxes reappear.
+- `tests/Script-Manager-test.ms` advances to file version `1.145` / project `1.146` and now verifies the same-name stopper behavior both directly below the managed root and at deeper nested levels, including hidden descendants. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.145
+
+- `Script-Manager.ms` advances to `1.145` while preserving the 1.140 preset workflow and 1.143 explicit blank-image rendering for checkbox-free SOURCES rows.
+- Replaced the broad 1.144 structural terminal-folder rule with the requested hierarchy-stopper rule: a SOURCES directory stops traversal when it contains an unversioned same-name `.ms` file such as `script-name\script-name.ms`.
+- Nested hierarchy stoppers remain visible as directory rows without checkboxes, and Script-Manager no longer shows any child directories below them in SOURCES, even when helper subfolders exist.
+- Leaf directories without a same-name `.ms` file remain selectable sources. Direct root-level stoppers remain selectable only for reachability, but still stop recursion.
+- `tests/Script-Manager-test.ms` advances to file version `1.144` / project `1.145` and verifies same-name stopping, hidden descendants below a stopper, and a differently named leaf remaining selectable. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.144
+
+- `Script-Manager.ms` advances to `1.144` while preserving the 1.140 preset workflow and the 1.143 explicit blank-image rendering for checkbox-free SOURCES rows.
+- Restored the 1.141 SOURCES terminal-folder classification because it behaves better in the real tree: every nested directory with no child directories is an informational tool row with no checkbox, regardless of the script filename inside it.
+- Parent/category directories remain selectable recursive sources with the existing checkbox glyph style; direct root-level terminal folders remain selectable for reachability.
+- `tests/Script-Manager-test.ms` advances to file version `1.143` / project `1.144` and restores regression coverage for a differently named script inside a nested terminal folder remaining checkbox-free. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.143
+
+- `Script-Manager.ms` advances to `1.143` while preserving the 1.142 same-name terminal-tool classification and the 1.140 preset workflow.
+- Fixed the actual SOURCES rendering bug that could still show an unchecked checkbox on a display-only `SOURCE_TOOL` row: the source ImageList now reserves index `0` as an explicit transparent image instead of relying on `ImageIndex = -1`.
+- Selectable source rows now use image index `1` for unchecked and `2` for checked; same-name terminal tool rows use index `0`, so WinForms cannot fall back to the first checkbox image.
+- `tests/Script-Manager-test.ms` advances to file version `1.142` / project `1.143` and verifies the three-image source list plus explicit blank-image indices for terminal tool rows. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.142
+
+- `Script-Manager.ms` advances to `1.142` while preserving the 1.140 preset workflow and current SOURCES checkbox rendering.
+- Corrected the 1.141 terminal-directory rule: a nested SOURCES directory is now display-only/no-checkbox only when it contains its canonical same-name `.ms` file, such as `Parent Tools > script-tool > script-tool.ms`.
+- A nested leaf directory whose script filename does not match the directory name remains a selectable source and keeps the existing checkbox glyph; direct root-level tool folders remain selectable for reachability.
+- Existing checked state migrates to the parent only for same-name tool directories that become display-only.
+- `tests/Script-Manager-test.ms` advances to file version `1.141` / project `1.142` and explicitly verifies both cases: same-name tool folder = no checkbox, differently named leaf folder = selectable checkbox. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.141
+
+- `Script-Manager.ms` advances to `1.141` while preserving the 1.140 preset workflow and the existing SOURCES checkbox appearance.
+- Generalized the SOURCES terminal-row rule: every nested terminal directory is now shown as an informational directory item with no checkbox, whether or not it contains a same-name `.ms` file.
+- Parent/category directories keep the current custom checkbox glyphs and remain selectable recursive sources. Direct root-level terminal folders remain selectable so their scripts cannot become unreachable.
+- A previously checked nested terminal directory still migrates its source state to the visible selectable parent and clears its own obsolete source setting.
+- `tests/Script-Manager-test.ms` advances to file version `1.140` / project `1.141` and adds regression coverage for a checkbox-free terminal directory whose script filename does not match the directory name. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.140
+
+- `Script-Manager.ms` advances to `1.140` and adds named loader presets using the established dropdown preset pattern from `Material-ID-Manager_0.063.ms`.
+- Added a neutral `<Preset>` dropdown row plus `SAVE \ REMOVE`: LMB saves the current enabled SOURCES and non-skipped SKIP / HOST / DIRECT script configuration under a name; RMB removes the selected preset after confirmation.
+- Selecting a named preset asks for confirmation, restores SOURCES first, then restores script load modes and refreshes both trees without executing configured scripts.
+- Presets are stored as isolated `Preset|<name>` sections inside the existing `script_manager.ini`; overwrite and load writes use rollback-safe section replacement so failed writes do not leave partial configuration.
+- Reduced the visible SCRIPTS TreeView by 36 px to make room for the preset row without increasing the existing manager dialog height.
+- `tests/Script-Manager-test.ms` advances to file version `1.139` / project `1.140` with preset UI/API, save/list/load/remove, exact state restoration, and no-auto-execution regression coverage. Added snapshots `Script-Manager_1.140.ms` and `tests/Script-Manager-test_1.139.ms`. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.139
+
+- `Script-Manager.ms` advances to `1.139` while preserving the 1.138 custom SOURCES checkbox style and all existing loading behavior.
+- Refined nested same-name tool directories in `SOURCES`: `Parent Tools > script-tool > script-tool.ms` is now represented by the directory row `Parent Tools > script-tool`, not by a flattened `script-tool.ms` file leaf.
+- Matching nested tool-directory rows remain visible but have no checkbox; parent/category source rows keep the existing custom checkbox glyphs unchanged.
+- The no-checkbox tool row is selection/information only and is never treated as a source root. Existing checked terminal-tool state still migrates to the visible selectable parent.
+- `tests/Script-Manager-test.ms` advances to file version `1.138` / project `1.139` and updates SOURCES mixed-row expectations. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
+## 2026-10-06 — 1.138
+
+- `Script-Manager.ms` advances to `1.138` while preserving the 1.137 forced `LOAD SCRIPT` behavior, the 1.136 SCRIPTS flattening, and the 1.135 soft/hard loading model.
+- Refined `SOURCES` with the same terminal-tool flattening idea: when a nested terminal directory contains its canonical same-name `.ms` file, `Parent Tools > script-tool > script-tool.ms` is displayed as `Parent Tools > script-tool.ms`.
+- The flattened SOURCES tool leaf is display-only and has no checkbox. Parent/category rows keep selectable source checkbox glyphs; direct root-level terminal folders remain selectable so they cannot become unreachable.
+- SOURCES now uses explicit checkbox images instead of native TreeView checkboxes so selectable and display-only rows can coexist in the same tree. Clicking a display-only tool leaf only selects it; clicking a selectable source checkbox glyph toggles that source and refreshes discovery.
+- Existing checked nested terminal-tool source state migrates to its visible selectable parent and the old terminal-folder source setting is cleared.
+- `tests/Script-Manager-test.ms` advances to file version `1.137` / project `1.138` with regression coverage for selectable parent rows, checkbox-free flattened tool leaves, state migration, and mixed SOURCES rendering. Stable MVP baseline remains `1.134` until a newer stable baseline is explicitly confirmed.
+
 ## 2026-10-05 — 1.137
 
 - `Script-Manager.ms` advances to `1.137` while preserving the 1.136 SCRIPTS-tree flattening and all 1.135 soft/hard loading behavior.

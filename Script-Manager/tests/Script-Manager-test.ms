@@ -1,10 +1,10 @@
 /*
-    Script-Manager regression test 1.136.
+    Script-Manager regression test 1.147.
     Tests production version identity, source selection, filters, persistent tri-state load modes, marked-item color, tree menus, and dedicated script-load behavior.
 */
 
-global script_manager_test_file_version = 1.136
-global script_manager_test_project_version = 1.137
+global script_manager_test_file_version = 1.147
+global script_manager_test_project_version = 1.148
 global script_manager_test_root = getFilenamePath (getSourceFileName())
 global script_manager_test_passed = true
 global script_manager_test_original_root
@@ -51,27 +51,31 @@ function partOfTest1 =
     script_manager_test_original_root = script_manager.root_directory
     script_manager_test_original_ini = script_manager.ini_path
 
-    version_ok = script_manager.file_version == 1.137 and script_manager.project_version == 1.137 and ScriptManagerIntegration.file_version == 1.137 and ScriptManagerIntegration.project_version == 1.137
-    global_version_ok = script_manager_project_version == 1.137
-    title_ok = script_manager_ui.title == "Script-Manager 1.137"
+    version_ok = script_manager.file_version == 1.148 and script_manager.project_version == 1.148 and ScriptManagerIntegration.file_version == 1.148 and ScriptManagerIntegration.project_version == 1.148
+    global_version_ok = script_manager_project_version == 1.148
+    title_ok = script_manager_ui.title == "Script-Manager 1.148"
     main_action_ok = isProperty script_manager_ui #btn_refresh_restart
-    source_rollout_ok = script_manager_sources_ui != undefined and script_manager_sources_ui.title == "SOURCES" and isProperty script_manager_sources_ui #tv_sources and not(isProperty script_manager_sources_ui #btn_reload)
+    source_rollout_ok = script_manager_sources_ui != undefined and script_manager_sources_ui.title == "SOURCES" and isProperty script_manager_sources_ui #edt_source_ignore and isProperty script_manager_sources_ui #tv_sources and not(isProperty script_manager_sources_ui #btn_reload)
     script_rollout_ok = script_manager_scripts_ui != undefined and script_manager_scripts_ui.title == "SCRIPTS" and isProperty script_manager_scripts_ui #btn_load_scripts
     soft_hard_api_ok = isProperty script_manager #updateScripts and isProperty script_manager #loadScripts and isProperty script_manager #isManagedScriptRunning and isProperty script_manager #loadSingleScriptForcedDirect
-    source_tree_ok = script_manager.getSourceTreeControl() != undefined
+    source_tree_ok = script_manager.getSourceTreeControl() != undefined and script_manager.getSourceIgnoreMaskControl() != undefined and isProperty script_manager #saveSourceIgnoreMask and isProperty script_manager #loadSourceIgnoreMask and isProperty script_manager #isSourceDirectoryIgnored
     script_tree_ok = script_manager.getScriptTreeControl() != undefined
     source_height_ok = source_tree_ok and script_manager_sources_ui.tv_sources.height >= 512
+    source_mixed_ui_ok = source_tree_ok and not(script_manager_sources_ui.tv_sources.CheckBoxes) and script_manager_sources_ui.tv_sources.ImageList != undefined and script_manager_sources_ui.tv_sources.ImageList.Images.Count >= 3
     tristate_ui_ok = script_tree_ok and not(script_manager_scripts_ui.tv_scripts.CheckBoxes) and script_manager_scripts_ui.tv_scripts.ImageList != undefined and script_manager_scripts_ui.tv_scripts.ImageList.Images.Count >= 3
     loader_only_ok = not(isProperty script_manager_ui #sr_tools)
     host_model_ok = isProperty script_manager #host_dialogs and isProperty script_manager #host_dialog_paths and isProperty script_manager #loaded_host_script_paths and isProperty script_manager #loaded_host_script_dialog_paths
     clean_filter_ok = script_manager_scripts_ui != undefined and isProperty script_manager_scripts_ui #chk_clean_scripts
+    preset_ui_ok = script_manager_scripts_ui != undefined and isProperty script_manager_scripts_ui #ddl_presets and isProperty script_manager_scripts_ui #btn_preset_save_remove
+    preset_neutral_ok = preset_ui_ok and script_manager_scripts_ui.ddl_presets.items.count >= 1 and script_manager_scripts_ui.ddl_presets.items[1] == "<Preset>" and script_manager_scripts_ui.ddl_presets.selection == 1
+    preset_api_ok = isProperty script_manager #savePreset and isProperty script_manager #loadPreset and isProperty script_manager #removePreset and isProperty script_manager #getPresetNames and isProperty script_manager #refreshPresetDropdown
     rollout_state_ok = isProperty script_manager #source_rollout_open and isProperty script_manager #script_rollout_open
     context_menu_ok = script_manager.source_tree_context_menu != undefined and script_manager.script_tree_load_item != undefined and script_manager.script_tree_expand_all_item != undefined and script_manager.script_tree_collapse_all_item != undefined
 
-    test_ok = version_ok and global_version_ok and title_ok and main_action_ok and source_rollout_ok and script_rollout_ok and soft_hard_api_ok and source_tree_ok and script_tree_ok and source_height_ok and tristate_ui_ok and loader_only_ok and host_model_ok and clean_filter_ok and rollout_state_ok and context_menu_ok
+    test_ok = version_ok and global_version_ok and title_ok and main_action_ok and source_rollout_ok and script_rollout_ok and soft_hard_api_ok and source_tree_ok and script_tree_ok and source_height_ok and source_mixed_ui_ok and tristate_ui_ok and loader_only_ok and host_model_ok and clean_filter_ok and preset_ui_ok and preset_neutral_ok and preset_api_ok and rollout_state_ok and context_menu_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 1 | version:% | global:% | title:% | main-action:% | source-rollout:% | script-rollout:% | soft-hard:% | sources:% | scripts:% | source-512:% | tristate-ui:% | loader-only:% | host-model:% | clean-filter:% | rollout-state:% | tree-menu:% | PASS:%\n" version_ok global_version_ok title_ok main_action_ok source_rollout_ok script_rollout_ok soft_hard_api_ok source_tree_ok script_tree_ok source_height_ok tristate_ui_ok loader_only_ok host_model_ok clean_filter_ok rollout_state_ok context_menu_ok test_ok
+    format "PART 1 | version:% | global:% | title:% | main-action:% | source-rollout:% | script-rollout:% | soft-hard:% | sources:% | scripts:% | source-512:% | source-mixed-ui:% | tristate-ui:% | loader-only:% | host-model:% | clean-filter:% | preset-ui:% | preset-neutral:% | preset-api:% | rollout-state:% | tree-menu:% | PASS:%\n" version_ok global_version_ok title_ok main_action_ok source_rollout_ok script_rollout_ok soft_hard_api_ok source_tree_ok script_tree_ok source_height_ok source_mixed_ui_ok tristate_ui_ok loader_only_ok host_model_ok clean_filter_ok preset_ui_ok preset_neutral_ok preset_api_ok rollout_state_ok context_menu_ok test_ok
     test_ok
     -- return
 )
@@ -86,6 +90,12 @@ function partOfTest2 =
     source_a_category = source_a + "Category\\"
     source_a_leaf = source_a + "ToolLeaf\\"
     source_a_nested_leaf = source_a_category + "ToolNested\\"
+    source_a_nested_hidden_child = source_a_nested_leaf + "Internal\\"
+    source_a_generic_leaf = source_a_category + "LooseTool\\"
+    source_a_empty_leaf = source_a_category + "EmptyTool\\"
+    source_a_git = source_a_category + ".git\\"
+    source_a_deleted = source_a_category + "Archive-DELETED\\"
+    source_a_old = source_a_category + "Backup-OLD\\"
     source_b = script_manager_test_temp_root + "SourceB\\"
 
     makeDir script_manager_test_temp_root
@@ -93,10 +103,21 @@ function partOfTest2 =
     makeDir source_a_category
     makeDir source_a_leaf
     makeDir source_a_nested_leaf
+    makeDir source_a_nested_hidden_child
+    makeDir source_a_generic_leaf
+    makeDir source_a_empty_leaf
+    makeDir source_a_git
+    makeDir source_a_deleted
+    makeDir source_a_old
     makeDir source_b
 
     writeScriptManagerTestScript (source_a_leaf + "ToolLeaf.ms") "global script_manager_test_source_leaf; script_manager_test_source_leaf = true"
     writeScriptManagerTestScript (source_a_nested_leaf + "ToolNested.ms") "global script_manager_test_source_nested_leaf; script_manager_test_source_nested_leaf = true"
+    writeScriptManagerTestScript (source_a_nested_hidden_child + "Helper.ms") "global script_manager_test_source_hidden_helper; script_manager_test_source_hidden_helper = true"
+    writeScriptManagerTestScript (source_a_generic_leaf + "DifferentName.ms") "global script_manager_test_source_generic_leaf; script_manager_test_source_generic_leaf = true"
+    writeScriptManagerTestScript (source_a_git + "HiddenGit.ms") "global script_manager_test_source_git; script_manager_test_source_git = true"
+    writeScriptManagerTestScript (source_a_deleted + "HiddenDeleted.ms") "global script_manager_test_source_deleted; script_manager_test_source_deleted = true"
+    writeScriptManagerTestScript (source_a_old + "HiddenOld.ms") "global script_manager_test_source_old; script_manager_test_source_old = true"
     writeScriptManagerTestScript (source_b + "SourceB.ms") "global script_manager_test_source_b; script_manager_test_source_b = true"
 
     test_ini = (getDir #temp) + "\\Script-Manager-Test.ini"
@@ -106,18 +127,91 @@ function partOfTest2 =
     script_manager.ini_path = test_ini
     script_manager.show_versioned_files = false
 
-    migration_seed_ok = script_manager.saveSourceEnabled source_a_nested_leaf true
-    source_ok = script_manager.discoverSources()
-    source_a_visible = (findItem script_manager.available_source_directories source_a) > 0
-    category_visible = (findItem script_manager.available_source_directories source_a_category) > 0
-    root_leaf_visible = (findItem script_manager.available_source_directories source_b) > 0
-    tool_leaf_hidden = (findItem script_manager.available_source_directories source_a_leaf) == 0 and (findItem script_manager.available_source_directories source_a_nested_leaf) == 0
-    migration_ok = migration_seed_ok and script_manager.getSourceEnabled source_a_category and not(script_manager.getSourceEnabled source_a_nested_leaf)
+    default_ignore_mask = script_manager.loadSourceIgnoreMask()
+    default_ignore_load_ok = default_ignore_mask == ".git" and script_manager.source_ignore_mask == ".git"
+    default_ignore_discovery_ok = script_manager.discoverSources()
+    default_git_hidden_ok = (findItem script_manager.available_source_directories source_a_git) == 0
+    default_deleted_visible_ok = (findItem script_manager.available_source_directories source_a_deleted) > 0
+    default_old_visible_ok = (findItem script_manager.available_source_directories source_a_old) > 0
 
-    test_ok = source_ok and source_a_visible and category_visible and root_leaf_visible and tool_leaf_hidden and migration_ok
+    ignore_mask_save_ok = script_manager.saveSourceIgnoreMask ".git|.*-DELETED|*-OLD|"
+    ignore_mask_discovery_ok = script_manager.discoverSources()
+    ignore_mask_match_ok =         (findItem script_manager.available_source_directories source_a_git) == 0 and         (findItem script_manager.available_source_directories source_a_deleted) == 0 and         (findItem script_manager.available_source_directories source_a_old) == 0
+
+    ignore_source_enable_ok = script_manager.saveSourceEnabled source_a true
+    ignore_script_discovery_ok = script_manager.discoverScripts() and         (findItem script_manager.available_script_paths (source_a_git + "HiddenGit.ms")) == 0 and         (findItem script_manager.available_script_paths (source_a_deleted + "HiddenDeleted.ms")) == 0 and         (findItem script_manager.available_script_paths (source_a_old + "HiddenOld.ms")) == 0
+    script_manager.saveSourceEnabled source_a false
+
+    migration_seed_nested_ok = script_manager.saveSourceEnabled source_a_nested_leaf true
+    migration_seed_generic_ok = script_manager.saveSourceEnabled source_a_generic_leaf true
+    migration_seed_ok = migration_seed_nested_ok and migration_seed_generic_ok
+    source_ok = script_manager.discoverSources()
+    source_a_index = findItem script_manager.available_source_directories source_a
+    category_index = findItem script_manager.available_source_directories source_a_category
+    root_leaf_index = findItem script_manager.available_source_directories source_b
+    tool_leaf_index = findItem script_manager.available_source_directories source_a_leaf
+    nested_tool_leaf_index = findItem script_manager.available_source_directories source_a_nested_leaf
+    hidden_child_index = findItem script_manager.available_source_directories source_a_nested_hidden_child
+    generic_leaf_index = findItem script_manager.available_source_directories source_a_generic_leaf
+    empty_leaf_index = findItem script_manager.available_source_directories source_a_empty_leaf
+
+    source_a_visible = source_a_index > 0 and script_manager.available_source_selectable[source_a_index]
+    category_visible = category_index > 0 and script_manager.available_source_selectable[category_index]
+    root_stopper_display_ok = root_leaf_index > 0 and not(script_manager.available_source_selectable[root_leaf_index]) and script_manager.available_source_names[root_leaf_index] == "SourceB"
+    tool_leaf_display_ok = tool_leaf_index > 0 and not(script_manager.available_source_selectable[tool_leaf_index]) and script_manager.available_source_names[tool_leaf_index] == "ToolLeaf"
+    nested_tool_leaf_display_ok = nested_tool_leaf_index > 0 and not(script_manager.available_source_selectable[nested_tool_leaf_index]) and script_manager.available_source_names[nested_tool_leaf_index] == "ToolNested"
+    hierarchy_stopper_ok = hidden_child_index == 0
+    generic_leaf_display_ok = generic_leaf_index > 0 and script_manager.available_source_selectable[generic_leaf_index] and script_manager.available_source_names[generic_leaf_index] == "LooseTool"
+    empty_leaf_display_ok = empty_leaf_index > 0 and not(script_manager.available_source_selectable[empty_leaf_index]) and script_manager.available_source_names[empty_leaf_index] == "EmptyTool"
+    migration_ok = migration_seed_ok and script_manager.getSourceEnabled source_a_category and not(script_manager.getSourceEnabled source_a_nested_leaf) and script_manager.getSourceEnabled source_a_generic_leaf
+
+    populate_ok = script_manager.populateSourceTree()
+    source_tree = script_manager.getSourceTreeControl()
+    source_a_node = undefined
+    source_b_node = undefined
+    category_node = undefined
+    tool_leaf_node = undefined
+    nested_tool_leaf_node = undefined
+    generic_leaf_node = undefined
+    empty_leaf_node = undefined
+
+    if source_tree != undefined then
+    (
+        for root_index = 0 to (source_tree.Nodes.Count - 1) do
+        (
+            candidate_node = source_tree.Nodes.Item[root_index]
+            if candidate_node.Text == "SourceA" then source_a_node = candidate_node
+            if candidate_node.Text == "SourceB" then source_b_node = candidate_node
+        )
+    )
+
+    if source_a_node != undefined then
+    (
+        for child_index = 0 to (source_a_node.Nodes.Count - 1) do
+        (
+            candidate_node = source_a_node.Nodes.Item[child_index]
+            if candidate_node.Text == "Category" then category_node = candidate_node
+            if candidate_node.Text == "ToolLeaf" then tool_leaf_node = candidate_node
+        )
+    )
+
+    if category_node != undefined then
+    (
+        for child_index = 0 to (category_node.Nodes.Count - 1) do
+        (
+            candidate_node = category_node.Nodes.Item[child_index]
+            if candidate_node.Text == "ToolNested" then nested_tool_leaf_node = candidate_node
+            if candidate_node.Text == "LooseTool" then generic_leaf_node = candidate_node
+            if candidate_node.Text == "EmptyTool" then empty_leaf_node = candidate_node
+        )
+    )
+
+    source_row_visual_ok =         source_a_node != undefined and source_a_node.Name == "SOURCE_SELECTABLE" and source_a_node.ImageIndex >= 1 and         source_b_node != undefined and source_b_node.Name == "SOURCE_TOOL" and source_b_node.ImageIndex == 0 and         category_node != undefined and category_node.Name == "SOURCE_SELECTABLE" and category_node.ImageIndex >= 1 and         tool_leaf_node != undefined and tool_leaf_node.Name == "SOURCE_TOOL" and tool_leaf_node.ImageIndex == 0 and         nested_tool_leaf_node != undefined and nested_tool_leaf_node.Name == "SOURCE_TOOL" and nested_tool_leaf_node.ImageIndex == 0 and         generic_leaf_node != undefined and generic_leaf_node.Name == "SOURCE_SELECTABLE" and generic_leaf_node.ImageIndex >= 1 and         empty_leaf_node != undefined and empty_leaf_node.Name == "SOURCE_TOOL" and empty_leaf_node.ImageIndex == 0
+
+    test_ok = default_ignore_load_ok and default_ignore_discovery_ok and default_git_hidden_ok and default_deleted_visible_ok and default_old_visible_ok and ignore_mask_save_ok and ignore_mask_discovery_ok and ignore_mask_match_ok and ignore_source_enable_ok and ignore_script_discovery_ok and source_ok and source_a_visible and category_visible and root_stopper_display_ok and tool_leaf_display_ok and nested_tool_leaf_display_ok and hierarchy_stopper_ok and generic_leaf_display_ok and empty_leaf_display_ok and migration_ok and populate_ok and source_row_visual_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 2 | source-A:% | category:% | root-leaf:% | tool-leaves-hidden:% | migrate:% | PASS:%\n" source_a_visible category_visible root_leaf_visible tool_leaf_hidden migration_ok test_ok
+    format "PART 2 | ignore-default:% | .git-hidden:% | deleted-default-visible:% | old-default-visible:% | ignore-custom:% | ignored-scripts:% | source-A:% | category:% | root-same-name-stopper:% | same-name-tool:% | nested-same-name-tool:% | stopper-hides-children:% | different-name-terminal-selectable:% | empty-no-checkbox:% | migrate:% | row-visual:% | PASS:%\n" default_ignore_load_ok default_git_hidden_ok default_deleted_visible_ok default_old_visible_ok (ignore_mask_save_ok and ignore_mask_discovery_ok and ignore_mask_match_ok) (ignore_source_enable_ok and ignore_script_discovery_ok) source_a_visible category_visible root_stopper_display_ok tool_leaf_display_ok nested_tool_leaf_display_ok hierarchy_stopper_ok generic_leaf_display_ok empty_leaf_display_ok migration_ok source_row_visual_ok test_ok
     test_ok
     -- return
 )
@@ -441,9 +535,69 @@ function partOfTest10 =
 )
 
 /*
-Restores production manager paths/settings and removes isolated test files.
+Verifies named presets save, list, restore, and remove SOURCES plus SKIP / HOST / DIRECT configuration without executing scripts.
 */
 function partOfTest11 =
+(
+    preset_name = "Script Manager Preset Test"
+    source_a = script_manager_test_temp_root + "SourceA\\"
+    source_b = script_manager_test_temp_root + "SourceB\\"
+    run_a_key = script_manager.getScriptKey (source_a + "RunA.ms")
+    run_b_key = script_manager.getScriptKey (source_a + "RunB.ms")
+    run_c_key = script_manager.getScriptKey (source_a + "RunC.ms")
+    run_d_key = script_manager.getScriptKey (source_a + "RunD.ms")
+    preview_key = script_manager.getScriptKey (source_a + "Preview.ms")
+
+    if script_manager.hasPreset preset_name then script_manager.removePreset preset_name
+
+    source_a_before = script_manager.getSourceEnabled source_a
+    source_b_before = script_manager.getSourceEnabled source_b
+    run_a_mode_before = script_manager.getScriptLoadMode run_a_key
+    run_b_mode_before = script_manager.getScriptLoadMode run_b_key
+    run_c_mode_before = script_manager.getScriptLoadMode run_c_key
+    run_d_mode_before = script_manager.getScriptLoadMode run_d_key
+    preview_mode_before = script_manager.getScriptLoadMode preview_key
+    marker_a_before = script_manager_test_marker_a
+    marker_b_before = script_manager_test_marker_b
+    marker_c_before = script_manager_test_marker_c
+    marker_d_before = script_manager_test_marker_d
+
+    save_ok = script_manager.savePreset preset_name
+    has_ok = script_manager.hasPreset preset_name
+    listed_ok = (findItem (script_manager.getPresetNames()) preset_name) > 0
+    data_ok = script_manager.readPresetData preset_name != undefined
+
+    mutate_sources_ok = script_manager.saveSourceEnabled source_a false and script_manager.saveSourceEnabled source_b true
+    mutate_scripts_ok = script_manager.saveScriptLoadMode run_a_key #skip and script_manager.saveScriptLoadMode run_b_key #direct
+    mutated_ok = mutate_sources_ok and mutate_scripts_ok and not(script_manager.getSourceEnabled source_a) and script_manager.getSourceEnabled source_b and script_manager.getScriptLoadMode run_a_key == #skip and script_manager.getScriptLoadMode run_b_key == #direct
+
+    load_ok = script_manager.loadPreset preset_name
+    sources_restored_ok = script_manager.getSourceEnabled source_a == source_a_before and script_manager.getSourceEnabled source_b == source_b_before
+    scripts_restored_ok = \
+        script_manager.getScriptLoadMode run_a_key == run_a_mode_before and \
+        script_manager.getScriptLoadMode run_b_key == run_b_mode_before and \
+        script_manager.getScriptLoadMode run_c_key == run_c_mode_before and \
+        script_manager.getScriptLoadMode run_d_key == run_d_mode_before and \
+        script_manager.getScriptLoadMode preview_key == preview_mode_before
+    no_execution_ok = script_manager_test_marker_a == marker_a_before and script_manager_test_marker_b == marker_b_before and script_manager_test_marker_c == marker_c_before and script_manager_test_marker_d == marker_d_before
+    dropdown_ok = script_manager.getSelectedPresetName() == preset_name
+
+    remove_ok = script_manager.removePreset preset_name
+    removed_ok = not(script_manager.hasPreset preset_name) and (findItem (script_manager.getPresetNames()) preset_name) == 0
+    script_manager.refreshPresetDropdown()
+
+    test_ok = save_ok and has_ok and listed_ok and data_ok and mutated_ok and load_ok and sources_restored_ok and scripts_restored_ok and no_execution_ok and dropdown_ok and remove_ok and removed_ok
+    if not test_ok then script_manager_test_passed = false
+
+    format "PART 11 | save:% | has:% | listed:% | data:% | mutated:% | load:% | sources:% | scripts:% | no-execution:% | dropdown:% | remove:% | removed:% | PASS:%\n" save_ok has_ok listed_ok data_ok mutated_ok load_ok sources_restored_ok scripts_restored_ok no_execution_ok dropdown_ok remove_ok removed_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Restores production manager paths/settings and removes isolated test files.
+*/
+function partOfTest12 =
 (
     cleanup_ok = script_manager.clearLoadedRollouts()
     if HasDictValue SCRIPT_MANAGER_REGISTRY "script_manager_test_runtime" then RemoveDictValue SCRIPT_MANAGER_REGISTRY "script_manager_test_runtime"
@@ -478,6 +632,11 @@ function partOfTest11 =
         for test_file in (getFiles (script_manager_test_temp_root + "SourceB\\*.ms")) do deleteFile test_file
         for test_file in (getFiles (script_manager_test_temp_root + "SourceA\\ToolLeaf\\*.ms")) do deleteFile test_file
         for test_file in (getFiles (script_manager_test_temp_root + "SourceA\\Category\\ToolNested\\*.ms")) do deleteFile test_file
+        for test_file in (getFiles (script_manager_test_temp_root + "SourceA\\Category\\ToolNested\\Internal\\*.ms")) do deleteFile test_file
+        for test_file in (getFiles (script_manager_test_temp_root + "SourceA\\Category\\LooseTool\\*.ms")) do deleteFile test_file
+        for test_file in (getFiles (script_manager_test_temp_root + "SourceA\\Category\\.git\\*.ms")) do deleteFile test_file
+        for test_file in (getFiles (script_manager_test_temp_root + "SourceA\\Category\\Archive-DELETED\\*.ms")) do deleteFile test_file
+        for test_file in (getFiles (script_manager_test_temp_root + "SourceA\\Category\\Backup-OLD\\*.ms")) do deleteFile test_file
     )
 
     test_ini = (getDir #temp) + "\\Script-Manager-Test.ini"
@@ -486,7 +645,7 @@ function partOfTest11 =
     test_ok = restore_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 11 | restore:% | PASS:%\n" restore_ok test_ok
+    format "PART 12 | restore:% | PASS:%\n" restore_ok test_ok
     test_ok
     -- return
 )
@@ -502,6 +661,7 @@ partOfTest8()
 partOfTest9()
 partOfTest10()
 partOfTest11()
+partOfTest12()
 
 format "============================================================\n"
 format "SCRIPT-MANAGER TEST RESULT | PASS:%\n" script_manager_test_passed

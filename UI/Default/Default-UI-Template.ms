@@ -5,7 +5,7 @@ Keep feature processing in separate modules.
 */
 
 (
-    local ui_template_version = "0.05"
+    local ui_template_version = "0.06"
 
     /*
     Replace with the current shared project version when creating a project UI.
@@ -55,7 +55,7 @@ Keep feature processing in separate modules.
 
     rollout defaultUiRollout ("Tool Name - v" + project_version) width:336 height:504
     (
-        dotNetControl btn_tool_title "System.Windows.Forms.Button" width:312 height:24 align:#center
+        dotNetControl btn_tool_title "System.Windows.Forms.Button" width:312 height:18 align:#center
         checkbox chk_enabled "Enabled" checked:true
         spinner spn_amount "Amount" range:[0.0, 100.0, 1.0] type:#float fieldWidth:70
         dropdownlist ddl_mode "Mode" items:#("Mode A", "Mode B", "Mode C") selection:1

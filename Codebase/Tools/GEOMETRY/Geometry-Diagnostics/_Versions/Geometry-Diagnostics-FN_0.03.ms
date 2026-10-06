@@ -1,0 +1,1229 @@
+﻿/*
+Geometry Diagnostics backend.
+Owns direct channel-0 painting plus evaluated-stack VertexPaint modifier painting.
+*/
+
+global geometry_diagnostics_fn_version = "0.03"
+global geometry_diagnostics_fn_project_version = "0.03"
+global geometry_diagnostics_project_version
+global geometry_diagnostics_color_backups
+global geometry_diagnostics_modifier_display_backups
+global geometry_diagnostics_test_node
+global geometry_diagnostics_paint_layer_name = "GEOMETRY DIAGNOSTICS - VERTEX PAINT"
+
+if geometry_diagnostics_project_version == undefined then
+(
+    geometry_diagnostics_project_version = geometry_diagnostics_fn_project_version
+)
+else if (geometry_diagnostics_project_version as float) < (geometry_diagnostics_fn_project_version as float) then
+(
+    geometry_diagnostics_project_version = geometry_diagnostics_fn_project_version
+)
+
+if geometry_diagnostics_color_backups == undefined then
+(
+    geometry_diagnostics_color_backups = #()
+)
+
+if geometry_diagnostics_modifier_display_backups == undefined then
+(
+    geometry_diagnostics_modifier_display_backups = #()
+)
+
+if geometry_diagnostics_test_node == undefined then
+(
+    geometry_diagnostics_test_node = undefined
+)
+
+
+/*
+Returns the stored paint-backup index for one node.
+Returns 0 when no paint session is stored for the node.
+*/
+function getGeometryDiagnosticsBackupIndex source_node =
+(
+    if source_node == undefined then return 0
+
+    for backup_index = 1 to geometry_diagnostics_color_backups.count do
+    (
+        if geometry_diagnostics_color_backups[backup_index][1] == source_node then
+        (
+            return backup_index
+        )
+    )
+
+    0
+    -- return
+)
+
+
+/*
+Compares two integer arrays without relying on array identity.
+Returns true only when count and every indexed value match.
+*/
+function geometryDiagnosticsIntegerArraysMatch values_a values_b =
+(
+    if values_a == undefined or values_b == undefined then return false
+    if values_a.count != values_b.count then return false
+
+    for value_index = 1 to values_a.count do
+    (
+        if values_a[value_index] != values_b[value_index] then return false
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Returns true when the supplied scene node has an Editable Poly base object.
+This backend intentionally does not treat Edit Poly modifier topology as the same domain.
+*/
+function isGeometryDiagnosticsEditablePolyNode source_node =
+(
+    if not isValidNode source_node then return false
+
+    classOf source_node.baseObject == Editable_Poly
+    -- return
+)
+
+
+/*
+Ensures Editable Poly topology is compact before index-sensitive work.
+Any stored paint backup is invalidated before dead topology is collapsed.
+*/
+function ensureGeometryDiagnosticsCleanTopology source_node =
+(
+    if not isGeometryDiagnosticsEditablePolyNode source_node then return false
+
+    local poly_value = source_node.baseObject
+    poly_value.showCage = off
+
+    local dead_flags = polyop.getHasDeadStructs poly_value
+
+    if dead_flags != 0 then
+    (
+        local backup_index = getGeometryDiagnosticsBackupIndex source_node
+
+        if backup_index > 0 then
+        (
+            deleteItem geometry_diagnostics_color_backups backup_index
+            format "Geometry Diagnostics: paint backup invalidated because Editable Poly topology contained dead structures.\n"
+        )
+
+        polyop.collapseDeadStructs poly_value
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Converts a MAXScript Color to the Point3 representation used by map channel 0.
+The conversion preserves the full channel value without display rounding.
+*/
+function geometryDiagnosticsColorToMapPoint color_value =
+(
+    if color_value == undefined then return undefined
+    if classOf color_value != Color then return undefined
+
+    [color_value.r / 255.0, color_value.g / 255.0, color_value.b / 255.0]
+    -- return
+)
+
+
+/*
+Returns true when the supplied geometry-vertex target is a valid Integer, BitArray, or Array.
+All referenced vertex IDs must exist on the current clean Editable Poly topology.
+*/
+function geometryDiagnosticsVertexTargetsValid poly_value vertex_ids =
+(
+    if poly_value == undefined or classOf poly_value != Editable_Poly then return false
+    if vertex_ids == undefined then return false
+
+    local vertex_count = polyop.getNumVerts poly_value
+    local target_class = classOf vertex_ids
+
+    if target_class == Integer then
+    (
+        return vertex_ids >= 1 and vertex_ids <= vertex_count
+    )
+
+    if target_class == BitArray then
+    (
+        if vertex_ids.numberSet == 0 then return false
+
+        for vertex_id in vertex_ids do
+        (
+            if vertex_id < 1 or vertex_id > vertex_count then return false
+        )
+
+        return true
+    )
+
+    if target_class == Array then
+    (
+        if vertex_ids.count == 0 then return false
+
+        for vertex_id in vertex_ids do
+        (
+            if classOf vertex_id != Integer then return false
+            if vertex_id < 1 or vertex_id > vertex_count then return false
+        )
+
+        return true
+    )
+
+    false
+    -- return
+)
+
+
+/*
+Returns true when one geometry vertex ID belongs to the supplied target set.
+The target set may be one Integer, a BitArray, or an Array of Integer vertex IDs.
+*/
+function geometryDiagnosticsVertexTargetContains vertex_ids vertex_id =
+(
+    local target_class = classOf vertex_ids
+
+    if target_class == Integer then return vertex_ids == vertex_id
+    if target_class == BitArray then return vertex_ids[vertex_id]
+    if target_class == Array then return (findItem vertex_ids vertex_id) > 0
+
+    false
+    -- return
+)
+
+
+/*
+Resolves geometry vertices to every channel-0 map vertex representing their polygon corners.
+Returns an Array of unique map-vertex IDs, or undefined when topology/channel correspondence is invalid.
+*/
+function getGeometryDiagnosticsMapVerticesForGeometryVertices source_node vertex_ids =
+(
+    if not ensureGeometryDiagnosticsCleanTopology source_node then return undefined
+
+    local poly_value = source_node.baseObject
+
+    if not geometryDiagnosticsVertexTargetsValid poly_value vertex_ids then return undefined
+    if not polyop.getMapSupport poly_value 0 then return #()
+
+    local face_count = polyop.getNumFaces poly_value
+    local map_face_count = polyop.getNumMapFaces poly_value 0
+    local resolved_map_vert_ids = #()
+
+    if map_face_count != face_count then
+    (
+        format "Geometry Diagnostics: channel-0 map-face count does not match Editable Poly face count.\n"
+        return undefined
+    )
+
+    for face_id = 1 to face_count do
+    (
+        local geometry_face_ids = polyop.getFaceVerts poly_value face_id
+        local map_face_ids = polyop.getMapFace poly_value 0 face_id
+
+        if geometry_face_ids.count != map_face_ids.count then
+        (
+            format "Geometry Diagnostics: geometry/map corner count mismatch at face %.\n" face_id
+            return undefined
+        )
+
+        for corner_id = 1 to geometry_face_ids.count do
+        (
+            if geometryDiagnosticsVertexTargetContains vertex_ids geometry_face_ids[corner_id] then
+            (
+                local map_vert_id = map_face_ids[corner_id]
+
+                if findItem resolved_map_vert_ids map_vert_id == 0 then
+                (
+                    append resolved_map_vert_ids map_vert_id
+                )
+            )
+        )
+    )
+
+    resolved_map_vert_ids
+    -- return
+)
+
+
+/*
+Returns the stored modifier-display backup index for one node.
+Returns 0 when the tool has not captured display state for that node.
+*/
+function getGeometryDiagnosticsModifierDisplayBackupIndex source_node =
+(
+    if source_node == undefined then return 0
+
+    for backup_index = 1 to geometry_diagnostics_modifier_display_backups.count do
+    (
+        if geometry_diagnostics_modifier_display_backups[backup_index][1] == source_node then
+        (
+            return backup_index
+        )
+    )
+
+    0
+    -- return
+)
+
+
+/*
+Captures viewport vertex-color display state before creating the tool-owned PaintLayerMod.
+The display state is stored only once for the active modifier-paint session.
+*/
+function captureGeometryDiagnosticsModifierDisplayBackup source_node =
+(
+    if not isValidNode source_node then return false
+    if getGeometryDiagnosticsModifierDisplayBackupIndex source_node > 0 then return true
+
+    append geometry_diagnostics_modifier_display_backups #(
+        source_node,
+        source_node.showVertexColors,
+        source_node.vertexColorType,
+        source_node.vertexColorsShaded
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Converts a MAXScript Color to the normalized Point4 required by VertexPaintState.
+Alpha is always 1.0 so the diagnostic paint fully affects the target entries.
+*/
+function geometryDiagnosticsColorToPaintPoint4 color_value =
+(
+    if color_value == undefined then return undefined
+    if classOf color_value != Color then return undefined
+
+    [color_value.r / 255.0, color_value.g / 255.0, color_value.b / 255.0, 1.0]
+    -- return
+)
+
+
+/*
+Returns the tool-owned PaintLayerMod from one node.
+Only the exact Geometry Diagnostics layer is reused; unrelated user paint layers are ignored.
+*/
+function getGeometryDiagnosticsPaintLayerMod source_node =
+(
+    if not isValidNode source_node then return undefined
+
+    for stack_mod in source_node.modifiers do
+    (
+        if classOf stack_mod == PaintLayerMod and stack_mod.name == geometry_diagnostics_paint_layer_name then
+        (
+            return stack_mod
+        )
+    )
+
+    undefined
+    -- return
+)
+
+
+/*
+Returns the stack index of the tool-owned PaintLayerMod.
+Returns 0 when the Geometry Diagnostics layer is not present.
+*/
+function getGeometryDiagnosticsPaintLayerModIndex source_node =
+(
+    if not isValidNode source_node then return 0
+
+    for mod_index = 1 to source_node.modifiers.count do
+    (
+        local stack_mod = source_node.modifiers[mod_index]
+
+        if classOf stack_mod == PaintLayerMod and stack_mod.name == geometry_diagnostics_paint_layer_name then
+        (
+            return mod_index
+        )
+    )
+
+    0
+    -- return
+)
+
+
+/*
+Returns the evaluated geometry vertex count without exposing triangle IDs to the public interface.
+A temporary mesh snapshot is used only as an under-the-hood topology measurement.
+*/
+function getGeometryDiagnosticsEvaluatedVertexCount source_node =
+(
+    if not isValidNode source_node then return 0
+
+    local evaluated_mesh = snapshotAsMesh source_node
+
+    if evaluated_mesh == undefined then return 0
+
+    local vertex_count = getNumVerts evaluated_mesh
+    delete evaluated_mesh
+
+    vertex_count
+    -- return
+)
+
+
+/*
+Validates geometry-vertex targets against the currently evaluated modifier-stack result.
+The target set may be one Integer, a BitArray, or an Array of Integer vertex IDs.
+*/
+function geometryDiagnosticsEvaluatedVertexTargetsValid source_node vertex_ids =
+(
+    if not isValidNode source_node then return false
+    if vertex_ids == undefined then return false
+
+    local vertex_count = getGeometryDiagnosticsEvaluatedVertexCount source_node
+    local target_class = classOf vertex_ids
+
+    if vertex_count < 1 then return false
+
+    if target_class == Integer then
+    (
+        return vertex_ids >= 1 and vertex_ids <= vertex_count
+    )
+
+    if target_class == BitArray then
+    (
+        if vertex_ids.numberSet == 0 then return false
+
+        for vertex_id in vertex_ids do
+        (
+            if vertex_id < 1 or vertex_id > vertex_count then return false
+        )
+
+        return true
+    )
+
+    if target_class == Array then
+    (
+        if vertex_ids.count == 0 then return false
+
+        for vertex_id in vertex_ids do
+        (
+            if classOf vertex_id != Integer then return false
+            if vertex_id < 1 or vertex_id > vertex_count then return false
+        )
+
+        return true
+    )
+
+    false
+    -- return
+)
+
+
+/*
+Creates or returns the tool-owned VertexPaint layer at the top of the current stack.
+The layer paints channel 0 and isolates diagnostic color from underlying baked vertex colors.
+*/
+function getOrCreateGeometryDiagnosticsPaintLayerMod source_node =
+(
+    if not isValidNode source_node then return undefined
+
+    local existing_paint_layer_mod = getGeometryDiagnosticsPaintLayerMod source_node
+
+    if existing_paint_layer_mod != undefined then return existing_paint_layer_mod
+    if not captureGeometryDiagnosticsModifierDisplayBackup source_node then return undefined
+
+    local paint_layer_mod = PaintLayerMod()
+    paint_layer_mod.name = geometry_diagnostics_paint_layer_name
+    paint_layer_mod.mapChannel = 0
+    paint_layer_mod.layerMode = "Normal"
+    paint_layer_mod.layerOpacity = 100.0
+    paint_layer_mod.layerIsolated = true
+
+    undo "Geometry Diagnostics - Add Vertex Paint" on
+    (
+        addModifier source_node paint_layer_mod
+    )
+
+    if getGeometryDiagnosticsPaintLayerMod source_node != paint_layer_mod then
+    (
+        format "Geometry Diagnostics: tool-owned VertexPaint modifier was not added correctly.\n"
+        return undefined
+    )
+
+    enableGeometryDiagnosticsVertexColorDisplay source_node
+
+    paint_layer_mod
+    -- return
+)
+
+
+/*
+Acquires a writable VertexPaintState for the supplied tool-owned paint layer.
+A redraw is completed first because PaintLayerMod state acquisition can otherwise return undefined.
+*/
+function acquireGeometryDiagnosticsPaintState source_node paint_layer_mod =
+(
+    if not isValidNode source_node then return undefined
+    if paint_layer_mod == undefined then return undefined
+    if classOf paint_layer_mod != PaintLayerMod then return undefined
+
+    completeRedraw()
+
+    local paint_state = paint_layer_mod.AcquirePaintState source_node
+
+    if paint_state == undefined then
+    (
+        format "Geometry Diagnostics: VertexPaint state acquisition failed.\n"
+        return undefined
+    )
+
+    paint_state
+    -- return
+)
+
+
+/*
+Applies one edited VertexPaintState while preventing active sub-object selection from masking the paint.
+The original global sub-object level is restored after the modifier state has been applied.
+*/
+function applyGeometryDiagnosticsPaintState source_node paint_layer_mod paint_state =
+(
+    if not isValidNode source_node then return false
+    if paint_layer_mod == undefined or paint_state == undefined then return false
+    if classOf paint_layer_mod != PaintLayerMod then return false
+
+    local restore_subobject_level = undefined
+
+    if findItem (selection as array) source_node > 0 then
+    (
+        if subObjectLevel != undefined and subObjectLevel > 0 then
+        (
+            restore_subobject_level = subObjectLevel
+            subObjectLevel = 0
+        )
+    )
+
+    try
+    (
+        paint_layer_mod.ApplyPaintState source_node paint_state
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+
+        if restore_subobject_level != undefined then
+        (
+            subObjectLevel = restore_subobject_level
+        )
+
+        format "Geometry Diagnostics: VertexPaint ApplyPaintState failed: %\n" exception_text
+        return false
+    )
+
+    if restore_subobject_level != undefined then
+    (
+        subObjectLevel = restore_subobject_level
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Paints evaluated geometry vertices through the tool-owned VertexPaint modifier.
+The Editable Poly base object and its channel-0 map topology are not modified.
+*/
+function paintGeometryDiagnosticsModifierVertices source_node vertex_ids color_value =
+(
+    if not isValidNode source_node then return false
+
+    local paint_point = geometryDiagnosticsColorToPaintPoint4 color_value
+
+    if paint_point == undefined then return false
+    if not geometryDiagnosticsEvaluatedVertexTargetsValid source_node vertex_ids then return false
+
+    local paint_layer_mod = getOrCreateGeometryDiagnosticsPaintLayerMod source_node
+
+    if paint_layer_mod == undefined then return false
+
+    local paint_state = acquireGeometryDiagnosticsPaintState source_node paint_layer_mod
+
+    if paint_state == undefined then return false
+
+    local apply_succeeded = false
+
+    undo "Geometry Diagnostics - Paint Modifier Vertices" on
+    (
+        if classOf vertex_ids == Integer then
+        (
+            paint_state.SetVertColor vertex_ids paint_point
+        )
+        else
+        (
+            for vertex_id in vertex_ids do
+            (
+                paint_state.SetVertColor vertex_id paint_point
+            )
+        )
+
+        apply_succeeded = applyGeometryDiagnosticsPaintState source_node paint_layer_mod paint_state
+    )
+
+    if not apply_succeeded then return false
+
+    local verify_state = acquireGeometryDiagnosticsPaintState source_node paint_layer_mod
+
+    if verify_state == undefined then return false
+
+    if classOf vertex_ids == Integer then
+    (
+        if verify_state.GetVertAverageColor vertex_ids != paint_point then
+        (
+            format "Geometry Diagnostics: VertexPaint verification failed at evaluated vertex %.\n" vertex_ids
+            return false
+        )
+    )
+    else
+    (
+        for vertex_id in vertex_ids do
+        (
+            if verify_state.GetVertAverageColor vertex_id != paint_point then
+            (
+                format "Geometry Diagnostics: VertexPaint verification failed at evaluated vertex %.\n" vertex_id
+                return false
+            )
+        )
+    )
+
+    enableGeometryDiagnosticsVertexColorDisplay source_node
+    completeRedraw()
+
+    true
+    -- return
+)
+
+
+/*
+Removes only the tool-owned VertexPaint modifier and restores the prior viewport display state.
+All unrelated stack modifiers, including topology-changing Edit Poly modifiers, are preserved.
+*/
+function restoreGeometryDiagnosticsModifierPaint source_node =
+(
+    if not isValidNode source_node then return false
+
+    local paint_mod_index = getGeometryDiagnosticsPaintLayerModIndex source_node
+
+    if paint_mod_index == 0 then return false
+
+    undo "Geometry Diagnostics - Remove Vertex Paint" on
+    (
+        deleteModifier source_node paint_mod_index
+    )
+
+    if getGeometryDiagnosticsPaintLayerMod source_node != undefined then
+    (
+        format "Geometry Diagnostics: tool-owned VertexPaint modifier could not be removed.\n"
+        return false
+    )
+
+    local backup_index = getGeometryDiagnosticsModifierDisplayBackupIndex source_node
+
+    if backup_index > 0 then
+    (
+        local backup_data = geometry_diagnostics_modifier_display_backups[backup_index]
+
+        source_node.showVertexColors = backup_data[2]
+        source_node.vertexColorType = backup_data[3]
+        source_node.vertexColorsShaded = backup_data[4]
+
+        deleteItem geometry_diagnostics_modifier_display_backups backup_index
+    )
+
+    completeRedraw()
+
+    true
+    -- return
+)
+
+
+/*
+Returns true when painting must happen above the modifier stack instead of on the base object.
+Any existing stack modifier makes the evaluated topology the authoritative paint target.
+*/
+function geometryDiagnosticsUsesModifierPaint source_node =
+(
+    if not isValidNode source_node then return false
+
+    source_node.modifiers.count > 0
+    -- return
+)
+
+
+/*
+Captures geometry topology, channel-0 colors, and viewport display state once per node.
+The captured state is used only for exact restoration of a paint session.
+*/
+function captureGeometryDiagnosticsColorBackup source_node =
+(
+    if not ensureGeometryDiagnosticsCleanTopology source_node then return false
+
+    if getGeometryDiagnosticsBackupIndex source_node > 0 then return true
+
+    local poly_value = source_node.baseObject
+    local vertex_count = polyop.getNumVerts poly_value
+    local face_count = polyop.getNumFaces poly_value
+    local geometry_faces = #()
+    local had_map_support = polyop.getMapSupport poly_value 0
+    local map_vert_count = 0
+    local map_faces = #()
+    local map_colors = #()
+
+    for face_id = 1 to face_count do
+    (
+        append geometry_faces (polyop.getFaceVerts poly_value face_id)
+    )
+
+    if had_map_support then
+    (
+        map_vert_count = polyop.getNumMapVerts poly_value 0
+
+        for face_id = 1 to face_count do
+        (
+            append map_faces (polyop.getMapFace poly_value 0 face_id)
+        )
+
+        for map_vert_id = 1 to map_vert_count do
+        (
+            append map_colors (polyop.getMapVert poly_value 0 map_vert_id)
+        )
+    )
+
+    append geometry_diagnostics_color_backups #(
+        source_node,
+        had_map_support,
+        vertex_count,
+        face_count,
+        geometry_faces,
+        map_vert_count,
+        map_faces,
+        map_colors,
+        source_node.showVertexColors,
+        source_node.vertexColorType,
+        source_node.vertexColorsShaded
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Makes channel 0 usable for direct Editable Poly painting.
+A missing channel is initialized with the native default white vertex-color map.
+*/
+function prepareGeometryDiagnosticsVertexColorMap source_node =
+(
+    if not isGeometryDiagnosticsEditablePolyNode source_node then return false
+
+    local poly_value = source_node.baseObject
+    local has_map_support = polyop.getMapSupport poly_value 0
+
+    if not has_map_support then
+    (
+        polyop.setMapSupport poly_value 0 true
+        polyop.defaultMapFaces poly_value 0
+    )
+    else if polyop.getNumMapVerts poly_value 0 < 1 then
+    (
+        format "Geometry Diagnostics: channel 0 exists but has no map vertices; paint operation aborted.\n"
+        return false
+    )
+
+    if polyop.getNumMapVerts poly_value 0 < 1 then
+    (
+        format "Geometry Diagnostics: channel 0 initialization did not create map vertices.\n"
+        return false
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Enables pure RGB vertex-color display for one node.
+This changes display state only and does not modify geometry topology.
+*/
+function enableGeometryDiagnosticsVertexColorDisplay source_node =
+(
+    if not isValidNode source_node then return false
+
+    source_node.showVertexColors = true
+    source_node.vertexColorType = #color
+    source_node.vertexColorsShaded = true
+
+    true
+    -- return
+)
+
+
+/*
+Restores the exact channel-0 values and display state captured at paint-session start.
+Restoration is refused when geometry or map-face topology no longer matches.
+*/
+function restoreGeometryDiagnosticsColors source_node =
+(
+    if getGeometryDiagnosticsPaintLayerMod source_node != undefined then
+    (
+        return restoreGeometryDiagnosticsModifierPaint source_node
+    )
+
+    local backup_index = getGeometryDiagnosticsBackupIndex source_node
+
+    if backup_index == 0 then
+    (
+        format "Geometry Diagnostics: no stored paint session for the requested node.\n"
+        return false
+    )
+
+    if not isGeometryDiagnosticsEditablePolyNode source_node then return false
+
+    local backup_data = geometry_diagnostics_color_backups[backup_index]
+    local poly_value = source_node.baseObject
+    local had_map_support = backup_data[2]
+    local saved_vertex_count = backup_data[3]
+    local saved_face_count = backup_data[4]
+    local saved_geometry_faces = backup_data[5]
+    local saved_map_vert_count = backup_data[6]
+    local saved_map_faces = backup_data[7]
+    local saved_map_colors = backup_data[8]
+    local current_vertex_count = polyop.getNumVerts poly_value
+    local current_face_count = polyop.getNumFaces poly_value
+
+    if polyop.getHasDeadStructs poly_value != 0 then
+    (
+        format "Geometry Diagnostics: restore refused because Editable Poly contains dead topology.\n"
+        return false
+    )
+
+    if current_vertex_count != saved_vertex_count or current_face_count != saved_face_count then
+    (
+        format "Geometry Diagnostics: restore refused because geometry topology count changed.\n"
+        return false
+    )
+
+    for face_id = 1 to current_face_count do
+    (
+        local current_face_verts = polyop.getFaceVerts poly_value face_id
+
+        if not geometryDiagnosticsIntegerArraysMatch current_face_verts saved_geometry_faces[face_id] then
+        (
+            format "Geometry Diagnostics: restore refused because Editable Poly face topology changed at face %.\n" face_id
+            return false
+        )
+    )
+
+    if had_map_support then
+    (
+        if not polyop.getMapSupport poly_value 0 then
+        (
+            format "Geometry Diagnostics: restore refused because original channel 0 no longer exists.\n"
+            return false
+        )
+
+        if polyop.getNumMapVerts poly_value 0 != saved_map_vert_count then
+        (
+            format "Geometry Diagnostics: restore refused because channel-0 map-vertex count changed.\n"
+            return false
+        )
+
+        if polyop.getNumMapFaces poly_value 0 != saved_face_count then
+        (
+            format "Geometry Diagnostics: restore refused because channel-0 map-face count changed.\n"
+            return false
+        )
+
+        for face_id = 1 to saved_face_count do
+        (
+            local current_map_face = polyop.getMapFace poly_value 0 face_id
+
+            if not geometryDiagnosticsIntegerArraysMatch current_map_face saved_map_faces[face_id] then
+            (
+                format "Geometry Diagnostics: restore refused because channel-0 map topology changed at face %.\n" face_id
+                return false
+            )
+        )
+
+        for map_vert_id = 1 to saved_map_vert_count do
+        (
+            polyop.setMapVert poly_value 0 map_vert_id saved_map_colors[map_vert_id]
+        )
+    )
+    else
+    (
+        if polyop.getMapSupport poly_value 0 then
+        (
+            polyop.setMapSupport poly_value 0 false
+        )
+    )
+
+    source_node.showVertexColors = backup_data[9]
+    source_node.vertexColorType = backup_data[10]
+    source_node.vertexColorsShaded = backup_data[11]
+
+    deleteItem geometry_diagnostics_color_backups backup_index
+    completeRedraw()
+
+    true
+    -- return
+)
+
+
+/*
+Begins a reversible channel-0 paint session for one Editable Poly node.
+The original state is captured before the backend creates or changes paint data.
+*/
+function beginGeometryDiagnosticsPaint source_node =
+(
+    if not captureGeometryDiagnosticsColorBackup source_node then return false
+
+    if not prepareGeometryDiagnosticsVertexColorMap source_node then
+    (
+        restoreGeometryDiagnosticsColors source_node
+        return false
+    )
+
+    enableGeometryDiagnosticsVertexColorDisplay source_node
+    true
+    -- return
+)
+
+
+/*
+Writes one color to every channel-0 map vertex representing the requested geometry vertices.
+The mapping is resolved explicitly from Editable Poly face corners and never assumes matching IDs.
+*/
+function paintGeometryDiagnosticsVertices source_node vertex_ids color_value =
+(
+    if geometryDiagnosticsUsesModifierPaint source_node then
+    (
+        return paintGeometryDiagnosticsModifierVertices source_node vertex_ids color_value
+    )
+
+    if not ensureGeometryDiagnosticsCleanTopology source_node then return false
+
+    local poly_value = source_node.baseObject
+    local map_point = geometryDiagnosticsColorToMapPoint color_value
+
+    if map_point == undefined then return false
+    if not geometryDiagnosticsVertexTargetsValid poly_value vertex_ids then return false
+    if not beginGeometryDiagnosticsPaint source_node then return false
+
+    local map_vert_ids = getGeometryDiagnosticsMapVerticesForGeometryVertices source_node vertex_ids
+
+    if map_vert_ids == undefined then
+    (
+        format "Geometry Diagnostics: geometry-vertex to channel-0 mapping failed.\n"
+        restoreGeometryDiagnosticsColors source_node
+        return false
+    )
+
+    if map_vert_ids.count == 0 then
+    (
+        format "Geometry Diagnostics: requested geometry vertices have no channel-0 face-corner representation.\n"
+        restoreGeometryDiagnosticsColors source_node
+        return false
+    )
+
+    undo "Geometry Diagnostics - Paint Geometry Vertices" on
+    (
+        for map_vert_id in map_vert_ids do
+        (
+            polyop.setMapVert poly_value 0 map_vert_id map_point
+        )
+    )
+
+    enableGeometryDiagnosticsVertexColorDisplay source_node
+    completeRedraw()
+
+    true
+    -- return
+)
+
+
+/*
+Writes one color to every channel-0 map vertex referenced by one polygon face.
+Shared map vertices intentionally affect every polygon that references the same map vertex.
+*/
+function paintGeometryDiagnosticsFaceCorners source_node face_id color_value =
+(
+    if not ensureGeometryDiagnosticsCleanTopology source_node then return false
+
+    local poly_value = source_node.baseObject
+    local face_count = polyop.getNumFaces poly_value
+    local map_point = geometryDiagnosticsColorToMapPoint color_value
+
+    if map_point == undefined then return false
+    if face_id < 1 or face_id > face_count then return false
+    if not beginGeometryDiagnosticsPaint source_node then return false
+
+    local map_face_ids = polyop.getMapFace poly_value 0 face_id
+
+    for map_vert_id in map_face_ids do
+    (
+        polyop.setMapVert poly_value 0 map_vert_id map_point
+    )
+
+    completeRedraw()
+
+    true
+    -- return
+)
+
+
+/*
+Creates fully face-split channel-0 topology on a generated test object.
+This helper is destructive by design and must not be used on arbitrary user geometry.
+*/
+function buildGeometryDiagnosticsTestColorMap source_node =
+(
+    if not ensureGeometryDiagnosticsCleanTopology source_node then return false
+
+    local poly_value = source_node.baseObject
+    local face_count = polyop.getNumFaces poly_value
+    local total_corner_count = 0
+    local next_map_vert_id = 1
+    local white_point = [1.0, 1.0, 1.0]
+
+    if polyop.getMapSupport poly_value 0 then
+    (
+        polyop.setMapSupport poly_value 0 false
+    )
+
+    polyop.setMapSupport poly_value 0 true
+
+    for face_id = 1 to face_count do
+    (
+        total_corner_count += polyop.getFaceDeg poly_value face_id
+    )
+
+    polyop.setNumMapVerts poly_value 0 total_corner_count keep:false
+
+    for face_id = 1 to face_count do
+    (
+        local face_degree = polyop.getFaceDeg poly_value face_id
+        local map_face_ids = #()
+
+        for corner_id = 1 to face_degree do
+        (
+            append map_face_ids next_map_vert_id
+            polyop.setMapVert poly_value 0 next_map_vert_id white_point
+            next_map_vert_id += 1
+        )
+
+        polyop.setMapFace poly_value 0 face_id map_face_ids
+    )
+
+    enableGeometryDiagnosticsVertexColorDisplay source_node
+    true
+    -- return
+)
+
+
+/*
+Creates the first Geometry Diagnostics test object.
+The result is an 8-vertex / 6-polygon Editable Poly box with 24 split color-map vertices.
+*/
+function createGeometryDiagnosticsTestBox =
+(
+    local created_node = undefined
+
+    undo "Geometry Diagnostics - Create Test Box" on
+    (
+        created_node = box name:(uniqueName "GeometryDiagnostics_TestBox") length:100.0 width:100.0 height:100.0 lengthsegs:1 widthsegs:1 heightsegs:1
+
+        convertTo created_node Editable_Poly
+        created_node.baseObject.showCage = off
+
+        if not buildGeometryDiagnosticsTestColorMap created_node then
+        (
+            delete created_node
+            created_node = undefined
+        )
+        else
+        (
+            geometry_diagnostics_test_node = created_node
+            select created_node
+        )
+    )
+
+    created_node
+    -- return
+)
+
+
+/*
+Applies six distinct polygon colors to the first test box.
+The paint session remains active so RESTORE COLORS can recover the original white map.
+*/
+function paintGeometryDiagnosticsTestBox source_node =
+(
+    if not ensureGeometryDiagnosticsCleanTopology source_node then return false
+
+    local poly_value = source_node.baseObject
+    local face_count = polyop.getNumFaces poly_value
+    local face_colors = #(
+        (color 255 0 0),
+        (color 0 255 0),
+        (color 0 0 255),
+        (color 255 255 0),
+        (color 0 255 255),
+        (color 255 0 255)
+    )
+
+    if face_count != face_colors.count then
+    (
+        format "Geometry Diagnostics: six-color test requires exactly 6 polygon faces; found %.\n" face_count
+        return false
+    )
+
+    if not beginGeometryDiagnosticsPaint source_node then return false
+
+    undo "Geometry Diagnostics - Paint Face Colors" on
+    (
+        for face_id = 1 to face_count do
+        (
+            local map_face_ids = polyop.getMapFace poly_value 0 face_id
+            local map_point = geometryDiagnosticsColorToMapPoint face_colors[face_id]
+
+            for map_vert_id in map_face_ids do
+            (
+                polyop.setMapVert poly_value 0 map_vert_id map_point
+            )
+        )
+    )
+
+    enableGeometryDiagnosticsVertexColorDisplay source_node
+    completeRedraw()
+
+    true
+    -- return
+)
+
+
+/*
+Adds a topology-changing Edit Poly tessellation modifier to one generated test box.
+The operation changes evaluated topology while leaving the Editable Poly base object intact.
+*/
+function addGeometryDiagnosticsTestTessellation source_node =
+(
+    if not isGeometryDiagnosticsEditablePolyNode source_node then return undefined
+    if source_node.modifiers.count != 0 then return undefined
+
+    local edit_poly_mod = Edit_Poly()
+    edit_poly_mod.name = "GEOMETRY DIAGNOSTICS - TEST TESSELLATE"
+    edit_poly_mod.useStackSelection = false
+    edit_poly_mod.selectMode = 0
+    edit_poly_mod.tessellateByFace = 1
+    edit_poly_mod.tessTension = 0.0
+
+    undo "Geometry Diagnostics - Add Tessellated Edit Poly" on
+    (
+        addModifier source_node edit_poly_mod
+
+        edit_poly_mod.SetPrimaryNode source_node
+        edit_poly_mod.SetEPolySelLevel #Face
+        edit_poly_mod.Select #Face #{1..6}
+        edit_poly_mod.ButtonOp #Tessellate
+    )
+
+    completeRedraw()
+
+    edit_poly_mod
+    -- return
+)
+
+
+/*
+Returns the currently tracked test node, or one selected Editable Poly node as fallback.
+Returns undefined when no valid backend target is available.
+*/
+function getGeometryDiagnosticsTargetNode =
+(
+    if isGeometryDiagnosticsEditablePolyNode geometry_diagnostics_test_node then
+    (
+        return geometry_diagnostics_test_node
+    )
+
+    if selection.count == 1 then
+    (
+        if isGeometryDiagnosticsEditablePolyNode selection[1] then
+        (
+            return selection[1]
+        )
+    )
+
+    undefined
+    -- return
+)
+
+
+/*
+Prints current geometry and channel-0 mapping data to the Listener.
+The dump uses Editable Poly face IDs and never exposes TriMesh triangle IDs.
+*/
+function dumpGeometryDiagnosticsChannelZero source_node =
+(
+    if not isGeometryDiagnosticsEditablePolyNode source_node then return false
+
+    local poly_value = source_node.baseObject
+    poly_value.showCage = off
+
+    if polyop.getHasDeadStructs poly_value != 0 then
+    (
+        format "Geometry Diagnostics: dump aborted because Editable Poly contains dead topology.\n"
+        return false
+    )
+    local vertex_count = polyop.getNumVerts poly_value
+    local face_count = polyop.getNumFaces poly_value
+    local has_map_support = polyop.getMapSupport poly_value 0
+
+    format "\n=== Geometry Diagnostics : Channel 0 ===\n"
+    format "NODE: %\n" source_node.name
+    format "GEOMETRY VERTICES: %\n" vertex_count
+    format "POLYGON FACES: %\n" face_count
+    format "CHANNEL 0 SUPPORTED: %\n" has_map_support
+
+    if not has_map_support then
+    (
+        format "CHANNEL 0: no map data\n"
+        format "========================================\n"
+        return true
+    )
+
+    local map_vert_count = polyop.getNumMapVerts poly_value 0
+    local map_face_count = polyop.getNumMapFaces poly_value 0
+
+    format "MAP VERTICES: %\n" map_vert_count
+    format "MAP FACES: %\n" map_face_count
+
+    for face_id = 1 to face_count do
+    (
+        local geometry_face_ids = polyop.getFaceVerts poly_value face_id
+        local map_face_ids = polyop.getMapFace poly_value 0 face_id
+
+        format "FACE % | GEO % | MAP %\n" face_id geometry_face_ids map_face_ids
+
+        for map_vert_id in map_face_ids do
+        (
+            format "    MAP VERT % = %\n" map_vert_id (polyop.getMapVert poly_value 0 map_vert_id)
+        )
+    )
+
+    format "========================================\n"
+
+    true
+    -- return
+)

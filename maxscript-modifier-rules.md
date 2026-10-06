@@ -1,6 +1,53 @@
 # MaxScript Modifier Rules
 
-Use these rules whenever MaxScript adds, removes, searches, or batch-processes object modifiers.
+Use these rules whenever MaxScript adds, removes, inserts, reorders, searches for, reuses, owns, deletes, or batch-processes object modifiers.
+
+
+## Modifier insertion index semantics
+
+MAXScript modifier-stack indices are visual top-to-bottom, but the `before:` argument of `addModifier` does not map directly to the visual target index.
+
+To insert a new modifier immediately above an existing target modifier at visual stack index `T`:
+
+- when `T == 1`, use normal `addModifier obj new_mod` so the new modifier is added at the top;
+- when `T > 1`, use `addModifier obj new_mod before:(T - 1)`.
+
+Do not assume the requested placement succeeded. Re-query both exact modifier instances after insertion and verify:
+
+```text
+target_index == new_modifier_index + 1
+```
+
+If that relationship is not true, treat placement as failed. Do not continue with code that depends on adjacency or relative stack order.
+
+## Exact modifier ownership
+
+When a tool creates a modifier that it may later edit, reuse, clear, or delete, track ownership by the exact modifier instance reference.
+
+A modifier name is display text only and is not proof of ownership.
+
+Do not adopt, edit, reuse, or delete a modifier merely because:
+
+- its name matches the expected name;
+- its class matches the expected class;
+- it occupies or is near an expected stack position.
+
+A same-name or same-class modifier created by the user or another tool must remain untouched unless the current tool owns that exact instance reference.
+
+If an owned modifier reference is lost, do not recover ownership by name. A tool may rediscover an existing modifier only when it has another explicit, reliable ownership contract defined by that feature; a display name alone is never sufficient.
+
+## Safe destructive modifier cleanup
+
+Before deleting an owned modifier:
+
+1. Verify that the expected node is still valid.
+2. Verify that the exact owned modifier instance is still present on that node.
+3. Resolve its current stack index from the exact instance reference rather than a remembered numeric index.
+4. If the operation depends on a relationship to another modifier, re-resolve and verify that relationship before deletion.
+5. Delete only the exact owned modifier instance.
+6. Preserve unrelated modifiers and their relative order.
+
+If the owned instance is no longer present, treat it as absent. If the ownership reference is lost, do not guess by name or class and do not perform destructive cleanup on a guessed modifier.
 
 ## Bulk modifier deletion performance
 

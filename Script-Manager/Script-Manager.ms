@@ -1,5 +1,5 @@
 /*
-    Script-Manager 1.137
+    Script-Manager 1.148
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -44,8 +44,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.137,
-    project_version = 1.137,
+    file_version = 1.148,
+    project_version = 1.148,
     registry = undefined,
 
     /*
@@ -708,8 +708,8 @@ if SCRIPT_MANAGER_AUTO_OPEN then
 
 struct script_manager_v
 (
-    file_version = 1.137,
-    project_version = 1.137,
+    file_version = 1.148,
+    project_version = 1.148,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -725,8 +725,11 @@ struct script_manager_v
     available_script_paths = #(),
     available_source_names = #(),
     available_source_directories = #(),
+    available_source_selectable = #(),
     show_versioned_files = false,
     show_clean_scripts_only = false,
+    source_ignore_mask = ".git",
+    source_ignore_regexes = #(),
     available_group_paths = #(),
     available_group_names = #(),
     available_group_directories = #(),
@@ -746,15 +749,16 @@ struct script_manager_v
     loader_rollout_open = true,
     source_rollout_open = true,
     script_rollout_open = true,
-    source_rollout_content_height = 524,
+    source_rollout_content_height = 560,
     script_rollout_content_height = 1116,
-    loader_content_height = 1664,
+    loader_content_height = 1700,
     script_tree_file_count = 0,
-    script_tree_required_height = 1032,
+    script_tree_required_height = 996,
     script_tree_base_font_height = 0,
     script_tree_font_height = 0,
     script_tree_font_pixel_increase = 2,
     script_tree_state_images = undefined,
+    source_tree_state_images = undefined,
     script_tree_context_menu = undefined,
     script_tree_load_item = undefined,
     script_tree_expand_item = undefined,
@@ -766,6 +770,7 @@ struct script_manager_v
     source_tree_collapse_all_item = undefined,
     script_tree_syncing_checks = false,
     source_tree_syncing_checks = false,
+    preset_dropdown_syncing = false,
     tree_expansion_syncing = false,
     debug_logging = false,
     manager_source_path = "",
@@ -946,7 +951,6 @@ struct script_manager_v
 
     /*
     Returns whether one source directory has at least one child directory outside the manager package.
-    Terminal tool folders therefore remain hidden from SOURCES and are represented only in SCRIPTS.
     */
     function hasSourceChildDirectory directory_path =
     (
@@ -964,9 +968,47 @@ struct script_manager_v
     ),
 
     /*
-    Appends parent source folders below one directory in parent-before-child order.
-    Nested terminal tool folders are hidden; a root-level leaf remains visible so it cannot become unreachable.
-    Existing checked terminal folders are migrated once to their visible parent source.
+    Returns the canonical same-name .ms file for one tool directory, or an empty string when none exists.
+    Example: Tool\Tool.ms.
+    */
+    function getSourceToolScriptPath directory_path =
+    (
+        normalized_path = ScriptManagerIntegration.normalizeDirectoryPath directory_path
+        if normalized_path == "" then return ""
+
+        folder_name = ScriptManagerIntegration.getFolderName normalized_path
+        if folder_name == "" then return ""
+
+        folder_name_lower = toLower folder_name
+        for script_path in (getFiles (normalized_path + "*.ms")) do
+        (
+            if (toLower (getFilenameFile script_path)) == folder_name_lower then return script_path
+        )
+
+        ""
+        -- return
+    ),
+
+    /*
+    Returns whether one source directory has no files and no child directories.
+    */
+    function isSourceDirectoryEmpty directory_path =
+    (
+        normalized_path = ScriptManagerIntegration.normalizeDirectoryPath directory_path
+        if normalized_path == "" then return false
+
+        if (getFiles (normalized_path + "*")).count > 0 then return false
+        if (getDirectories (normalized_path + "*")).count > 0 then return false
+
+        true
+        -- return
+    ),
+
+    /*
+    Appends visible SOURCES rows in parent-before-child order.
+    A directory becomes a hierarchy stopper when it contains an unversioned same-name .ms file, for example Tool\Tool.ms.
+    Empty directories use the same display-only stopper behavior.
+    Every stopper row is display-only without a checkbox and its children are not shown, regardless of nesting depth.
     */
     function collectSourceDirectoriesRecursive directory_path =
     (
@@ -982,24 +1024,29 @@ struct script_manager_v
             if not(this.isManagerPackageDirectory child_directory) then
             (
                 normalized_child = ScriptManagerIntegration.normalizeDirectoryPath child_directory
-                child_is_parent = this.hasSourceChildDirectory normalized_child
-                parent_is_root = normalized_path == normalized_root
 
-                if child_is_parent or parent_is_root then
+                if not(this.isSourceDirectoryIgnored normalized_child) then
                 (
+                    tool_script_path = this.getSourceToolScriptPath normalized_child
+                    is_empty_directory = this.isSourceDirectoryEmpty normalized_child
+                    is_hierarchy_stopper = (tool_script_path != "") or is_empty_directory
+                    source_selectable = not is_hierarchy_stopper
+
                     append available_source_names (ScriptManagerIntegration.getFolderName normalized_child)
                     append available_source_directories normalized_child
-                )
-                else if this.getSourceEnabled normalized_child then
-                (
-                    if normalized_path != normalized_root then
+                    append available_source_selectable source_selectable
+
+                    if not source_selectable and this.getSourceEnabled normalized_child then
                     (
                         this.saveSourceEnabled normalized_path true
                         this.saveSourceEnabled normalized_child false
                     )
-                )
 
-                this.collectSourceDirectoriesRecursive normalized_child
+                    if not is_hierarchy_stopper then
+                    (
+                        this.collectSourceDirectoriesRecursive normalized_child
+                    )
+                )
             )
         )
 
@@ -1008,13 +1055,14 @@ struct script_manager_v
     ),
 
     /*
-    Discovers the selectable source-folder hierarchy below the managed root.
-    The managed root itself is intentionally not exposed as a SOURCES item.
+    Discovers the visible SOURCES hierarchy below the managed root.
+    Selectable category rows and display-only nested terminal-directory rows stay aligned by array index.
     */
     function discoverSources =
     (
         available_source_names = #()
         available_source_directories = #()
+        available_source_selectable = #()
 
         if root_directory == "" then return false
 
@@ -1050,8 +1098,10 @@ struct script_manager_v
         for source_index = 1 to available_source_directories.count do
         (
             source_directory = available_source_directories[source_index]
+            source_selectable = false
+            if source_index <= available_source_selectable.count then source_selectable = available_source_selectable[source_index]
 
-            if this.getSourceEnabled source_directory then
+            if source_selectable and this.getSourceEnabled source_directory then
             (
                 covered_by_parent = false
 
@@ -1163,6 +1213,149 @@ struct script_manager_v
         )
 
         sorted_paths
+        -- return
+    ),
+
+    /*
+    Converts one pipe-delimited SOURCES ignore token into a full-name regular expression.
+    Plain names are matched literally; * is accepted as a wildcard shorthand for .*.
+    */
+    function getSourceIgnoreRegexPattern pattern_text =
+    (
+        if pattern_text == undefined or pattern_text == "" then return ""
+
+        regex_type = dotNetClass "System.Text.RegularExpressions.Regex"
+        has_regex_syntax = false
+
+        for syntax_marker in #("*", "+", "?", "[", "]", "(", ")", "{", "}", "^", "$", "\\") while not has_regex_syntax do
+        (
+            has_regex_syntax = (findString pattern_text syntax_marker) != undefined
+        )
+
+        if not has_regex_syntax then
+        (
+            pattern_text = regex_type.Escape pattern_text
+        )
+        else
+        (
+            normalized_pattern = ""
+            for char_index = 1 to pattern_text.count do
+            (
+                char_text = pattern_text[char_index]
+
+                if char_text == "*" and (char_index == 1 or pattern_text[char_index - 1] != ".") then
+                (
+                    normalized_pattern += ".*"
+                )
+                else
+                (
+                    normalized_pattern += char_text
+                )
+            )
+
+            pattern_text = normalized_pattern
+        )
+
+        "^(?:" + pattern_text + ")$"
+        -- return
+    ),
+
+    /*
+    Compiles the pipe-delimited SOURCES ignore mask.
+    Empty tokens, including a trailing |, are ignored. Invalid expressions return undefined.
+    */
+    function buildSourceIgnoreRegexes mask_text =
+    (
+        compiled_regexes = #()
+        if mask_text == undefined or mask_text == "" then return compiled_regexes
+
+        regex_options = dotNetClass "System.Text.RegularExpressions.RegexOptions"
+
+        for mask_token in (filterString mask_text "|") do
+        (
+            regex_pattern = this.getSourceIgnoreRegexPattern mask_token
+            if regex_pattern != "" then
+            (
+                try
+                (
+                    regex_value = dotNetObject "System.Text.RegularExpressions.Regex" regex_pattern regex_options.IgnoreCase
+                    append compiled_regexes regex_value
+                )
+                catch
+                (
+                    exception_text = getCurrentException()
+                    format "[Script-Manager] Invalid SOURCES ignore pattern \"%\": %\n" mask_token exception_text
+                    return undefined
+                )
+            )
+        )
+
+        compiled_regexes
+        -- return
+    ),
+
+    /*
+    Saves and compiles the SOURCES ignore mask.
+    The mask is persisted only when every pattern is valid.
+    */
+    function saveSourceIgnoreMask mask_text =
+    (
+        if mask_text == undefined then mask_text = ""
+
+        compiled_regexes = this.buildSourceIgnoreRegexes mask_text
+        if compiled_regexes == undefined then return false
+
+        source_ignore_mask = mask_text
+        source_ignore_regexes = compiled_regexes
+        setINISetting ini_path "Filter" "SourceIgnoreMask" source_ignore_mask forceUTF16:false
+        true
+        -- return
+    ),
+
+    /*
+    Loads the persisted SOURCES ignore mask.
+    A missing setting defaults to .git; an invalid stored mask falls back to the same default.
+    */
+    function loadSourceIgnoreMask =
+    (
+        default_mask = ".git"
+        stored_mask = default_mask
+
+        if hasINISetting ini_path "Filter" "SourceIgnoreMask" then
+        (
+            stored_mask = getINISetting ini_path "Filter" "SourceIgnoreMask"
+        )
+
+        compiled_regexes = this.buildSourceIgnoreRegexes stored_mask
+        if compiled_regexes == undefined then
+        (
+            stored_mask = default_mask
+            compiled_regexes = this.buildSourceIgnoreRegexes stored_mask
+        )
+
+        source_ignore_mask = stored_mask
+        source_ignore_regexes = compiled_regexes
+        source_ignore_mask
+        -- return
+    ),
+
+    /*
+    Returns whether one source directory name matches the current SOURCES ignore mask.
+    Matching is case-insensitive and applies to the directory leaf name only.
+    */
+    function isSourceDirectoryIgnored directory_path =
+    (
+        normalized_path = ScriptManagerIntegration.normalizeDirectoryPath directory_path
+        if normalized_path == "" then return false
+
+        folder_name = ScriptManagerIntegration.getFolderName normalized_path
+
+        for regex_value in source_ignore_regexes do
+        (
+            if regex_value.IsMatch folder_name then return true
+        )
+
+        false
         -- return
     ),
 
@@ -1328,7 +1521,8 @@ struct script_manager_v
 
         for child_directory in child_directories do
         (
-            if this.directoryHasManagedScripts child_directory then return true
+            normalized_child = ScriptManagerIntegration.normalizeDirectoryPath child_directory
+            if not(this.isSourceDirectoryIgnored normalized_child) and this.directoryHasManagedScripts normalized_child then return true
         )
 
         false
@@ -1373,7 +1567,8 @@ struct script_manager_v
 
         for child_directory in child_directories do
         (
-            this.discoverDirectory child_directory
+            normalized_child = ScriptManagerIntegration.normalizeDirectoryPath child_directory
+            if not(this.isSourceDirectoryIgnored normalized_child) then this.discoverDirectory normalized_child
         )
 
         true
@@ -1466,6 +1661,548 @@ struct script_manager_v
 
         setINISetting ini_path "Scripts" script_key stored_text forceUTF16:false
         true
+        -- return
+    ),
+
+
+    /*
+    Returns the INI section name used by one Script-Manager preset.
+    Preset names are isolated from regular manager settings by the Preset| prefix.
+    */
+    function getPresetSectionName preset_name =
+    (
+        "Preset|" + preset_name
+        -- return
+    ),
+
+    /*
+    Normalizes one preset name before it is used as an INI section suffix.
+    Empty names and INI section delimiters are rejected.
+    */
+    function normalizePresetName preset_name =
+    (
+        normalized_name = undefined
+
+        if classOf preset_name == String then
+        (
+            candidate_name = trimRight (trimLeft preset_name)
+
+            if (
+                candidate_name != "" and
+                findString candidate_name "[" == undefined and
+                findString candidate_name "]" == undefined and
+                findString candidate_name "|" == undefined and
+                findString candidate_name "\n" == undefined and
+                findString candidate_name "\r" == undefined
+            ) then
+            (
+                normalized_name = candidate_name
+            )
+        )
+
+        normalized_name
+        -- return
+    ),
+
+    /*
+    Returns all stored Script-Manager preset names sorted alphabetically.
+    Only INI sections using the Preset| prefix participate in the dropdown.
+    */
+    function getPresetNames =
+    (
+        preset_names = #()
+        section_names = getINISetting ini_path
+
+        if classOf section_names != Array then section_names = #()
+
+        for section_name in section_names do
+        (
+            preset_prefix = "Preset|"
+
+            if section_name.count > preset_prefix.count and (substring section_name 1 preset_prefix.count) == preset_prefix then
+            (
+                preset_name = substring section_name (preset_prefix.count + 1) (section_name.count - preset_prefix.count)
+                if preset_name != "" then append preset_names preset_name
+            )
+        )
+
+        sort preset_names
+        preset_names
+        -- return
+    ),
+
+    /*
+    Returns whether one normalized Script-Manager preset section already exists.
+    Invalid names return false without touching the INI file.
+    */
+    function hasPreset preset_name =
+    (
+        normalized_name = this.normalizePresetName preset_name
+        if normalized_name == undefined then return false
+
+        hasINISetting ini_path (this.getPresetSectionName normalized_name)
+        -- return
+    ),
+
+    /*
+    Reads one complete INI section into #(key, value) pairs for rollback-safe writes.
+    Missing sections return an empty array.
+    */
+    function getIniSectionEntries section_name =
+    (
+        section_entries = #()
+        key_names = getINISetting ini_path section_name
+
+        if classOf key_names != Array then return section_entries
+
+        for key_name in key_names do
+        (
+            append section_entries #(key_name, getINISetting ini_path section_name key_name)
+        )
+
+        section_entries
+        -- return
+    ),
+
+    /*
+    Replaces one complete INI section with supplied #(key, value) pairs.
+    The function returns false immediately when any persisted write fails.
+    */
+    function replaceIniSection section_name section_entries =
+    (
+        if section_name == undefined or section_name == "" then return false
+        if classOf section_entries != Array then return false
+
+        if hasINISetting ini_path section_name then
+        (
+            delINISetting ini_path section_name
+            if hasINISetting ini_path section_name then return false
+        )
+
+        for entry_data in section_entries do
+        (
+            if classOf entry_data != Array or entry_data.count != 2 then return false
+            if entry_data[1] == undefined or entry_data[1] == "" then return false
+
+            if not(setINISetting ini_path section_name entry_data[1] (entry_data[2] as string) forceUTF16:false) then return false
+        )
+
+        true
+        -- return
+    ),
+
+    /*
+    Builds one compact preset snapshot from enabled SOURCES and non-skipped script modes.
+    Missing entries naturally mean disabled source or #skip script state when restored.
+    */
+    function buildPresetEntries =
+    (
+        preset_entries = #()
+        enabled_source_keys = #()
+        configured_script_entries = #()
+        source_keys = getINISetting ini_path "Sources"
+        script_keys = getINISetting ini_path "Scripts"
+
+        if classOf source_keys != Array then source_keys = #()
+        if classOf script_keys != Array then script_keys = #()
+
+        sort source_keys
+        sort script_keys
+
+        for source_key in source_keys do
+        (
+            if (getINISetting ini_path "Sources" source_key) == "1" then append enabled_source_keys source_key
+        )
+
+        for script_key in script_keys do
+        (
+            mode_text = getINISetting ini_path "Scripts" script_key
+
+            if mode_text == "1" or mode_text == "2" then
+            (
+                append configured_script_entries #(script_key, mode_text)
+            )
+        )
+
+        append preset_entries #("PresetFormat", "1")
+        append preset_entries #("SourceCount", enabled_source_keys.count as string)
+
+        for source_index = 1 to enabled_source_keys.count do
+        (
+            append preset_entries #("Source_" + (source_index as string), enabled_source_keys[source_index])
+        )
+
+        append preset_entries #("ScriptCount", configured_script_entries.count as string)
+
+        for script_index = 1 to configured_script_entries.count do
+        (
+            script_entry = configured_script_entries[script_index]
+            append preset_entries #("Script_" + (script_index as string) + "_Key", script_entry[1])
+            append preset_entries #("Script_" + (script_index as string) + "_Mode", script_entry[2])
+        )
+
+        preset_entries
+        -- return
+    ),
+
+    /*
+    Saves the current Script-Manager loader configuration into one named preset section.
+    Existing preset data is restored automatically if the replacement write fails.
+    */
+    function savePreset preset_name =
+    (
+        normalized_name = this.normalizePresetName preset_name
+        if normalized_name == undefined then return false
+
+        preset_section = this.getPresetSectionName normalized_name
+        previous_entries = this.getIniSectionEntries preset_section
+        preset_entries = this.buildPresetEntries()
+
+        if not(this.replaceIniSection preset_section preset_entries) then
+        (
+            if not(this.replaceIniSection preset_section previous_entries) then
+            (
+                format "[Script-Manager] Preset rollback failed after save error: %\n" normalized_name
+            )
+
+            return false
+        )
+
+        true
+        -- return
+    ),
+
+    /*
+    Decodes one stored preset into #(source_entries, script_entries).
+    Invalid or incomplete preset data returns undefined before manager settings are changed.
+    */
+    function readPresetData preset_name =
+    (
+        normalized_name = this.normalizePresetName preset_name
+        if normalized_name == undefined then return undefined
+
+        preset_section = this.getPresetSectionName normalized_name
+        if not(hasINISetting ini_path preset_section) then return undefined
+        if (getINISetting ini_path preset_section "PresetFormat") != "1" then return undefined
+
+        source_count = this.getIniInteger preset_section "SourceCount" -1
+        script_count = this.getIniInteger preset_section "ScriptCount" -1
+        if source_count < 0 or script_count < 0 then return undefined
+
+        source_entries = #()
+        script_entries = #()
+        source_keys = #()
+        script_keys = #()
+        preset_valid = true
+
+        for source_index = 1 to source_count while preset_valid do
+        (
+            source_key = getINISetting ini_path preset_section ("Source_" + (source_index as string))
+
+            if source_key == "" or (findItem source_keys source_key) > 0 then
+            (
+                preset_valid = false
+            )
+            else
+            (
+                append source_keys source_key
+                append source_entries #(source_key, "1")
+            )
+        )
+
+        for script_index = 1 to script_count while preset_valid do
+        (
+            script_key = getINISetting ini_path preset_section ("Script_" + (script_index as string) + "_Key")
+            mode_text = getINISetting ini_path preset_section ("Script_" + (script_index as string) + "_Mode")
+
+            if script_key == "" or (findItem script_keys script_key) > 0 or not(mode_text == "1" or mode_text == "2") then
+            (
+                preset_valid = false
+            )
+            else
+            (
+                append script_keys script_key
+                append script_entries #(script_key, mode_text)
+            )
+        )
+
+        if preset_valid then #(source_entries, script_entries) else undefined
+        -- return
+    ),
+
+    /*
+    Refreshes SOURCES and SCRIPTS controls after preset state is written without rebuilding the active rollout.
+    Running scripts remain untouched and no configured script is executed by this refresh.
+    */
+    function refreshPresetConfiguration =
+    (
+        if script_manager_ui == undefined then return false
+
+        refresh_ok = true
+
+        try
+        (
+            if not(this.discoverSources()) then throw "discoverSources returned false"
+            if not(this.discoverScripts()) then throw "discoverScripts returned false"
+            if not(this.populateSourceTree()) then throw "populateSourceTree returned false"
+            if not(this.populateScriptTree()) then throw "populateScriptTree returned false"
+            if not(this.prepareScriptHost()) then throw "prepareScriptHost returned false"
+            if not(this.layoutManager [script_manager_ui.width, script_manager_ui.height]) then throw "layoutManager returned false"
+        )
+        catch
+        (
+            exception_text = getCurrentException()
+            refresh_ok = false
+            format "[Script-Manager] Preset configuration refresh failed: %\n" exception_text
+        )
+
+        refresh_ok
+        -- return
+    ),
+
+    /*
+    Loads one named preset without executing configured scripts.
+    SOURCES are restored before discovery, then the existing loader controls are synchronized to restored script modes.
+    */
+    function loadPreset preset_name =
+    (
+        normalized_name = this.normalizePresetName preset_name
+        if normalized_name == undefined then return false
+
+        preset_data = this.readPresetData normalized_name
+        if preset_data == undefined then return false
+
+        previous_source_entries = this.getIniSectionEntries "Sources"
+        previous_script_entries = this.getIniSectionEntries "Scripts"
+        restore_ok = true
+
+        if not(this.replaceIniSection "Sources" preset_data[1]) then restore_ok = false
+        if restore_ok and not(this.replaceIniSection "Scripts" preset_data[2]) then restore_ok = false
+
+        if not restore_ok then
+        (
+            this.replaceIniSection "Sources" previous_source_entries
+            this.replaceIniSection "Scripts" previous_script_entries
+            return false
+        )
+
+        if not(this.refreshPresetConfiguration()) then
+        (
+            source_rollback_ok = this.replaceIniSection "Sources" previous_source_entries
+            script_rollback_ok = this.replaceIniSection "Scripts" previous_script_entries
+
+            if source_rollback_ok and script_rollback_ok then
+            (
+                this.refreshPresetConfiguration()
+            )
+            else
+            (
+                format "[Script-Manager] Preset rollback failed after loader refresh error: %\n" normalized_name
+            )
+
+            return false
+        )
+
+        this.refreshPresetDropdown preferred_name:normalized_name
+        true
+        -- return
+    ),
+
+    /*
+    Deletes one named Script-Manager preset section without changing current loader settings.
+    Missing or invalid preset names return false.
+    */
+    function removePreset preset_name =
+    (
+        normalized_name = this.normalizePresetName preset_name
+        if normalized_name == undefined then return false
+
+        preset_section = this.getPresetSectionName normalized_name
+        if not(hasINISetting ini_path preset_section) then return false
+
+        delINISetting ini_path preset_section
+        not(hasINISetting ini_path preset_section)
+        -- return
+    ),
+
+    /*
+    Returns the live preset dropdown from the dynamic SCRIPTS rollout.
+    Undefined is returned while the rollout has not been built.
+    */
+    function getPresetDropdownControl =
+    (
+        if script_manager_scripts_ui == undefined then return undefined
+        if not(isProperty script_manager_scripts_ui #ddl_presets) then return undefined
+
+        script_manager_scripts_ui.ddl_presets
+        -- return
+    ),
+
+    /*
+    Rebuilds the preset dropdown while suppressing load callbacks caused by selection changes.
+    The neutral first item prevents refresh/open from applying any preset automatically.
+    */
+    function refreshPresetDropdown preferred_name:"" =
+    (
+        dropdown_control = this.getPresetDropdownControl()
+        if dropdown_control == undefined then return false
+
+        preset_names = this.getPresetNames()
+        display_items = #("<Preset>")
+        for preset_name in preset_names do append display_items preset_name
+
+        target_selection = 1
+        normalized_preferred_name = this.normalizePresetName preferred_name
+
+        if normalized_preferred_name != undefined then
+        (
+            preset_index = findItem preset_names normalized_preferred_name
+            if preset_index > 0 then target_selection = preset_index + 1
+        )
+
+        preset_dropdown_syncing = true
+        dropdown_control.items = display_items
+        dropdown_control.selection = target_selection
+        preset_dropdown_syncing = false
+
+        true
+        -- return
+    ),
+
+    /*
+    Returns the real preset name selected in the SCRIPTS dropdown.
+    The neutral <Preset> item returns undefined.
+    */
+    function getSelectedPresetName =
+    (
+        dropdown_control = this.getPresetDropdownControl()
+        if dropdown_control == undefined then return undefined
+
+        preset_index = dropdown_control.selection
+        if preset_index <= 1 or preset_index > dropdown_control.items.count then return undefined
+
+        dropdown_control.items[preset_index]
+        -- return
+    ),
+
+    /*
+    Opens the standard 3ds Max rename dialog for a preset name.
+    The normalized entered name is returned on OK; Cancel returns undefined.
+    */
+    function askPresetName default_value:"" =
+    (
+        preset_dialog = dotNetObject "MaxCustomControls.RenameInstanceDialog" default_value
+        preset_dialog.text = "Save Script-Manager Preset"
+        modal_result = preset_dialog.ShowModal()
+
+        if modal_result.ToString() != "OK" then return undefined
+
+        normalized_name = this.normalizePresetName preset_dialog.InstanceName
+
+        if normalized_name == undefined then
+        (
+            messageBox "Enter a non-empty preset name without [ ], |, or line breaks." title:"Script-Manager Preset"
+        )
+
+        normalized_name
+        -- return
+    ),
+
+    /*
+    Handles LMB on SAVE \\ REMOVE by naming and saving the current loader configuration.
+    Existing named presets are replaced only after explicit confirmation.
+    */
+    function handlePresetSave =
+    (
+        selected_name = this.getSelectedPresetName()
+        default_name = if selected_name == undefined then "" else selected_name
+        preset_name = this.askPresetName default_value:default_name
+        if preset_name == undefined then return true
+
+        save_confirmed = true
+
+        if this.hasPreset preset_name then
+        (
+            save_confirmed = queryBox ("Preset \"" + preset_name + "\" already exists. Replace it?") title:"Script-Manager Preset"
+        )
+
+        if not save_confirmed then return true
+
+        if this.savePreset preset_name then
+        (
+            this.refreshPresetDropdown preferred_name:preset_name
+            true
+        )
+        else
+        (
+            messageBox ("Could not save preset \"" + preset_name + "\".") title:"Script-Manager Preset"
+            false
+        )
+        -- return
+    ),
+
+    /*
+    Handles RMB on SAVE \\ REMOVE by deleting the preset selected in the dropdown.
+    Current SOURCES and script load modes are never changed by preset deletion.
+    */
+    function handlePresetRemove =
+    (
+        preset_name = this.getSelectedPresetName()
+
+        if preset_name == undefined then
+        (
+            messageBox "Select a preset in the dropdown before removing it." title:"Script-Manager Preset"
+            return false
+        )
+
+        remove_confirmed = queryBox ("Remove preset \"" + preset_name + "\"?") title:"Script-Manager Preset"
+        if not remove_confirmed then return true
+
+        if this.removePreset preset_name then
+        (
+            this.refreshPresetDropdown()
+            true
+        )
+        else
+        (
+            messageBox ("Could not remove preset \"" + preset_name + "\".") title:"Script-Manager Preset"
+            false
+        )
+        -- return
+    ),
+
+    /*
+    Handles one preset dropdown selection and restores the configuration only after confirmation.
+    Loading changes configuration state but never executes configured scripts automatically.
+    */
+    function handlePresetSelected item_index =
+    (
+        if preset_dropdown_syncing then return true
+        if item_index <= 1 then return true
+
+        preset_name = this.getSelectedPresetName()
+        if preset_name == undefined then return false
+
+        load_confirmed = queryBox \
+            ("Load preset \"" + preset_name + "\"?\n\nSOURCES and SKIP / HOST / DIRECT states will be restored. Running scripts are not executed automatically.") \
+            title:"Load Script-Manager Preset"
+
+        if not load_confirmed then
+        (
+            this.refreshPresetDropdown()
+            return true
+        )
+
+        if this.loadPreset preset_name then
+        (
+            true
+        )
+        else
+        (
+            this.refreshPresetDropdown()
+            messageBox ("Could not load preset \"" + preset_name + "\".") title:"Script-Manager Preset"
+            false
+        )
         -- return
     ),
 
@@ -1785,6 +2522,18 @@ struct script_manager_v
     ),
 
     /*
+    Returns the SOURCES ignore-mask edit control when the dynamic rollout exists.
+    */
+    function getSourceIgnoreMaskControl =
+    (
+        if script_manager_sources_ui == undefined then return undefined
+        if not(isProperty script_manager_sources_ui #edt_source_ignore) then return undefined
+
+        script_manager_sources_ui.edt_source_ignore
+        -- return
+    ),
+
+    /*
     Applies the standard dark TreeView appearance to one manager tree.
     */
     function styleTreeControl tree_control check_boxes:true =
@@ -1818,7 +2567,104 @@ struct script_manager_v
     ),
 
     /*
-    Rebuilds the SOURCES tree as the selectable subfolder hierarchy below the managed root.
+    Builds explicit dark-UI-safe SOURCES row images.
+    Image 0 is transparent for display-only tool rows; images 1/2 are unchecked/checked source glyphs.
+    */
+    function buildSourceTreeStateImages =
+    (
+        image_list = dotNetObject "System.Windows.Forms.ImageList"
+        image_list.ImageSize = dotNetObject "System.Drawing.Size" 16 16
+
+        color_depth_type = dotNetClass "System.Windows.Forms.ColorDepth"
+        image_list.ColorDepth = color_depth_type.Depth32Bit
+
+        color_type = dotNetClass "System.Drawing.Color"
+        graphics_type = dotNetClass "System.Drawing.Graphics"
+        transparent_color = color_type.Transparent
+        border_color = color_type.FromArgb 205 205 205
+        active_color = color_type.FromArgb 62 158 255
+
+        blank_bitmap = dotNetObject "System.Drawing.Bitmap" 16 16
+        blank_graphics = graphics_type.FromImage blank_bitmap
+        blank_graphics.Clear transparent_color
+        blank_graphics.Dispose()
+        image_list.Images.Add blank_bitmap
+
+        for state_index = 0 to 1 do
+        (
+            bitmap_value = dotNetObject "System.Drawing.Bitmap" 16 16
+            graphics_value = graphics_type.FromImage bitmap_value
+            graphics_value.Clear transparent_color
+
+            border_pen_value = dotNetObject "System.Drawing.Pen" border_color 1.0
+            graphics_value.DrawRectangle border_pen_value 2 2 11 11
+            border_pen_value.Dispose()
+
+            if state_index == 1 then
+            (
+                active_pen_value = dotNetObject "System.Drawing.Pen" active_color 2.0
+                graphics_value.DrawLine active_pen_value 4 8 7 11
+                graphics_value.DrawLine active_pen_value 7 11 12 5
+                active_pen_value.Dispose()
+            )
+
+            graphics_value.Dispose()
+            image_list.Images.Add bitmap_value
+        )
+
+        source_tree_state_images = image_list
+        true
+        -- return
+    ),
+
+    /*
+    Returns whether one SOURCES row represents a selectable recursive source rather than a display-only terminal directory.
+    */
+    function isSourceTreeNodeSelectable tree_node =
+    (
+        if tree_node == undefined then return false
+        tree_node.Name == "SOURCE_SELECTABLE"
+        -- return
+    ),
+
+    /*
+    Applies the persisted enabled state to one selectable SOURCES row.
+    */
+    function setSourceTreeNodeVisualState tree_node enabled =
+    (
+        if tree_node == undefined then return false
+
+        image_index = if enabled then 2 else 1
+        tree_node.ImageIndex = image_index
+        tree_node.SelectedImageIndex = image_index
+        true
+        -- return
+    ),
+
+    /*
+    Applies the dark SOURCES TreeView style with custom per-row checkbox images.
+    Native TreeView checkboxes stay disabled; display-only tool rows use the explicit transparent image slot.
+    */
+    function styleSourceTree =
+    (
+        tree_control = this.getSourceTreeControl()
+        if tree_control == undefined then return false
+
+        if not(this.styleTreeControl tree_control check_boxes:false) then return false
+        if source_tree_state_images == undefined then
+        (
+            if not(this.buildSourceTreeStateImages()) then return false
+        )
+
+        tree_control.ImageList = source_tree_state_images
+        tree_control.ImageIndex = 0
+        tree_control.SelectedImageIndex = 0
+        true
+        -- return
+    ),
+
+    /*
+    Rebuilds the SOURCES tree as selectable category folders plus display-only nested terminal directories.
     */
     function populateSourceTree =
     (
@@ -1831,7 +2677,7 @@ struct script_manager_v
 
         try
         (
-            this.styleTreeControl source_tree
+            if not(this.styleSourceTree()) then throw "styleSourceTree returned false"
             if source_tree_context_menu == undefined then this.buildSourceTreeContextMenu()
             source_tree.BeginUpdate()
             source_tree.Nodes.Clear()
@@ -1856,10 +2702,24 @@ struct script_manager_v
                     if parent_index > 0 then parent_nodes = source_node_values[parent_index].Nodes
                 )
 
+                source_selectable = false
+                if source_index <= available_source_selectable.count then source_selectable = available_source_selectable[source_index]
                 source_node = parent_nodes.Add source_name
                 source_node.Tag = source_directory
-                source_node.ToolTipText = source_directory
-                source_node.Checked = this.getSourceEnabled source_directory
+                source_node.Name = if source_selectable then "SOURCE_SELECTABLE" else "SOURCE_TOOL"
+
+                if source_selectable then
+                (
+                    source_node.ToolTipText = source_directory
+                    if not(this.setSourceTreeNodeVisualState source_node (this.getSourceEnabled source_directory)) then throw "setSourceTreeNodeVisualState returned false"
+                )
+                else
+                (
+                    source_node.ToolTipText = source_directory
+                    source_node.ImageIndex = 0
+                    source_node.SelectedImageIndex = 0
+                )
+
                 append source_node_paths relative_path
                 append source_node_values source_node
             )
@@ -1934,14 +2794,35 @@ function refreshConfiguredDiscovery =
     (
         if check_args == undefined or check_args.Node == undefined then return false
         if source_tree_syncing_checks then return true
+        if not(this.isSourceTreeNodeSelectable check_args.Node) then return true
 
         tree_action_type = dotNetClass "System.Windows.Forms.TreeViewAction"
         if check_args.Action == tree_action_type.Unknown then return true
 
-        source_directory = check_args.Node.ToolTipText
+        source_directory = check_args.Node.Tag
         if source_directory == undefined or source_directory == "" then return false
         if not(this.saveSourceEnabled source_directory check_args.Node.Checked) then return false
 
+        this.refreshConfiguredDiscovery()
+        -- return
+    ),
+
+    /*
+    Applies a new SOURCES ignore mask from the edit field and refreshes both loader trees.
+    Invalid expressions restore the previous persisted value.
+    */
+    function handleSourceIgnoreMaskEntered mask_text =
+    (
+        previous_mask = source_ignore_mask
+
+        if not(this.saveSourceIgnoreMask mask_text) then
+        (
+            ignore_control = this.getSourceIgnoreMaskControl()
+            if ignore_control != undefined then ignore_control.text = previous_mask
+            return false
+        )
+
+        if not(this.populateSourceTree()) then return false
         this.refreshConfiguredDiscovery()
         -- return
     ),
@@ -2266,11 +3147,33 @@ function refreshConfiguredDiscovery =
         if tree_control == undefined then return false
 
         mouse_buttons = dotNetClass "System.Windows.Forms.MouseButtons"
-        if click_args.Button != mouse_buttons.Right then return true
+
+        if click_args.Button == mouse_buttons.Right then
+        (
+            tree_control.SelectedNode = click_args.Node
+            if source_tree_context_menu != undefined then source_tree_context_menu.Show tree_control click_args.Location
+            return true
+        )
+
+        if click_args.Button != mouse_buttons.Left then return false
 
         tree_control.SelectedNode = click_args.Node
-        if source_tree_context_menu != undefined then source_tree_context_menu.Show tree_control click_args.Location
-        true
+        if not(this.isSourceTreeNodeSelectable click_args.Node) then return true
+
+        hit_info = tree_control.HitTest click_args.Location
+        if hit_info == undefined then return true
+
+        hit_location_text = hit_info.Location.ToString()
+        if (findString hit_location_text "Image") == undefined then return true
+
+        source_directory = click_args.Node.Tag
+        if source_directory == undefined or source_directory == "" then return false
+
+        enabled = not(this.getSourceEnabled source_directory)
+        if not(this.saveSourceEnabled source_directory enabled) then return false
+        if not(this.setSourceTreeNodeVisualState click_args.Node enabled) then return false
+
+        this.refreshConfiguredDiscovery()
         -- return
     ),
 
@@ -2677,12 +3580,12 @@ function refreshConfiguredDiscovery =
     function getScriptTreeRequiredHeight =
     (
         tree_control = this.getScriptTreeControl()
-        if tree_control == undefined then return 1032
+        if tree_control == undefined then return 996
 
         tree_node_count = tree_control.GetNodeCount true
         required_height = 12 + (tree_node_count * tree_control.ItemHeight)
 
-        if required_height < 1032 then required_height = 1032
+        if required_height < 996 then required_height = 996
 
         required_height
         -- return
@@ -3316,7 +4219,7 @@ function appendScriptFromTree script_path =
             this.syncScriptTreeChecks()
 
             script_tree_required_height = this.getScriptTreeRequiredHeight()
-            loader_content_height = 1664
+            loader_content_height = 1700
         )
         catch
         (
@@ -3457,9 +4360,12 @@ function appendScriptFromTree script_path =
         loader_rollout_open = source_rollout_open or script_rollout_open
         this.loadShowVersionedFiles()
         this.loadShowCleanScriptsOnly()
+        this.loadSourceIgnoreMask()
 
         source_text = "rollout script_manager_sources_ui \"SOURCES\" width:288 height:" + (source_rollout_content_height as string) + "\n(\n"
-        source_text += "    dotNetControl tv_sources \"System.Windows.Forms.TreeView\" pos:[6,6] width:276 height:512\n"
+        source_text += "    editText edt_source_ignore \"IGNORE:\" pos:[6,6] width:276 height:24 text:\"\" tooltip:\"Pipe-separated regex folder masks.\\nPlain names match exactly; * is accepted as a wildcard.\\n\\nENTER: Apply the mask and refresh SOURCES.\"\n"
+        source_text += "    dotNetControl tv_sources \"System.Windows.Forms.TreeView\" pos:[6,42] width:276 height:512\n"
+        source_text += "    on edt_source_ignore entered mask_text do (if script_manager != undefined then script_manager.handleSourceIgnoreMaskEntered mask_text)\n"
         source_text += "    on tv_sources NodeMouseClick click_args do (if script_manager != undefined then script_manager.handleSourceTreeNodeClick click_args)\n"
         source_text += "    on tv_sources AfterCheck check_args do (if script_manager != undefined then script_manager.handleSourceTreeAfterCheck check_args)\n"
         source_text += "    on tv_sources AfterExpand event_args do (if script_manager != undefined then script_manager.handleSourceTreeExpandedState event_args)\n"
@@ -3472,15 +4378,20 @@ function appendScriptFromTree script_path =
         script_text += "    button btn_load_scripts \"LOAD SCRIPTS\" pos:[6,6] width:132 height:24 tooltip:\"LMB: Load only configured scripts that are not currently running.\\n\\nRMB: Hard reload every configured script.\"\n"
         script_text += "    checkbox chk_show_versions \"SHOW VERSIONED FILES\" pos:[6,42] width:132 height:24 checked:" + (show_versioned_files as string) + " tooltip:\"Show every versioned script instead of only the canonical file or newest version.\"\n"
         script_text += "    checkbox chk_clean_scripts \"CLEAN SCRIPTS ONLY\" pos:[144,42] width:138 height:24 checked:" + (show_clean_scripts_only as string) + " tooltip:\"Show only an unversioned script whose name matches its parent folder.\"\n"
-        script_text += "    dotNetControl tv_scripts \"System.Windows.Forms.TreeView\" pos:[6,78] width:276 height:1032\n"
+        script_text += "    dropdownList ddl_presets \"\" pos:[6,78] width:180 height:24 items:#(\"<Preset>\") tooltip:\"Select a preset to restore SOURCES and script load modes.\\n\\nLoading a preset does not run scripts.\"\n"
+        script_text += "    button btn_preset_save_remove \"SAVE \\\\ REMOVE\" pos:[192,78] width:90 height:24 tooltip:\"LMB: Save SOURCES and SKIP / HOST / DIRECT states as a named preset.\\n\\nRMB: Remove the preset selected in the dropdown.\"\n"
+        script_text += "    dotNetControl tv_scripts \"System.Windows.Forms.TreeView\" pos:[6,114] width:276 height:996\n"
         script_text += "    on btn_load_scripts pressed do (if script_manager != undefined then script_manager.updateScripts())\n"
         script_text += "    on btn_load_scripts rightclick do (if script_manager != undefined then script_manager.loadScripts())\n"
+        script_text += "    on btn_preset_save_remove pressed do (if script_manager != undefined then script_manager.handlePresetSave())\n"
+        script_text += "    on btn_preset_save_remove rightclick do (if script_manager != undefined then script_manager.handlePresetRemove())\n"
+        script_text += "    on ddl_presets selected item_index do (if script_manager != undefined then script_manager.handlePresetSelected item_index)\n"
         script_text += "    on tv_scripts NodeMouseClick click_args do (if script_manager != undefined then script_manager.handleScriptTreeNodeClick click_args)\n"
         script_text += "    on tv_scripts AfterExpand event_args do (if script_manager != undefined then script_manager.handleScriptTreeExpandedState event_args)\n"
         script_text += "    on tv_scripts AfterCollapse event_args do (if script_manager != undefined then script_manager.handleScriptTreeExpandedState event_args)\n"
         script_text += "    on chk_show_versions changed state do (if script_manager != undefined then script_manager.handleShowVersionedChanged state)\n"
         script_text += "    on chk_clean_scripts changed state do (if script_manager != undefined then script_manager.handleShowCleanScriptsChanged state)\n"
-        script_text += "    on script_manager_scripts_ui open do (if script_manager != undefined then script_manager.populateScriptTree())\n"
+        script_text += "    on script_manager_scripts_ui open do (if script_manager != undefined then (script_manager.populateScriptTree(); script_manager.refreshPresetDropdown()))\n"
         script_text += "    on script_manager_scripts_ui rolledUp state do (if script_manager != undefined then script_manager.setScriptRolloutOpen state)\n"
         script_text += ")"
 
@@ -3493,11 +4404,14 @@ function appendScriptFromTree script_path =
             script_rollout = script_manager_scripts_ui
             loader_rollout = script_rollout
 
+            if isProperty source_rollout #edt_source_ignore then source_rollout.edt_source_ignore.text = source_ignore_mask
+
             addSubRollout script_manager_ui.sr_loader source_rollout rolledUp:(not source_rollout_open)
             addSubRollout script_manager_ui.sr_loader script_rollout rolledUp:(not script_rollout_open)
 
             if not(this.populateSourceTree()) then throw "populateSourceTree returned false"
             if not(this.populateScriptTree()) then throw "populateScriptTree returned false"
+            if not(this.refreshPresetDropdown()) then throw "refreshPresetDropdown returned false"
         )
         catch
         (
@@ -4433,10 +5347,10 @@ function getHostDialogIniSection host_path =
     (
         position_x = this.getIniInteger "Dialog" "X" 120
         position_y = this.getIniInteger "Dialog" "Y" 120
-        dialog_height = this.getIniInteger "Dialog" "Height" 1748
+        dialog_height = this.getIniInteger "Dialog" "Height" 1784
         dock_text = getINISetting ini_path "Dialog" "Dock"
 
-        if dialog_height < 1748 then dialog_height = 1748
+        if dialog_height < 1784 then dialog_height = 1784
         if dialog_height > 2000 then dialog_height = 2000
         if dock_text != "left" and dock_text != "right" then dock_text = "float"
 
@@ -4622,6 +5536,9 @@ function applyHostDockState host_path dock_text =
             source_rollout.width = usable_width
             source_rollout.height = source_rollout_content_height
 
+            source_ignore_control = this.getSourceIgnoreMaskControl()
+            if source_ignore_control != undefined then source_ignore_control.width = amax 20 (usable_width - 12)
+
             source_tree = this.getSourceTreeControl()
             if source_tree != undefined then
             (
@@ -4639,7 +5556,7 @@ function applyHostDockState host_path dock_text =
             if tree_control != undefined then
             (
                 tree_control.Width = amax 20 (usable_width - 12)
-                tree_control.Height = 1032
+                tree_control.Height = 996
             )
         )
 
@@ -5430,6 +6347,7 @@ function reloadScripts =
         if debug_logging then format "[Script-Manager] RELOAD STAGE: restore filters\n"
         this.loadShowVersionedFiles()
         this.loadShowCleanScriptsOnly()
+        this.loadSourceIgnoreMask()
 
         if debug_logging then format "[Script-Manager] RELOAD STAGE: discover sources\n"
         if not(this.discoverSources()) then throw "discoverSources returned false"
@@ -5989,7 +6907,7 @@ function destroyManagerDialog =
         try
         (
             cui.RegisterDialogBar script_manager_ui \
-                minSize:[336,1748] \
+                minSize:[336,1784] \
                 style:(this.getDialogBarStyles())
         )
         catch
@@ -6112,13 +7030,13 @@ function destroyManagerDialog =
     )
 )
 
-script_manager_version_text = "1.137"
+script_manager_version_text = formattedPrint script_manager_project_version format:"1.3f"
 script_manager_title = "Script-Manager " + script_manager_version_text
 
-rollout script_manager_ui script_manager_title width:336 height:1748 autoLayoutOnResize:true
+rollout script_manager_ui script_manager_title width:336 height:1784 autoLayoutOnResize:true
 (
     button btn_refresh_restart "REFRESH \\ RESTART" pos:[12,12] width:312 height:24 tooltip:"LMB: Rescan selected sources and rebuild the loader trees.\n\nRMB: Load the newest Script-Manager version, or restart the current version when no newer file exists."
-    subRollout sr_loader "" pos:[12,48] width:312 height:1688
+    subRollout sr_loader "" pos:[12,48] width:312 height:1724
 
     on btn_refresh_restart pressed do
     (

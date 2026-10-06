@@ -23,7 +23,7 @@ Feature modules must not depend on rollouts, controls, dialog state, or INI UI p
 
 - `IniSettings.ms` — generic typed INI read/write helpers.
 - `RolloutState.ms` — persistence helpers for common rollout controls.
-- `DialogHost.ms` — floating-dialog ownership, old-version cleanup, position persistence, and vertical-size persistence.
+- `DialogHost.ms` — floating-dialog position and vertical-size persistence.
 - `ScriptReload.ms` — generic reload helper that prefers a newer matching versioned script.
 - `ToolTitleButton.ms` — canonical reusable `tool title button` styling plus the global `restartTool` helper.
 - `Default-UI-Template.ms` — frontend-only rollout template showing how the pieces connect.
@@ -37,8 +37,8 @@ Start new UI work from `Default-UI-Template.ms`. From the first version, a stand
 - the canonical `.NET tool title button` at the top of the UI;
 - LMB restart through `restartTool`;
 - INI persistence for relevant control values, modes, and options;
+- one stable, unversioned INI stored beside the owning/main `.ms` script by default;
 - remembered dialog position and supported size state through `DialogHost.ms`;
-- stable version-independent dialog ownership, so opening/restarting a new version destroys any still-open older-version dialog of the same tool;
 - the shared 12 px sizing/layout defaults from `maxscript-ui-rules.md`.
 
 Embedded child/subrollouts inside one owning dialog do not repeat the tool title button. They still follow the shared layout/state rules and persist their own relevant state. A rollout that is launched as its own dialog receives the full baseline.
@@ -49,9 +49,9 @@ Do not create a minimal UI first and plan to retrofit these defaults later. Omit
 
 Load the shared helper files from their canonical location. Do not copy their implementation into every tool.
 
-Load `ScriptReload.ms` before `ToolTitleButton.ms`. The `tool title button` belongs at the top of the owning UI, uses the tool/dialog name only as its label, and its LMB action calls `restartTool`.
+By default, resolve the tool INI from the owning/main script path and save it in that same folder. Versioned entry scripts share one stable unversioned INI filename. Do not fall back to `#userScripts` or another global folder unless the project explicitly overrides the default.
 
-Give every owning tool UI one stable dialog-owner key that does not contain a version number. Pass that key to `DialogHost.createManagedDialog`; it destroys any registered dialog from an older version of the same tool before creating and registering the new one.
+Load `ScriptReload.ms` before `ToolTitleButton.ms`. The `tool title button` belongs at the top of the owning UI, uses the tool/dialog name only as its label, and its LMB action calls `restartTool`.
 
 Keep project-specific processing in separate feature modules. UI event handlers should gather UI values, call a public feature function, and update displayed state only.
 

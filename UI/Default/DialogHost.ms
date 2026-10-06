@@ -13,6 +13,43 @@ if dialog_host_registry == undefined then
 struct DialogHost_v
 (
     /*
+    Unregisters a rollout from the CUI dialog-bar system before it is destroyed.
+    */
+    function unregisterDockableDialog rollout_ref =
+    (
+        if rollout_ref == undefined then return false
+
+        local is_dialog_bar = try (rollout_ref.dialogBar) catch (false)
+
+        if is_dialog_bar then
+        (
+            try (cui.UnRegisterDialogBar rollout_ref) catch ()
+        )
+
+        true
+    ),
+
+    /*
+    Registers a dialog as floatable and dockable only on the left or right side.
+    */
+    function registerDockableDialog rollout_ref =
+    (
+        if rollout_ref == undefined then return false
+
+        unregisterDockableDialog rollout_ref
+
+        try
+        (
+            cui.RegisterDialogBar rollout_ref style:#(#cui_dock_vert, #cui_floatable, #cui_handles)
+            true
+        )
+        catch
+        (
+            false
+        )
+    ),
+
+    /*
     Destroys every dialog registered for one stable, version-independent tool key.
     */
     function destroyToolDialogs tool_key =
@@ -29,6 +66,7 @@ struct DialogHost_v
 
                 if rollout_ref != undefined then
                 (
+                    unregisterDockableDialog rollout_ref
                     try (destroyDialog rollout_ref) catch ()
                 )
 
@@ -65,9 +103,11 @@ struct DialogHost_v
             destroyToolDialogs tool_key
         )
 
+        unregisterDockableDialog rollout_ref
         try (destroyDialog rollout_ref) catch ()
 
         createDialog rollout_ref width:default_width height:saved_height pos:saved_pos lockWidth:true lockHeight:false autoLayoutOnResize:true
+        registerDockableDialog rollout_ref
 
         if tool_key != "" then
         (

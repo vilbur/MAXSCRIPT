@@ -8,13 +8,13 @@ It is not owned by EPolyTools. When the package lives directly below the shared 
 
 Production uses one synchronized release number everywhere:
 
-- file version: `1.137`
-- project version: `1.137`
-- loader dialog title: `Script-Manager 1.137`
+- file version: `1.148`
+- project version: `1.148`
+- loader dialog title: `Script-Manager 1.148`
 - generated host-dialog titles: `<Parent Folder>`
 - visible loader version is shown in the main dialog title; the redundant top info/version labels are removed
 
-The production snapshot for this release is `Script-Manager_1.137.ms`.
+The production snapshot for this release is `Script-Manager_1.148.ms`.
 
 **Stable MVP baseline:** `1.134`. All future development must start from the current canonical `Script-Manager.ms` corresponding to this baseline unless a newer stable baseline is explicitly confirmed.
 
@@ -26,7 +26,7 @@ Supported script types are `.ms`, `.mcr`, and `.mse`.
 
 The loader has two TreeViews:
 
-- `SOURCES` — an organizational folder tree below the managed root. Nested terminal tool folders are omitted because individual tools are represented in `SCRIPTS`; parent/category folders remain selectable as recursive sources. A terminal folder directly below the managed root remains visible so it cannot become unreachable. The managed root itself is not shown as a redundant source item.
+- `SOURCES` — an organizational directory tree below the managed root. A persisted `IGNORE:` edit field above the tree filters directory names before they are added or traversed; the default mask is `.git`. Masks are pipe-separated, case-insensitive regular-expression patterns, with plain names matched literally and `*` accepted as wildcard shorthand (for example `.git|.*-DELETED|*-OLD|`). Press ENTER to apply the edited mask. A directory becomes a display-only hierarchy stopper when it contains an unversioned `.ms` file whose basename exactly matches the directory name, for example `script-name\script-name.ms`, or when the directory is completely empty. Stopper rows stay visible, have no checkbox at any nesting depth, and do not show children. Other directories remain selectable recursive sources with the existing checkbox glyph style. SOURCES reserves image slot 0 as a transparent row image so stopper rows remain visually checkbox-free. The managed root itself is not shown as a redundant source item.
 - `SCRIPTS` — scripts found under the checked sources. Script leaves use a persisted tri-state load mode. `LOAD SCRIPTS` LMB performs a soft update and RMB performs a full hard reload.
 
 For display only, `SCRIPTS` flattens redundant terminal tool folders. When a folder has exactly one visible script, has no visible descendant scripts, and that script basename matches the folder name, the folder node is omitted and the script leaf is shown directly in the parent. For example, `Loop Tools > Remove-Verts > Remove-Verts.ms` is displayed as `Loop Tools > Remove-Verts.ms`. The real script path, persisted load mode, and HOST/DIRECT behavior are unchanged.
@@ -34,14 +34,14 @@ For display only, `SCRIPTS` flattens redundant terminal tool folders. When a fol
 The loader UI uses two independent collapsible rollouts:
 
 - the main dialog header contains `REFRESH \ RESTART`; LMB refreshes discovery and RMB restarts/version-reloads Script-Manager;
-- `SOURCES` contains only the SOURCES TreeView;
-- `SCRIPTS` contains `LOAD SCRIPTS`, both script filters on one row, and the SCRIPTS TreeView.
+- `SOURCES` contains the `IGNORE:` edit field plus the SOURCES TreeView;
+- `SCRIPTS` contains `LOAD SCRIPTS`, both script filters on one row, the named preset controls, and the SCRIPTS TreeView.
 
 The duplicate `SOURCES` / `SCRIPTS` labels above the TreeViews were removed because the rollout titles provide the section names. Each rollout's expanded/collapsed state is stored independently in `script_manager.ini`.
 
-Source checkbox states and script tri-state modes are stored in `script_manager.ini`. Filter states, TreeView expanded/collapsed states, rollout states, dialog geometry, and dock states are also persisted there. If both a parent source and one of its descendants are checked, the descendant is not scanned a second time because the parent already covers that subtree.
+Source checkbox states and script tri-state modes are stored in `script_manager.ini`. Filter states, the SOURCES ignore mask, TreeView expanded/collapsed states, rollout states, dialog geometry, and dock states are also persisted there. If both a parent source and one of its descendants are checked, the descendant is not scanned a second time because the parent already covers that subtree.
 
-When a previously checked nested terminal tool folder becomes hidden by the parent-only SOURCES view, Script-Manager migrates that checked state to its visible parent and clears the hidden leaf setting.
+When a previously checked hierarchy-stopper folder becomes a display-only no-checkbox row in `SOURCES`, Script-Manager migrates that checked state to its visible selectable parent and clears the stopper-folder source setting. Stopper classification is content-based: `FolderName\FolderName.ms` ends SOURCES hierarchy traversal at `FolderName`, even when helper files or child directories exist below that tool folder. A completely empty directory is also display-only/no-checkbox. A non-empty leaf folder without a same-name `.ms` file remains a selectable source.
 
 
 ## Hosted tool dialogs
@@ -207,23 +207,24 @@ Existing EPoly tools remain compatible through the `EPolyToolsIntegration` and `
 Maxscript/
 ├─ Script-Manager/
 │  ├─ Script-Manager.ms
-│  ├─ Script-Manager_1.135.ms
+│  ├─ Script-Manager_1.148.ms
 │  ├─ Script-Manager.md
 │  ├─ changes.md
 │  └─ tests/
 │     ├─ Script-Manager-test.ms
-│     └─ Script-Manager-test_1.134.ms
+│     └─ Script-Manager-test_1.139.ms
 ├─ Epoly/
 ├─ Modules/
 ├─ UI/
 └─ ...
 ```
 
-The canonical regression test is `tests/Script-Manager-test.ms`. This release advances its internal file version to `1.134`, stores project version `1.135`, and preserves a matching `Script-Manager-test_1.134.ms` snapshot.
+The canonical regression test is `tests/Script-Manager-test.ms`. This release advances its internal file version to `1.147`, stores project version `1.148`, and creates no new versioned test snapshot; the existing `Script-Manager-test_1.139.ms` snapshot remains unchanged.
 
 ## Safety
 
 - Unchecked source trees are not recursively scanned.
+- Display-only `SOURCES` tool-directory rows have no checkbox and are never treated as selectable source roots.
 - Script discovery does not execute files by itself.
 - Runtime rollout/dialog titles are resolved before declaration and are never mutated after creation.
 - Load failures remain failures.

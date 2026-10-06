@@ -38,12 +38,13 @@ These defaults are required from the **first runnable UI version** of every new 
 \- Do not first create a stripped-down, unpersisted, or differently styled prototype with the intention of adding the shared UI defaults later.  
 \- Every standalone tool dialog or owning rollout must use the canonical `.NET tool title button` from its first version. LMB on it performs the shared restart action.  
 \- Every standalone tool dialog or owning rollout must use INI-backed UI state persistence from its first version. Persist relevant control values, selected modes/options, dialog position, and the supported dialog size state.  
-\- Every standalone tool dialog or owning rollout must use a stable, version-independent dialog-owner key from its first version. Before creating the dialog, destroy any registered dialog for that same tool key, including dialogs created by older versioned script files.  
-\- The dialog-owner key identifies the tool, not the build. Never include a file version, project version, or build number in that key.  
+\- By default, store that INI file in the **same directory as the owning/main MaxScript `.ms` file**. Derive the directory from the actual source-script path; do not default to `#userScripts`, AppData, temp, the current working directory, or another global settings folder.  
+\- Use a stable, unversioned INI filename for the tool so all versioned entry scripts share the same settings file, for example `ToolName.ini` or `ToolName-UI.ini`. Do not append the project/file version to the INI filename.  
 \- Use the canonical `IniSettings.ms`, `RolloutState.ms`, `DialogHost.ms`, `ScriptReload.ms`, and `ToolTitleButton.ms` helpers where their responsibility applies; do not duplicate those helper implementations inside each tool.  
 \- Apply the shared 12 px sizing grid, standard 24 px control height, default 96 × 24 px button size, preferred widths, spacing, and resizing rules from the first UI version.  
 \- Embedded child/subrollouts inside one owning dialog do not duplicate the `tool title button`; they inherit the owning UI shell and must still follow the shared sizing/state rules and persist their own relevant control state.  
 \- A rollout that can run as an independent dialog receives the full baseline.  
+\- Every standalone dialog/owning rollout must be floatable and dockable to the **left or right** side of 3ds Max by default; do not enable top/bottom docking unless explicitly requested.  
 \- Omitting any baseline default requires an explicit project/user requirement. Do not treat lack of a request as permission to omit it.
 
 
@@ -71,15 +72,15 @@ These defaults are required from the **first runnable UI version** of every new 
 
 
 
-\- Before creating any standalone tool dialog or owning rollout, destroy all previously registered dialogs for the same stable tool key. This is mandatory, not conditional.  
-\- Loading or restarting a newer version of a tool must close the still-open dialog from the older version before the new dialog is created. Only one owning dialog for a tool may remain open across versions.  
-\- Use the shared `DialogHost.createManagedDialog` ownership/registry path for owning dialogs unless the project explicitly requires another host. Do not bypass it with a direct `createDialog` that leaves older registered versions alive.  
-\- Keep the dialog-owner key stable across versions and unique to the tool. Never put the version number in the key.  
+\- Destroy or close an existing instance of the dialog before creating a new one when duplicate dialogs would be a problem.  
 \- Remember dialog position when the tool is expected to be used repeatedly.  
 \- Restore the saved position safely; fall back to a valid default if the stored position is invalid.  
 \- Keep dialog dimensions usable at common Windows display scaling values.  
 \- Prefer resizable layouts for tools containing lists, trees, logs, or other content that benefits from extra space.  
 \- Do not allow resizing to make required controls inaccessible or overlap.  
+\- Register standalone dialogs/owning rollouts as CUI dialog bars with `style:#(#cui_dock_vert, #cui_floatable, #cui_handles)` so they can float or dock on the left/right only.  
+\- Keep dialogs floating initially unless a project explicitly requests an initial docked side.  
+\- Before destroying a registered dialog bar with `destroyDialog`, unregister it with `cui.UnRegisterDialogBar`.  
 \- Always include the current tool version number in the native dialog/tool title when that title is visible.  
 \- Keep the displayed native title version synchronized with the actual running script version.  
 \- The `tool title button` is exempt from the version-in-title rule: its label is always the tool/dialog name only.  
@@ -200,6 +201,7 @@ on myRollout open do
 \- Use a **12 px base grid** for dialog and control dimensions.  
 \- Default button size: **96 × 24 px**.  
 \- Standard control height: **24 px**.  
+\- Exception: the canonical `tool title button` / title-restart button is **18 px** high. Keep its current font family and style, and increase its current font size by **2.0**; do not force the standard 24 px control height.  
 \- Preferred control widths: **72, 96, 144, 192, 288 px**.  
 \- Preferred dialog widths: **336, 384, 480, 576 px**.  
 \- Standard spacing: **12 px**.  
@@ -326,8 +328,9 @@ btn.Font = dotNetObject \\
 \- Border width: `0 px`.  
 \- Hover background: RGB `45, 45, 48`.  
 \- Pressed background: RGB `45, 45, 48`.  
+\- Keep the current font family and style, and increase the current font size by `2.0`.  
 \- Do not allow the normal bright Windows hover or pressed highlight.  
-\- Default height: **24 px**.  
+\- Default height: **18 px**.  
 \- Fill the available dialog width. With standard `12 px` side margins, use `dialog_width - 24 px`.  
 \- Resize the `tool title button` horizontally whenever the owning dialog width changes.  
 \- Use reusable function names containing `ToolTitleButton`, for example `setupToolTitleButton` and `resizeToolTitleButton`.  
@@ -423,6 +426,16 @@ button_control.FlatAppearance.MouseDownBackColor = button_control.BackColor
 
 
 For every MaxScript dialog/rollout covered by the mandatory UI baseline, persist UI state in an INI file from the first runnable UI version unless the project explicitly requires another storage method.
+
+Default INI location and naming:
+
+- Save the INI beside the owning/main `.ms` script by default.
+- Resolve the folder from the actual current source-script path, normally from `getSourceFileName()` plus `getFilenamePath`.
+- Use a stable tool-level INI filename without a version suffix so old and new script versions read and write the same settings file.
+- Do not default UI state to `getDir #userScripts`, AppData, temp folders, the current working directory, or another shared/global folder.
+- If the source script has no resolvable saved path, do not silently redirect the INI elsewhere. Report that the script path must be resolved, unless the project explicitly defines another storage location.
+- Embedded child/subrollouts share the owning tool's INI by default and use separate sections/keys as needed; do not create one INI per child rollout unless explicitly required.
+
 
 
 
@@ -526,12 +539,14 @@ When a dialog contains multiple rollouts, resize the rollout/subrollout area rat
 
 \- Include test code for new UI components or behaviors.  
 \- Test dialog creation more than once to catch duplicate rollout or callback problems.  
-\- With an older version's dialog still open, load the next version and verify that the older dialog is destroyed automatically and exactly one dialog for that tool remains.  
 \- Test common interaction states: default, hover, pressed, disabled, invalid selection, and dialog reopen.  
 \- Test remembered settings and dialog position after reopening the tool.  
+\- Verify standalone dialogs can dock on both the left and right sides, remain floatable, and do not dock to the top or bottom by default.  
+\- Verify registered dockable dialogs are unregistered before programmatic destruction/restart.  
+\- Verify that the default INI is created beside the owning/main `.ms` script and that multiple versioned entry scripts use the same unversioned INI file.  
 \- Test that the native dialog/tool title shows the actual running version number when it is visible.  
 \- For a `tool title button`, verify that the label contains only the tool/dialog name and no version text.  
-\- For a `tool title button`, verify RGB `45, 45, 48` for normal, hover, and pressed backgrounds; RGB `62, 158, 255` text; `0 px` border; and `24 px` height.  
+\- For a `tool title button`, verify RGB `45, 45, 48` for normal, hover, and pressed backgrounds; RGB `62, 158, 255` text; `0 px` border; and `18 px` height with the current font size increased by `2.0`.  
 \- Resize the dialog horizontally and verify that the `tool title button` continues to fill the usable width.  
 \- Test `restartTool` behavior for both cases: a newer matching versioned script exists, and no newer version exists.  
 \- Verify that LMB on the `tool title button` calls `restartTool`.  
