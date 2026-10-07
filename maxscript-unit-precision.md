@@ -90,6 +90,59 @@ function isSameLevel z_a z_b position_tolerance =
 )
 ```
 
+## Required position precision contract
+
+Any operation whose correctness depends on positions must take an explicit position-rounding precision from its caller. This applies when Point3/position values are used for:
+
+- equality or inequality decisions;
+- geometry identity or re-resolution;
+- matching vertices/edges/faces by position;
+- duplicate-position detection;
+- grouping or bucketing positions;
+- position-based topology lookup;
+- expected-versus-actual move verification;
+- other branching where tiny floating-point differences would otherwise change the result.
+
+Canonical choices:
+
+- `1mm`;
+- `0.1mm`;
+- `0.01mm` — default.
+
+Unless a project explicitly extends this contract, do not invent additional position-precision values.
+
+The reusable operation must receive the value explicitly, preferably as `position_precision` or `position_precision_mm`. A low-level reusable function must not silently read a UI control or private global to discover the precision. The UI/tool layer resolves the selected setting and passes it down.
+
+The precision values are defined in millimeters regardless of the current 3ds Max system-unit setup. Convert the selected millimeter value to the active system-unit numeric value before applying it. Do not assume that literal `0.01` scene units means `0.01mm`.
+
+For position equality/identity, quantize a temporary copy of each coordinate to the nearest multiple of the selected precision and compare those quantized copies. For example, conceptually:
+
+```maxscript
+function roundPositionToPrecision position_value position_precision =
+(
+    if position_precision <= 0.0 then return undefined
+
+    [
+        (round (position_value.x / position_precision)) * position_precision,
+        (round (position_value.y / position_precision)) * position_precision,
+        (round (position_value.z / position_precision)) * position_precision
+    ]
+)
+```
+
+The caller may resolve millimeters to current system units with an explicit unit conversion such as `units.decodeValue "0.01mm"`.
+
+This is a deliberate, documented exception to the general no-hidden-rounding rule. It is not permission to round unrelated numeric calculations.
+
+Important boundary:
+
+- round/quantize temporary comparison or identity values;
+- keep original backend Point3 values available for geometry operations and diagnostics;
+- do not write the rounded position back to a vertex, node, modifier, or other scene geometry unless the requested operation explicitly performs snapping/quantization;
+- do not replace this rounding contract with an arbitrary `abs(a - b) <= epsilon` test unless that operation separately defines tolerance-distance semantics.
+
+For fatal expected-versus-actual position checks, log the raw expected value, raw actual value, rounded expected value, rounded actual value, and active position precision before failing.
+
 ## Unit conversion
 
 - Preserve as much numeric precision as the underlying MAXScript/3ds Max numeric type provides.

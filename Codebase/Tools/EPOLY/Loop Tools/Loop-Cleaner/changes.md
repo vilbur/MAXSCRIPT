@@ -1,5 +1,320 @@
 # Loop-Cleaner Changes
 
+## 2026-10-07 — batch Broken-T staged chain 1.202
+
+- Updated `Loop-Cleaner` to `1.202`.
+- Renamed the combined action to `BATCH BROKEN T FIX`.
+- The batch now chains the three user-verified stages directly: `DIVIDE EDGE -> MOVE VERTICES -> WELD VERTICES`, with modal stage dialogs disabled for the batch path.
+- A partial `DIVIDE EDGE` result is no longer treated as an immediate batch failure when it produced valid pending source/inserted pairs. The batch moves and welds those pairs, then starts a fresh Divide cycle on the remaining live topology.
+- The cycle repeats until `DIVIDE EDGE` reports no remaining Broken-T cases and produces no pending pairs. A Divide failure with no usable handoff, a Move failure, or a Weld failure still aborts and logs the exact failed stage.
+- The standalone staged functions keep their existing behavior and can still show their normal dialogs when run directly.
+- Runtime verification in 3ds Max is required for the new combined batch loop.
+
+## 2026-10-07 — first combined Broken-T chain 1.201
+
+- Added the first single-button `DIVIDE EDGE -> MOVE VERTICES -> WELD VERTICES` chain.
+- Runtime on `BLOCK-A-MATERIAL001` showed `DIVIDE EDGE` successfully created 5 inserted vertices and 5 move pairs, then hit the known later-group stale edge state (`liveEdgeCount:0`).
+- The 1.201 combined action aborted at that partial Divide result instead of consuming the valid 5-pair handoff, which is corrected by 1.202.
+
+## 2026-10-07 — selected Edit Poly vertex weld test 1.200
+
+- Updated `Loop-Cleaner` to `1.200`.
+- Added `TEST WELD SELECTED VERTICES` as a debug-only Edit Poly weld proof.
+- The test requires the current Modify-panel object to be an `Edit_Poly` with exactly two selected vertices. It keeps the lower vertex ID as the target and uses the higher vertex ID as the disposable source.
+- The test calls native `EditPolyMod.WeldVertices target source -> Commit`, refreshes the modifier, and reports success only when the live vertex count decreases by exactly one.
+- The test does not move either vertex, does not introduce a weld threshold or hidden position tolerance, and does not change the production Broken-T weld path.
+- Runtime verification in 3ds Max is still required.
+
+## 2026-10-07 — Broken-T MOVE VERTICES uses proven selected-vertex move path 1.199
+
+- Updated `Loop-Cleaner` to `1.199`.
+- Replaced the Broken-T pending-pair move implementation with the same active-Edit-Poly Vertex-selection / `MoveSelection -> Commit` path proven by `TEST MOVE SELECTED VERTEX`.
+- Each stored `#(sourceVertexID, insertedVertexID)` pair isolates only the inserted vertex, reads both live positions, moves by `sourcePosition - insertedPosition`, and verifies the result at the active `postion preccision`.
+- `MOVE VERTICES` performs no `DivideEdge` and no weld. Pending pairs are cleared only after every move completes successfully.
+- Runtime verification in 3ds Max is still required.
+
+## 2026-10-07 — selected Edit Poly vertex movement test 1.198
+
+- Updated `Loop-Cleaner` to `1.198`.
+- Added `TEST MOVE SELECTED VERTEX`.
+- The test uses the first object in the current node selection, requires its current Modify-panel object to be an `Edit_Poly`, reads that modifier's current Vertex selection, and chooses the first selected vertex ID rather than hard-coding vertex 1.
+- It isolates only that selected vertex, moves it exactly `1000mm` on Z with `MoveSelection -> Commit()`, leaves the moved vertex selected, and verifies the live post-move position at the active `postion preccision`.
+- No Broken-T Divide, production MOVE VERTICES, weld, or topology behavior changed.
+- Static source checks passed; runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — Edit Poly move test vertex 1 -> vertex 2 1.197
+
+- Updated `Loop-Cleaner` to `1.197`.
+- Changed only the explicit `TEST MOVE VERTEX` diagnostic: it creates a Plane with one Edit Poly, selects only vertex 1, reads live Edit Poly positions for vertices 1 and 2, and moves vertex 1 by `vertex2Position - vertex1Position` using `MoveSelection -> Commit()`.
+- The test verifies vertex 1 reaches vertex 2 at the active `postion preccision` and verifies vertex 2 itself did not move.
+- No Broken-T Divide or production move behavior changed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — Edit Poly move test Plane runtime fix 1.196
+
+- Updated `Loop-Cleaner` to `1.196`.
+- Fixed the `TEST MOVE VERTEX` runtime error `Mesh operation on non-mesh: Plane`.
+- Removed the invalid `update test_node` call after `Edit_Poly.MoveSelection -> Commit()`; the test now refreshes through the Edit Poly modifier and redraw only.
+- The test contract is unchanged: create one Plane, add one Edit Poly, select vertex 1, move it exactly `1000mm` on Z, and verify the live Edit Poly vertex position.
+- Static source checks passed; runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — MOVE VERTICES all-vertex +1000 mm Z proof 1.194
+
+- Updated `Loop-Cleaner` to `1.194`.
+- Temporarily changed the `MOVE VERTICES` button into a direct movement proof: it selects every live vertex in the working Broken-T `Edit_Poly` and moves the complete selection by exactly `1000mm` on Z with one native `MoveSelection` followed by `Commit()`.
+- The 1000 mm value is converted with `units.decodeValue "1000mm"`; no hidden scene-unit assumption is used.
+- The test verifies a live sample vertex after commit against `before + [0,0,1000mm]` using the existing explicit `postion preccision` contract and prints raw before/after/actual-delta diagnostics.
+- Pending Broken-T source/inserted move pairs are intentionally preserved; this proof does not divide, weld, or consume the pending pair state.
+- Static delimiter, syntax, protected-identifier, version, and changed-path checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — Broken-T MOVE VERTICES reliability 1.192
+
+- Updated `Loop-Cleaner` to `1.192`.
+- Replaced the staged Broken-T move loop with the shared stable Edit Poly movement pattern: switch the exact working modifier to Vertex mode, replace the vertex selection exactly for each inserted vertex, read the live source/inserted positions, compute `moveDelta = sourcePosition - insertedPosition`, run `MoveSelection`, then `Commit()`.
+- `MOVE VERTICES` still performs no `DivideEdge`, no weld, and no extra post-move position-equality gate.
+- The move stage now validates the pending pair record shape/IDs before geometry changes, restores the previous Edit Poly vertex selection and editing state afterwards, and keeps the pending pairs on failure for retry.
+- Pending Broken-T move pairs are preserved across a Loop-Cleaner script reload when the previous live tool instance still points to the same valid node/Edit Poly. This allows loading 1.192 after a partial 1.191 Divide run and immediately using `MOVE VERTICES` without re-dividing the already split edge.
+- The mistaken multi-object RMB-removal 1.192 change was rolled back; `USELESS LOOPS SELECT \ REMOVE` remains on the prior single-object contract.
+- Static delimiter, `fn`, `if ... do`, identifier, version, and touched return-contract checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — Broken-T pending move Array handoff fix 1.191
+
+- Updated `Loop-Cleaner` to `1.191`.
+- Fixed the 1.190 runtime exception `Unknown property: "count" in OK` after a partially successful `DIVIDE EDGE`.
+- Root cause: the partial-success path used `copy divide_result[3]` on an Array; in this runtime that expression returns `OK`, so `pending_broken_t_move_records` became `OK` instead of the expected move-pair Array.
+- Partial Divide now stores the returned move-pair Array directly, matching the complete-success path. `MOVE VERTICES` also consumes that Array directly instead of using `copy` on it.
+- Added an explicit pending-state type check before `.count`, so invalid handoff state reports a controlled Broken-T MOVE failure instead of throwing a rollout exception.
+- DivideEdge and MoveSelection geometry behavior are unchanged. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — preserve partial Broken-T move pairs 1.190
+
+- Updated `Loop-Cleaner` to `1.190`.
+- Fixed `MOVE VERTICES` reporting `Run DIVIDE EDGE first; no pending Broken-T move pairs are stored.` after a partially successful `DIVIDE EDGE` run.
+- `prepareBrokenTDivideStage()` already returned every successfully created `#(sourceVertexID, insertedVertexID)` pair even when a later target group failed; the caller discarded that partial handoff because it stored pending state only on complete Divide success.
+- On Divide failure, any non-empty returned move-pair set is now retained in the normal pending Broken-T state, so `MOVE VERTICES` can immediately process the successfully divided group.
+- Divide still reports failure for the later unresolved group; this change does not turn a partial Divide into full success and does not alter DivideEdge, MoveSelection, weld, or position-precision behavior.
+- Static delimiter, `fn`, `if ... do`, protected-identifier, and version checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — 1.189 semi-stable Broken-T divide checkpoint
+
+- Marked `Loop-Cleaner 1.189` as the current semi-stable Broken-T divide checkpoint; no code or version change was made.
+- Runtime on `BLOCK-A-MATERIAL001` with `postion preccision = 1mm` detected 6 Broken-T cases across 2 components and selected 10 edges.
+- One original target-edge group completed successfully, producing 5 inserted vertices and 5 stored move pairs.
+- The next target group then failed because its previously stored original edge ID `138` was no longer live after the earlier committed splits (`liveEdgeCount:0`, preserved endpoints `14` and `86`).
+- This proves the direct `DivideEdge -> Commit()` group itself is working, while stored original edge IDs for later independent groups can become stale after prior topology changes.
+- Preserve 1.189 as the recovery/reference point before changing multi-group target re-resolution.
+
+## 2026-10-06 — direct stored target-edge Divide 1.189
+
+- Updated `Loop-Cleaner` to `1.189`.
+- `DIVIDE EDGE` no longer searches for the first planned Broken-T edge by endpoint pair. It uses the exact target edge ID captured by the Broken-T detector, removing ambiguity when duplicate/overlapping topology shares the same endpoint pair.
+- The stored target edge is oriented by its preserved endpoint vertex IDs, not by rounded positions.
+- After each successful `DivideEdge -> Commit()`, continuation still uses the exact `(newly appended vertex ID, untouched far endpoint vertex ID)` child edge.
+- `MOVE VERTICES` is unchanged. No weld behavior was added.
+- Static syntax/delimiter/version checks passed; runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — Broken-T exact target-edge identity 1.188
+
+- Updated `Loop-Cleaner` to `1.188`.
+- Fixed `DIVIDE EDGE` failing before the first split with `Could not resolve exactly one live edge for a planned Broken-T target segment`, especially at coarse `postion preccision` values such as `1mm`.
+- Root cause: missing-target plans were grouped by precision-quantized endpoint positions, so distinct nearby target edges could collapse into one group and the first live edge lookup could become ambiguous before any `DivideEdge` ran.
+- Missing-target plans now preserve the original target edge ID plus its two endpoint vertex IDs. Groups are keyed by that exact pre-divide target edge ID instead of rounded endpoint positions.
+- Before each group, the live target edge is resolved by the preserved endpoint vertex pair. After every committed split, the remaining child segment is resolved by the exact pair `(newly appended vertex ID, untouched far endpoint vertex ID)`, so repeated splits no longer depend on positional edge re-resolution.
+- Position precision remains active for Broken-T detection and position-based comparisons, but it no longer merges distinct topology edges for Divide grouping/continuation.
+- `DIVIDE EDGE` still performs only committed splits and stores ordered source/inserted move pairs. `MOVE VERTICES` remains unchanged and performs no divide or weld.
+- Static delimiter, `fn`, `if ... do`, protected-identifier, version, and stale pre-split failure-path checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — split Broken-T Divide / Move stages 1.187
+
+- Updated `Loop-Cleaner` to `1.187`.
+- Replaced the combined `BROKEN T JUCTIONS SELECT \ FIX` UI action with explicit `BROKEN T SELECT`, `DIVIDE EDGE`, and `MOVE VERTICES` controls.
+- `DIVIDE EDGE` now runs only the missing-opposite multi-`DivideEdge` stage, committing each split and storing ordered `#(sourceVertexID, insertedVertexID)` pairs in transient tool state. It performs no vertex movement and no weld.
+- `MOVE VERTICES` consumes only those pending pairs and runs the existing one-by-one `Select #Vertex -> MoveSelection -> Commit()` sequence. It performs no `DivideEdge` and no weld.
+- The move-pair state is kept after a failed move so the move stage can be retried; it is cleared after a successful move or when a new Divide stage starts.
+- Added an explicit Edge-context reset before every independent target-edge group so multiple Divide groups do not inherit Vertex context from the previous group.
+- Static delimiter, `fn`, `if ... do`, protected `modifier` identifier, stale-control-name, and version checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — position-precision runtime round fix 1.186
+
+- Updated `Loop-Cleaner` to `1.186`.
+- Runtime on `BLOCK-A-MATERIAL001` failed before the first Broken-T split with `Call needs function or class, got: undefined`; the failing call was the unverified `round()` global inside position-precision quantization.
+- Replaced that call with explicit nearest-step scalar quantization using verified `floor()` arithmetic, including symmetric handling for negative coordinates.
+- `roundPositionToPrecision()` still quantizes temporary comparison copies only; scene geometry is not snapped or rounded.
+- The Broken-T `DivideEdge`, move, and weld sequence is otherwise unchanged.
+- Static delimiter, `fn`, `if ... do`, and remaining `round()` call checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — Stage-06 multi-Divide + ordered Broken-T move 1.184
+
+- Updated `Loop-Cleaner` to `1.184`.
+- Replaced the free `POSITION` spinner with the shared `postion preccision` dropdown: `1mm`, `0.1mm`, `0.01mm`, default `0.01mm`; the selected millimeter value is persisted and converted explicitly to current system units.
+- Broken-T edge identity/re-resolution now compares temporary position copies quantized to the selected precision; actual vertex positions are never snapped or rounded.
+- Reworked the missing-target insert pass to generalize the proven `EPoly-Stack-Test` Stage 06 method: for `N` required vertices it performs exactly `N` `DivideEdge` calls, commits after every split, and re-resolves the remaining child segment geometrically before the next split. The `DivideEdge` return value is not used as a vertex ID.
+- The insert helper records the appended vertex ID after each verified `+1` vertex split. Source vertices and inserted vertices are both sorted along the same preserved target-edge direction before pairing, preventing reversed-edge ordering from shifting the pairs.
+- The move pass now stores only `#(sourceVertexID, insertedVertexID)` pairs, switches to Vertex context, reads both live positions immediately before each move, isolates one inserted vertex, runs `MoveSelection`, commits, then continues to the next pair. No extra post-move position-equality gate is applied.
+- Existing descending inserted-ID weld order and final Broken-T topology verification remain unchanged.
+- Static delimiter, `if ... do`, `fn`, protected-identifier, and stale-control-name checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — 288 px dialog width 1.183
+
+- Updated `Loop-Cleaner` to `1.183`.
+- Set the standalone rollout width from `336 px` to `288 px`.
+- Refit the existing controls to the narrower dialog while preserving the current vertical layout, 32 px button heights, left/right docking behavior, tool-title restart behavior, and all geometry/selection logic.
+- Full-width controls now use `240 px` inside the existing 24 px content margins; the title button uses `264 px` inside 12 px margins.
+- No Broken-T, topology, tolerance, selection, or removal behavior changed.
+- Static source/layout checks passed; runtime UI verification in 3ds Max is still required.
+
+## 2026-10-06 — Broken-T post-DivideEdge vertex-context read fix 1.182
+
+- Updated `Loop-Cleaner` to `1.182`.
+- Runtime 1.181 proved the appended vertex selection itself was correct (`#{142}`), but both the appended/source `GetVertex` reads performed immediately after the grouped `DivideEdge` stage while Edit Poly was still at Edge level returned `[0,0,0]`. The resulting delta was therefore computed from zero even though `MoveSelection` acted on the real live appended vertex.
+- The repair now switches the active Edit Poly to `#Vertex` / `subObjectLevel = 1` immediately after the multi-insert commit and refresh, before reading appended positions, sorting inserted records, re-reading source positions, or building MVOE move records.
+- Removed the 1.181 `parent:node.objectTransform` experiment. MVOE is back to the proven `Select #Vertex -> MoveSelection move_delta -> Commit()` sequence with the corrected post-insert vertex reads.
+- Added one `BROKEN T POST INSERT VERTEX CONTEXT` diagnostic showing the active level, current vertex selection, and appended ID range before those reads.
+- `addMultipleVerticesToEdge()`, grouped insertion count/order, welding, and the explicit `POSITION` tolerance are unchanged.
+- Static syntax/safety validation passed; runtime verification in 3ds Max is still required.
+
+## 2026-10-06 — Broken-T object-space MoveSelection fix 1.181
+
+- Updated `Loop-Cleaner` to `1.181`.
+- Runtime testing proved the appended Broken-T move lands correctly when the node is at the world origin but is offset when the node is translated, so the previous default `MoveSelection` coordinate context was wrong for the stored Edit Poly vertex delta.
+- Kept the existing source/inserted `GetVertex` positions and `move_delta = source_target_position - original_position` unchanged.
+- The appended-vertex MVOE pass now calls `MoveSelection move_delta parent:node.objectTransform`, using the native Edit Poly `parent:` coordinate-system argument so the delta is applied in the same object geometry space from which the vertex positions were read.
+- Added `moveParent` to the existing MVOE BEFORE diagnostic so the exact transform used by the move remains visible in Listener output.
+- `addMultipleVerticesToEdge()`, insertion ordering/count logic, welding, and the explicit `POSITION` tolerance are unchanged.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — Broken-T appended-vertex move context fix 1.180
+
+- Updated `Loop-Cleaner` to `1.180`.
+- Fixed the appended Broken-T MVOE pass running immediately after `addMultipleVerticesToEdge()` while the active Edit Poly sub-object context was still Edge level from the insertion stage.
+- Before clearing/selecting appended vertices, `moveBrokenTVertexRecords()` now explicitly activates the target node and Edit Poly modifier, disables stack selection, sets `selectMode = 0`, disables the cage, switches the Edit Poly selection level to `#Vertex`, and sets `subObjectLevel = 1`.
+- The actual per-vertex operation remains the proven sequence: isolate one appended vertex with `Select #Vertex`, call `MoveSelection move_delta`, `Commit()`, read the moved vertex, and verify it against the stored source target using the existing explicit `POSITION` tolerance.
+- `addMultipleVerticesToEdge()`, insertion ordering, movement math, POSITION tolerance, transforms, and welding logic are unchanged.
+- Existing MVOE numeric diagnostics remain in place so the runtime result is still visible if movement fails.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — Broken-T MVOE runtime instrumentation 1.179
+
+- Updated `Loop-Cleaner` to `1.179` for a diagnostic-only Broken-T move pass; no weld behavior or coordinate conversion was changed.
+- Kept `addMultipleVerticesToEdge()` unchanged.
+- The appended-vertex MVOE stage now prints the active Edit Poly selection level/current operation, pre-existing Vertex and Edge selections, and verifies that the Vertex selection is fully cleared before the per-record move loop.
+- For every appended vertex, Listener output now includes the preserved source vertex ID, appended vertex ID, exact selected Vertex BitArray immediately before `MoveSelection`, original appended position, stored pre-`DivideEdge` source target position, move delta, expected position, actual position after `Commit()`, measured distance, and the configured `POSITION` tolerance.
+- The repair also re-reads each preserved source vertex after all `DivideEdge` commits and prints its distance from the stored pre-insert source target, allowing stale/reindexed source IDs to be distinguished from a movement failure.
+- Selection-isolation, selection-clear, invalid-ID, undefined-position, and cleanup-read failures now emit explicit diagnostics before the existing failure path.
+- This version intentionally does not change `SetEPolySelLevel`, transforms, movement math, welding, or the `POSITION` threshold. Runtime output from 3ds Max is required before choosing the functional fix.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — tolerant child-edge re-resolution 1.178
+
+- Updated `Loop-Cleaner` to `1.178`.
+- Fixed `addMultipleVerticesToEdge()` failing after a successful first `DivideEdge` because the remaining child edge was still re-resolved with exact Point3 equality.
+- The helper now receives the same configured Broken-T `POSITION` tolerance and matches the inserted endpoint plus the untouched far endpoint with `distance(...) <= positionTolerance`.
+- After the child edge is resolved, the next split continues from the actual live Edit Poly endpoint positions read from that resolved edge instead of the theoretical pre-commit Point3, preventing accumulated float drift across repeated inserts.
+- The Broken-T move and weld stages are unchanged.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — unified Broken-T position threshold 1.177
+
+- Updated `Loop-Cleaner` to `1.177`.
+- Added one persistent `POSITION` spinner in millimeters for all Broken-T positional comparisons. The spinner range is `0.01 .. 1.0 mm`, step `0.01 mm`, with requested default `0.01 mm`; values such as `0.01`, `0.1`, and `1.0 mm` use the same single backend threshold.
+- Changed the previous fixed `0.1 mm` Broken-T tolerance to this UI-controlled value and persisted it in `Loop-Cleaner.ini` as `BrokenTPositionToleranceMM`.
+- The same configured threshold now controls Broken-T detection, existing-target lookup, child-edge/insert geometry checks, existing-target move verification, and the appended-vertex MVOE post-`Commit()` verification.
+- Replaced the MVOE exact Point3 equality gate with `distance(actual, expected) <= positionTolerance`; the vertex itself is not rounded or snapped.
+- Added Listener diagnostics for a failed MVOE position verification, including vertex ID, original position, delta, expected/actual positions, measured distance, and active tolerance.
+- Existing `Select #Vertex -> MoveSelection -> Commit()` movement and weld ordering are unchanged.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — exact MVOE Broken-T vertex move 1.176
+
+- Updated `Loop-Cleaner` to `1.176`.
+- Replaced the per-vertex Broken-T move helper with the exact `MOVE SELECTED VERTS OUT` structure from `EPoly-Stack-Test_1.24.ms`.
+- Before moving anything, the repair builds `move_records` as `#(vertexID, originalPosition, moveDelta)` using the appended vertex's current `Edit_Poly.GetVertex` position and the pre-`DivideEdge` source target position captured in the same Edit Poly coordinate space.
+- The move pass clears the current vertex selection once, then for each record isolates exactly one appended vertex with `Select #Vertex`, calls `MoveSelection moveDelta`, commits, verifies `GetVertex == originalPosition + moveDelta` exactly, and deselects the isolated vertex.
+- `RefreshScreen()` and `completeRedraw()` run after the complete move pass, matching the proven MVOE pattern instead of resetting Edit Poly context around every individual move.
+- No object/world transform conversion, new tolerance, rounding, or scene-specific vertex ID was introduced.
+- Welds still begin only after every appended vertex has completed the verified move pass, then run in descending appended-vertex ID order.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — raw Edit Poly MoveSelection path 1.175
+
+- Updated `Loop-Cleaner` to `1.175`.
+- Replaced the inserted Broken-T vertex move with the exact working `EPoly-Stack-Test` pattern: isolate one vertex with `Select #Vertex`, compute one direct delta in Edit Poly vertex coordinates, call `MoveSelection`, `Commit()`, refresh, then deselect that vertex.
+- Before any `DivideEdge` changes the target edge, each Broken-T source vertex position is captured directly with `edit_poly_mod.GetVertex source_vertex_id node:node`. That raw Point3 is carried through the insert stage as the move target.
+- The appended vertex is then moved with `move_delta = source_target_position - current_position`; no `node.objectTransform`, inverse transform, world-space conversion, source re-resolution, or post-move alignment gate participates in this inserted-vertex move.
+- Existing multi-insert grouping, descending weld order, explicit `0.1 mm` detection tolerance, and unrelated UI behavior are unchanged.
+- Static syntax/safety checks passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — direct stored-point Broken-T move 1.174
+
+- Updated `Loop-Cleaner` to `1.174`.
+- Removed the inserted-vertex alignment path that targeted a preserved source vertex through a second vertex lookup and then rejected the operation through post-move geometry checks.
+- After the multi-insert succeeds, each appended vertex now receives the already stored Broken-T source Point3 directly. The move is exactly: read the appended Edit Poly vertex, transform that current point to world space, compute `storedSourceWorld - currentWorld`, select only that appended vertex, call `MoveSelection`, then `Commit()`.
+- No source-position equality gate or post-move alignment comparison remains in this inserted-vertex stage. The following weld and its exact one-vertex topology reduction are the destructive success check.
+- Source ordering is also computed against the stored world-space target-edge endpoints, so source Point3 ordering is never mixed with raw Edit Poly vertex coordinates.
+- Existing multi-insert grouping, descending weld order, explicit `0.1 mm` detection tolerance, UI behavior, and unrelated tools are unchanged.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — 00-08 batch UI 1.173
+
+- Updated `Loop-Cleaner` to `1.173`.
+- Numbered the production UI actions `00` through `08`.
+- Split Broken-T into separate `07 BROKEN T SELECT` and `08 BROKEN T FIX` buttons so selection and destructive repair can be independently included in a batch.
+- Added one checkbox immediately before every `00`-`08` production button.
+- Added `BATCH RUN`, which executes only checked production actions in numeric order using each button's normal LMB behavior; `08` calls the explicit Broken-T repair action.
+- Batch checkbox states are saved to and restored from the existing `Loop-Cleaner.ini` under a dedicated `Batch` section with keys `00` through `08`.
+- Existing debug 1-4 controls, QUIET, ANGLE, and unrelated geometry behavior are unchanged.
+- Static delimiter/version checks passed; 3ds Max runtime UI verification is still required.
+
+## 2026-10-06 — direct move after multi-insert 1.172
+
+- Updated `Loop-Cleaner` to `1.172`.
+- Removed the pre-move source-position validation that compared a world-space stored Broken-T source point against the object-space value returned by `Edit_Poly.GetVertex`; that false mismatch stopped the repair before any new vertex was moved.
+- After `addMultipleVerticesToEdge()` succeeds, appended vertices are now moved immediately onto their paired preserved source vertices through the existing Edit Poly vertex-move helper.
+- The source vertex IDs remain the pre-insert IDs while the new divided vertices occupy the appended ID range, so the move stage no longer performs the invalid cross-space equality gate.
+- All inserted vertices are still moved before welding, and welds still run in descending inserted-vertex ID order so remaining IDs stay stable.
+- No new tolerance, coordinate rounding, or scene-specific vertex IDs were introduced.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — appended-ID move and descending weld 1.171
+
+- Updated `Loop-Cleaner` to `1.171`.
+- Runtime diagnostics confirmed the grouped multi-insert stage succeeds and appends the new target-edge vertices as one contiguous ID range after the pre-insert vertex count.
+- The Broken-T repair now uses that appended live ID range directly instead of trying to re-resolve inserted vertices from their temporary evenly spaced positions.
+- Newly inserted vertices and stored Broken-T sources are both sorted along the same live target-edge direction, paired by order, and every inserted vertex is moved onto its preserved T-source position before any weld occurs.
+- After all moves complete, inserted/source pairs are welded in descending inserted-vertex ID order. Because inserted IDs are above all preserved source IDs, each weld removes the current highest disposable vertex without invalidating the IDs of remaining inserted vertices or preserved T sources.
+- The stored source vertex ID is retained in the pre-insert plan and validated against its unchanged source position before alignment.
+- Topology is rebuilt only after the complete move/weld group finishes, then the existing broken-T case-count verification continues.
+- No scene-specific vertex IDs are used in production code; diagnostic IDs such as `142..146` remain runtime observations only.
+- Existing `0.1 mm` Broken-T tolerance, multi-insert helper, docking behavior, and unrelated Loop-Cleaner features are unchanged.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — grouped multi-vertex DivideEdge helper 1.170
+
+- Updated `Loop-Cleaner` to `1.170`.
+- Replaced the active Broken-T missing-target insertion sequence with the user-provided `addMultipleVerticesToEdge()` method.
+- Missing Broken-T sources are grouped by their original target edge. One call inserts the full required vertex count on that edge, committing every `DivideEdge` and re-resolving the remaining child edge geometrically after each split.
+- The inserted vertices are created evenly along the target edge, then paired with the stored T sources in edge order, moved onto those source positions, and welded into the preserved T-source vertices. This keeps vertex order stable even when the actual T positions are not evenly spaced.
+- Multiple missing sources on one original edge therefore no longer depend on Broken-T rediscovery or the previous child-edge point resolver. Multiple independent target edges are processed the same way.
+- Each edge group verifies exact `+N` vertices, `+N` edges, unchanged face count, and rebuilds live Edit Poly topology before welding.
+- Existing `0.1 mm` Broken-T tolerance, existing-target weld behavior, left/right docking, and unrelated Loop-Cleaner behavior are unchanged.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — stored multi-insert plan for repeated target edge splits 1.169
+
+- Updated `Loop-Cleaner` to `1.169`.
+- Runtime feedback proved the current target edge is correctly resolved and one `DivideEdge` succeeds, but only one vertex was added when several Broken-T source points required splits on that same original edge. Diagnostic edge ID `236` is not hard-coded.
+- Root cause: after the first split, the previous path rebuilt `findBrokenTJunctionCases()` and depended on it to rediscover the remaining source point. The first successful split changes the strict vertex-on-edge classification, so later required points can disappear before they are inserted.
+- Missing targets are now captured before the first split as a topology-independent insertion plan containing the source world point, source-neighbor world points, and original target-edge endpoint world points.
+- Each planned point independently resolves the current child edge that contains it, runs direct `Edit_Poly.DivideEdge` + `Commit()`, verifies exact `+1` vertex / `+1` edge / unchanged faces, rebuilds topology, re-resolves the preserved source and inserted vertex geometrically, aligns, and welds immediately.
+- Two or more required vertices on one original edge now follow the proven Stage 06 strategy from `EPoly-Stack-Test_1.20.ms`: split, commit, discard the old edge ID, resolve the correct child segment from geometry, and split again. Multiple target edges use the same plan.
+- No new tolerance, rounding, base Editable Poly cleanup, or TriMesh component mapping was added. Existing `0.1 mm` Broken-T tolerance and unrelated Loop-Cleaner behavior remain unchanged.
+- Static syntax/safety validation passed; 3ds Max runtime verification is still required.
+
+## 2026-10-06 — atomic Broken-T split/weld investigation 1.168
+
+- Updated `Loop-Cleaner` to `1.168` during investigation of repeated inserts on one target edge.
+- The version confirmed that direct `DivideEdge` + `Commit()` is the correct insertion primitive, but runtime feedback showed the remaining multi-insert sequencing was still incomplete: only the first required point on the target edge was materialized.
+- This intermediate version is preserved as the previous version; `1.169` replaces the rediscovery-dependent sequence with a stored geometry plan.
+
 ## 2026-10-06 — direct DivideEdge insert + left/right docking 1.167
 
 - Updated `Loop-Cleaner` to `1.167`.

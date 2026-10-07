@@ -1,4 +1,4 @@
-# Script-Manager
+﻿# Script-Manager
 
 `Script-Manager/Script-Manager.ms` is the shared generic MaxScript loader and optional rollout host for the MaxScript agent tree.
 
@@ -8,15 +8,15 @@ It is not owned by EPolyTools. When the package lives directly below the shared 
 
 Production uses one synchronized release number everywhere:
 
-- file version: `1.148`
-- project version: `1.148`
-- loader dialog title: `Script-Manager 1.148`
+- file version: `1.153`
+- project version: `1.153`
+- loader dialog title: `Script-Manager 1.153`
 - generated host-dialog titles: `<Parent Folder>`
 - visible loader version is shown in the main dialog title; the redundant top info/version labels are removed
 
-The production snapshot for this release is `Script-Manager_1.148.ms`.
+The production snapshot for this release is `Script-Manager_1.153.ms`.
 
-**Stable MVP baseline:** `1.134`. All future development must start from the current canonical `Script-Manager.ms` corresponding to this baseline unless a newer stable baseline is explicitly confirmed.
+**Stable MVP baseline:** `1.149`. Version 1.149 is the latest user-confirmed stable baseline. Versions 1.150 through 1.153 are development candidates until explicitly confirmed stable.
 
 ## Purpose
 
@@ -43,6 +43,8 @@ Source checkbox states and script tri-state modes are stored in `script_manager.
 
 When a previously checked hierarchy-stopper folder becomes a display-only no-checkbox row in `SOURCES`, Script-Manager migrates that checked state to its visible selectable parent and clears the stopper-folder source setting. Stopper classification is content-based: `FolderName\FolderName.ms` ends SOURCES hierarchy traversal at `FolderName`, even when helper files or child directories exist below that tool folder. A completely empty directory is also display-only/no-checkbox. A non-empty leaf folder without a same-name `.ms` file remains a selectable source.
 
+A checked SOURCES item can also explicitly define a batch dialog. The first checked ancestor is discovery-only and is ignored for batch ownership; the second checked ancestor owns the complete batch subtree. RMB on that explicit checked dialog item shows `LOAD \ RELOAD DIALOG`, which loads or hard reloads only configured HOST scripts assigned to that one batch dialog. DIRECT and skipped scripts, other batch dialogs, and the first checked discovery source are not affected.
+
 
 ## Hosted tool dialogs
 
@@ -67,6 +69,8 @@ Host dialogs are created lazily only when a successfully executed script exposes
 Every organizational host dialog persists its own floating position, height, and left/right dock state in `script_manager.ini`. Tool rollout open/closed state remains persisted as well.
 
 Host dialogs use a fixed 336 px dialog width with a 312 px content width, leaving enough room for the standard 288 px tool rollout plus native borders/scrollbar allowance.
+
+Before an embedded HOST load redefines a script's rollout globals, Script-Manager closes any already-open standalone rollout instances resolved from the script source declarations or runtime registry. This prevents an old standalone window from surviving beside the newly embedded rollout after a batch load/reload.
 
 Each generated host dialog has a full-width .NET button above the tool subrollout. Production host dialogs intentionally omit the Script-Manager version from both the native dialog caption and this button label; both show only the organizational parent-folder name. The button is flat and borderless, keeps the dark host background, and uses light-blue text `RGB 62,158,255`. LMB reloads only the HOST-mode scripts currently represented by that dialog; other host dialogs and DIRECT scripts are left untouched.
 ## Version filtering
@@ -110,7 +114,7 @@ The `SCRIPTS` TreeView has a minimum working height of 1032 px so large source s
 
 Inside each script folder, visible script files are ordered by filesystem last-write time with the newest files at the top. Folder hierarchy ordering remains alphabetical.
 
-Active script-file items in either hosted or direct mode use font color `RGB 62,158,255`; skipped files and folders keep the standard dark-UI foreground color.
+HOST script-file items are color-coded by their resolved batch dialog so scripts assigned to the same dialog share one color. DIRECT/standalone items use orange `RGB 255,165,60`; skipped files and folders keep the standard dark-UI foreground color.
 
 `.ms` script leaves use three always-visible checkbox glyphs drawn by Script-Manager instead of the Windows themed checkbox renderer:
 
@@ -207,7 +211,7 @@ Existing EPoly tools remain compatible through the `EPolyToolsIntegration` and `
 Maxscript/
 ├─ Script-Manager/
 │  ├─ Script-Manager.ms
-│  ├─ Script-Manager_1.148.ms
+│  ├─ Script-Manager_1.153.ms
 │  ├─ Script-Manager.md
 │  ├─ changes.md
 │  └─ tests/
@@ -219,7 +223,7 @@ Maxscript/
 └─ ...
 ```
 
-The canonical regression test is `tests/Script-Manager-test.ms`. This release advances its internal file version to `1.147`, stores project version `1.148`, and creates no new versioned test snapshot; the existing `Script-Manager-test_1.139.ms` snapshot remains unchanged.
+The canonical regression test is `tests/Script-Manager-test.ms`. This release advances its internal file version to `1.152`, stores project version `1.153`, and creates no new versioned test snapshot; the existing `Script-Manager-test_1.139.ms` snapshot remains unchanged.
 
 ## Safety
 

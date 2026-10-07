@@ -1,4 +1,4 @@
-﻿# Vertex Cleaner — Design
+# Vertex Cleaner — Design
 
 ## Purpose
 
@@ -22,7 +22,7 @@ The current Tool package contains three production scripts in this folder:
 
 The main entry resolves `Vertex-Cleaner-FN.ms` and `Vertex-Cleaner-UI.ms` as the canonical siblings and may accept the older `Two-Edge-Verts-FN.ms` / `Two-Edge-Verts-UI.ms` names only as a transition fallback for partially synchronized folders. Canonical names always have priority. Standalone startup failures must be visible through a startup error dialog instead of returning a silent false result.
 
-`Vertex-Cleaner.ms` is part of every Tool change set. Its `project_version` must match the current Tool project version, and its own file version must advance whenever the file is updated. This keeps the root launcher current instead of allowing backend/UI changes or package renames to leave a stale main entry behind.
+`Vertex-Cleaner.ms` is part of every Tool change set. Vertex Cleaner uses one Tool version only: every modified package script with a version value, including the audit, must use a file version equal to its project version, and both must equal the current Tool project version. The standalone rollout title must display that same version. Versioned snapshots for one change set use that same version suffix; independent main/backend/UI version sequences are not allowed. This keeps file, title, snapshot, and project versions identical.
 
 A successful standalone `Vertex-Cleaner.ms` run must finish with the `TwoEdgeVerts_UI` rollout open. Library and embedded modes remain headless by contract.
 
@@ -38,6 +38,8 @@ The Tool supports:
 Editable Poly uses `polyop` topology/selection methods.
 
 Edit Poly uses the Edit Poly modifier API and its own stored selection.
+
+For `2-EDGE VERTS \ FIX`, target resolution is top-of-stack aware. An object with no modifiers and an Editable Poly base keeps the base-object path. When the modifier stack is non-empty, SEARCH must operate on the evaluated stack top: reuse the exact top modifier when it is `Edit_Poly`; otherwise add one new tool-owned `Edit_Poly` at visual stack index 1 and operate there. Never adopt a lower Edit Poly for this SEARCH path because lower topology does not represent the evaluated stack top. Existing modifiers below the inserted Edit Poly must remain untouched and in the same relative order.
 
 Do not transfer raw edge IDs between Editable Poly, Edit Poly, and evaluated TriMesh representations.
 
@@ -67,7 +69,7 @@ The three base topology classifications remain mutually exclusive:
 - **T-junction vertex** — exactly three live topology edges with at least one straight-through edge pair; this classification still owns the vertex when the third branch edge is hidden/invisible;
 - **border-corner vertex** — not a T-junction, has exactly two border/open edges, and those two border edges are not a straight-through pair under the existing straight-pair rule. Border corners are further split into **inner** and **outer** subclasses by the oriented border turn relative to adjacent face winding: inner corners belong to hole/reflex borders; outer corners belong to the exterior perimeter.
 
-The filtered `SEARCH 2-EDGE VERTS` mode must never select or store a vertex classified as a T-junction or border corner. LMB FORCE is intentionally separate: it ignores those class exclusions and uses only the visible two-edge count plus its explicit near-straight angle limit. Dedicated T-junction and inner/outer border-corner selectors remain available for those classes.
+The filtered true-two-edge classifier used by `SELECT \ REMOVE` and `REMOVE` must never accept a vertex classified as a T-junction or border corner. `2-EDGE VERTS \ FIX` uses FORCE semantics: LMB selects the FORCE set, while RMB repeats fresh FORCE reverse batches highest-ID-first until the set reaches zero or the next pass starts with the same candidate count. FORCE ignores the filtered class exclusions and uses only the visible two-edge count plus its explicit near-straight angle limit. Dedicated T-junction and inner/outer border-corner selectors remain available for those classes.
 
 A **border T-junction** is a dedicated subset of the T-junction class: it has exactly two open border edges, those two border edges form the straight-through pair, and the third edge is the branch. The general T-junction selector includes border T-junctions; the dedicated border-T selector returns only that subset.
 
@@ -77,7 +79,7 @@ For Edit Poly detection, candidate identity always begins with the exact live mo
 
 True two-edge detection also carries an explicit success state. A successful search with zero candidates and a failed topology/snapshot read are different outcomes even though the compatibility candidate return remains a BitArray in both cases. `wasLastTwoEdgeDetectionSuccessful()` reports the state of the most recent true two-edge detector call. SEARCH, candidate storage, manual removal, and fixed-point batch cleanup must abort or report incomplete work when detection failed; they must never interpret detector failure as a clean zero-candidate result.
 
-For Edit Poly selection/reselection immediately before destructive removal, a failed `GetSelection #Vertex` read is an operation failure. It must not be normalized to an empty selection because the native Remove Vertex operation would then run with unknown component-selection state.
+For Edit Poly selection/reselection immediately before a target weld, a failed `GetSelection #Vertex` read is an operation failure. It must not be normalized to an empty selection because the tool must know that only the intended source vertex is active before `MoveSelection` and `WeldVertices`.
 
 ## UI
 
@@ -98,24 +100,31 @@ The control is intentionally taller and placed directly below the live vertex-co
 
 ### Vertex info
 
-The top info line displays the active single supported target as `VERTS <all> - SEL <selected> \ UNSEL <unselected>`. Counts come from the same active Editable Poly or Edit Poly topology that receives Tool selections. The label refreshes when the rollout opens and on a lightweight UI timer so manual viewport vertex-selection changes are reflected without modifying geometry or selection. With no single supported target, the label displays placeholder dashes.
+The top info line displays the active single supported target as `VERTS <all> - SEL <selected> \ UNSEL <unselected>`. Counts come from the same active Editable Poly or Edit Poly topology that receives Tool selections. The label refreshes when the rollout opens and on a lightweight UI timer so manual viewport vertex-selection changes are reflected. This path is strictly read-only: it must never call `collapseDeadStructs`, invalidate manual candidate state, change geometry, or change component selection. If an Editable Poly has dead structures, the info read returns no counts and the label shows placeholder dashes until an explicit operation owns topology synchronization.
 
-### `SEARCH 2-EDGE VERTS`
+### `2-EDGE VERTS \ FIX`
 
 LMB — FORCE:
 
-1. Require exactly one selected supported object.
-2. Require exactly two actually visible incident edges.
-3. Require the two visible edge directions to deviate by no more than **15 degrees** from a straight 180-degree continuation.
-4. Do not apply the filtered T-junction/border-corner class exclusions; the 15-degree geometry limit is the FORCE-mode filter.
-5. Do not populate the manual remove queue from FORCE mode.
+1. Require exactly one selected object.
+2. Resolve the SEARCH target at the evaluated top of the stack: use an unmodified Editable Poly base directly, reuse a top `Edit_Poly`, or add one tool Edit Poly at visual stack index 1 when another modifier is currently on top.
+3. Require exactly two actually visible incident edges on that resolved topology.
+4. Require the two visible edge directions to deviate by no more than **15 degrees** from a straight 180-degree continuation.
+5. Do not apply the filtered T-junction/border-corner class exclusions; the 15-degree geometry limit is the FORCE-mode filter.
+6. Do not populate the manual remove queue from FORCE mode.
 
-RMB — filtered search:
+RMB — repeated FORCE reverse cleanup:
 
-1. Require exactly one selected supported object.
-2. Run the existing filtered true-two-edge classifier.
-3. Visibly select only that filtered redundant-vertex set.
-4. Store those exact current live vertex IDs as the manual candidate set used by `SELECT \ REMOVE`.
+1. Require exactly one selected object.
+2. Resolve the same top-of-stack SEARCH target used by LMB. If the current top is not Edit Poly and the object is not an unmodified Editable Poly base, add one tool Edit Poly at visual stack index 1 before detection.
+3. Run a fresh FORCE detector pass at the start of each outer cleanup pass.
+4. If the fresh pass returns zero candidates, cleanup is complete.
+5. If the fresh pass returns the same candidate count as the previous outer pass started with, stop before running another batch so a non-converging topology cannot loop forever.
+6. Otherwise capture that FORCE set, sort candidate IDs ascending, and process them backwards, highest vertex ID to lowest.
+7. Inside each pass, preserve the stable project-0.847 highest-ID-first target-weld geometry and ordering: prepare the Edit Poly / Modify-panel context once, keep Edit Poly editing live for topology validation, suppress redraw for the loop, and use one batch undo record.
+8. For each captured candidate, run only local live FORCE validation, then use the same edge-preserving target-weld operation as the stable `SELECT \ REMOVE` workflow.
+9. If a captured candidate is no longer valid when reached, skip it and continue the reverse loop. The next outer pass performs a fresh FORCE search and can pick up surviving/reindexed candidates.
+10. Do not re-run the full-object FORCE detector between individual removals and do not call per-candidate `RefreshScreen` / `completeRedraw`; refresh once per completed batch pass.
 
 ### `REMOVE`
 
@@ -132,24 +141,24 @@ LMB runs the fixed-point filtered cleanup that previously belonged to SEARCH RMB
 
 LMB:
 
-1. Read the stored candidate set.
-2. Resolve the highest remaining valid stored vertex ID.
-3. Select only that candidate.
-4. Arm that candidate for RMB removal.
-5. Do not alter topology.
-6. Do not remove the candidate from stored data.
+1. Require exactly one supported object.
+2. Resolve its current Editable Poly / Edit Poly target.
+3. Run a fresh filtered true-two-edge detector pass directly from this control; SEARCH RMB is not a prerequisite.
+4. Rebuild the live manual candidate set from that pass.
+5. Select only the highest current candidate and arm that exact vertex for RMB removal.
+6. Do not alter topology.
 
 RMB:
 
-1. Require the currently armed candidate; component selection may have changed since LMB.
+1. Use the exact candidate armed by LMB; if manual state was lost, one currently selected live filtered true-two-edge vertex may be adopted as the arm.
 2. Re-select and revalidate that exact armed source ID against the live true-two-edge topology. Do not abort solely because another component selection is currently active or the source was deselected.
-3. Run 3ds Max native Remove Vertex on that exact source so the surrounding faces and edge path are preserved.
-4. If native Remove changes no topology, use the existing closest-visible-neighbor target-weld path only as a fallback.
+3. Target-weld that exact source into its closest actually visible neighbor.
+4. Do not call native Remove Vertex; the source disappears while its opposite visible edge survives as the direct edge between the two surviving neighbors.
 5. Treat the operation as successful only when exactly one vertex is removed.
-6. After a successful fix, remove only the processed source ID from stored candidate data.
+6. Rebuild all manual candidate IDs from the changed live topology after success; no pre-change ID survives.
 7. Clear the component selection.
 8. Do not automatically select the next candidate.
-9. If the stored manual RMB path cannot run, the frontend may fall back to `fixSelectedVertex()` only when exactly one current true-two-edge vertex is selected.
+9. Do not fall through to the separate `FIX SELECTED VERT` action.
 
 The user explicitly advances to the next candidate with the next LMB.
 
@@ -189,7 +198,7 @@ F1 performs the same Tool reload path. Before falling back to the canonical main
 
 ## Candidate state
 
-Stored candidate IDs are captured by filtered `SEARCH 2-EDGE VERTS` RMB and belong to exactly one live object/topology target. FORCE LMB does not populate the manual candidate queue.
+`SELECT \ REMOVE` LMB rebuilds its own fresh filtered candidate IDs from the current live object/topology target on every click and always chooses the highest current ID. SEARCH LMB/RMB use a separate top-of-stack target resolver: an unmodified Editable Poly base stays on the base path; otherwise the exact top Edit Poly is reused or one new tool Edit Poly is inserted at the visual top. SEARCH RMB then captures one fresh FORCE candidate set per outer pass and processes that frozen set from highest ID to lowest through the confirmed-stable 0.847 batch path. The next outer pass runs only when the fresh candidate count changed; an unchanged count stops the loop. FORCE LMB never populates manual state.
 
 The manual workflow processes candidates from highest stored vertex ID toward lower IDs.
 
@@ -201,11 +210,11 @@ If a destructive operation fails after topology may have changed, persistent com
 
 ## Removal topology rule
 
-For stored/manual `SELECT \\ REMOVE` and SEARCH RMB cleanup, the primary removal path remains native **Remove Vertex** on the exact armed source. This is the same 3ds Max topology operation used by the earlier stable implementation.
+For stored/manual `SELECT \\ REMOVE` and SEARCH RMB cleanup, the removal path is **target weld only**. Native Remove Vertex is not used because it can delete the source edge path. The source is welded to its closest actually visible neighbor so the other source edge survives as the direct edge between the two surviving neighbors.
 
 `FIX SELECTED VERT` is intentionally different: it uses a closest-visible-neighbor target weld as the primary and only direct-fix topology operation so the source's opposite edge path stays connected after the source disappears. The chosen target neighbor must remain at its exact original position.
 
-The closest-visible-neighbor helper remains available as backend API. For stored/manual removal and `REMOVE` fixed-point cleanup it remains a fallback only when native Remove leaves topology unchanged; for `FIX SELECTED VERT` it defines the required primary target. A target must be connected to the source by an actually visible edge; hidden/invisible edges are never eligible.
+The closest-visible-neighbor helper defines the required target for stored/manual removal, SEARCH RMB, `REMOVE` fixed-point cleanup, and `FIX SELECTED VERT`. A target must be connected to the source by an actually visible edge; hidden/invisible edges are never eligible.
 
 ## Editable Poly removal
 
@@ -214,9 +223,9 @@ For Editable Poly:
 1. Resolve the source by its exact live vertex ID.
 2. Revalidate it against the current true-two-edge detector.
 3. Select only that source vertex.
-4. Execute `EditablePoly.Remove` at Vertex level.
+4. Target-weld the source into its closest actually visible neighbor.
 5. Verify that exactly one vertex disappeared.
-6. Only if native Remove changed nothing, fall back to the closest-visible-neighbor target weld.
+6. Verify the surviving target stays at its exact original position and the opposite source edge remains as the direct edge to the other surviving neighbor.
 
 The selected source is the vertex that must disappear; neighboring vertices remain in place.
 
@@ -227,9 +236,9 @@ For Edit Poly:
 1. Resolve the source on the live Edit Poly modifier.
 2. Revalidate it against the current true-two-edge detector.
 3. Select only that live source vertex.
-4. Execute `ButtonOp #RemoveVertex` on the active Edit Poly modifier.
+4. Move the source exactly onto its closest actually visible neighbor and weld the source to that target.
 5. Refresh and verify that exactly one vertex disappeared.
-6. Only if native Remove changed nothing, fall back to the existing closest-visible-neighbor target-weld path.
+6. Verify the surviving target stays at its exact original position and the opposite source edge remains as the direct edge to the other surviving neighbor.
 
 The selected source is the vertex that must disappear; neighboring vertices remain in place.
 
@@ -266,7 +275,7 @@ It should:
 
 - translate LMB/RMB callbacks into backend calls, including the prominent direct selected-vertex fix action;
 - present the current Tool controls;
-- display the current global project version in the rollout title;
+- display the current Vertex Cleaner project version in the rollout title, derived from `TwoEdgeVertsUI.project_version` so `file_version == title version == project_version`;
 - register the rollout with EPolyTools when embedded;
 - open/close the standalone dialog through explicit UI functions.
 
@@ -285,12 +294,15 @@ The following behavior is considered stable and must not be changed accidentally
 - highest-ID-first stored candidate order;
 - actual visible-edge filtering;
 - FORCE SEARCH accepts only two-visible-edge vertices within 15 degrees of a straight continuation;
+- `2-EDGE VERTS \ FIX` resolves the evaluated stack top: reuse a top `Edit_Poly`; otherwise add exactly one tool Edit Poly above existing modifiers, preserve all modifiers below it, and reuse that same top Edit Poly on later SEARCH calls;
 - mutually exclusive true-two-edge / T-junction / border-corner base classification;
 - inner and outer border-corner selectors remain disjoint subclasses whose union preserves the existing border-corner compatibility class;
 - border-T-junction selection as an explicit subset of T-junctions;
 - exact-position duplicate detection/collapse with no hidden tolerance;
-- native Remove Vertex primary path with closest-visible-neighbor weld only as fallback for stored/manual removal and `REMOVE` fixed-point cleanup;
+- target-weld-only removal for stored/manual removal, SEARCH RMB, and `REMOVE` fixed-point cleanup; native Remove Vertex is not used because the two-neighbor edge path must survive;
 - `FIX SELECTED VERT` uses closest-visible-neighbor target weld directly and must preserve one edge between the source's two surviving visible neighbors;
+- `2-EDGE VERTS \ FIX` RMB repeats fresh FORCE reverse batches until zero candidates remain or the next outer pass starts with the same candidate count; every inner batch preserves the confirmed-stable 0.847 highest-ID-first target-weld behavior;
+- each SEARCH RMB inner batch performs Modify-panel setup once, uses one undo record, suppresses redraw during the reverse loop, keeps Edit Poly editing live for topology validation, and refreshes the UI once after that pass;
 - `REMOVE` fixed-point cleanup performs a fresh full-object true-two-edge search after every successful removal and stops only at zero live candidates or a real removal/detection failure;
 - a detector failure is never treated as a valid zero-candidate result, and a failed Edit Poly selection read immediately before removal never authorizes a destructive operation;
 - successful `REMOVE` fixed-point cleanup remains quiet in the Listener; only invalid input, real operation errors, or incomplete cleanup may report;

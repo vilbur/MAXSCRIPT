@@ -1,12 +1,24 @@
 /* Rebuild-Mesh.ms
-   File version: 0.17
+   File version: 0.18
    Rebuild evaluated Editable Poly polygons as isolated face islands, pre-merge nearby source vertex data by a user-defined weld threshold with boundary-preserving target priority, preserve valid polygons with degenerate internal triangles, and repair triangulation.
 */
 
 global rebuildMesh
 global rebuildMeshRollout
-global rebuild_mesh_version = "0.17"
-global rebuild_mesh_title = "Rebuild Mesh " + rebuild_mesh_version
+global rebuild_mesh_version = "0.18"
+global rebuild_mesh_project_version = "0.18"
+global rebuild_mesh_global_project_version
+
+if rebuild_mesh_global_project_version == undefined then
+(
+    rebuild_mesh_global_project_version = rebuild_mesh_project_version
+)
+else if (rebuild_mesh_project_version as float) > (rebuild_mesh_global_project_version as float) then
+(
+    rebuild_mesh_global_project_version = rebuild_mesh_project_version
+)
+
+global rebuild_mesh_title = "Rebuild Mesh " + rebuild_mesh_global_project_version
 global rebuild_mesh_ini = (getDir #plugcfg + "\\Rebuild-Mesh.ini")
 
 struct rebuildMesh_v
@@ -3864,7 +3876,15 @@ rebuildMesh = rebuildMesh_v()
 
 try
 (
-    destroyDialog rebuildMeshRollout
+    if rebuildMeshRollout != undefined then
+    (
+        if rebuildMeshRollout.dialogBar then
+        (
+            cui.UnRegisterDialogBar rebuildMeshRollout
+        )
+
+        destroyDialog rebuildMeshRollout
+    )
 )
 catch
 (
@@ -3945,3 +3965,5 @@ else
 (
     createDialog rebuildMeshRollout pos:saved_dialog_pos
 )
+
+cui.RegisterDialogBar rebuildMeshRollout style:#(#cui_dock_left, #cui_dock_right, #cui_floatable, #cui_handles)

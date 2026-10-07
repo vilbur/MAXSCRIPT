@@ -1,4 +1,55 @@
-﻿2026-10-06
+2026-10-07
+- Wall Thickness 1.005: make EXTRUDE / UPDATE, EXTRUDE ONLY, FIX INNER CORNERS, FIX T EDGE CORNERS, and FIX OUTER CORNERS process every selected wall sequentially, one object at a time.
+- Snapshot the selected node array before processing so per-object selection changes do not truncate the batch; snapshot thickness and CHANGE MATERIAL IDS UI values before EXTRUDE/FIX INNER loops so selection callbacks cannot change later-object inputs.
+- Keep every existing single-object geometry/fix function unchanged; each object retains its existing undo/error/recovery behavior.
+- Restore the original multi-selection after EXTRUDE, EXTRUDE ONLY, FIX INNER CORNERS, and FIX OUTER CORNERS. For FIX T EDGE CORNERS, keep the last successfully repaired wall active with its canonical T-edge Edit Poly selected.
+- Update `Wall-Thickness-Test.ms` to 0.009 / project 1.005 and add TEST PART 10 for the multi-object EXTRUDE/FIX UI wrappers.
+
+2026-10-07
+- Wall Thickness 1.004 marked STABLE after runtime confirmation of the transformed-node T-Corner repair. No code change and no version bump; the canonical development source remains 1.004.
+
+2026-10-07
+- Wall Thickness 1.004: fix FIX T EDGE CORNERS coordinate-space handling on translated/rotated/scaled nodes by reconstructing authoring targets from the current live Edit Poly endpoints plus the stored branch fraction instead of reusing absolute positions from the baked planner copy.
+- Convert live Edit Poly `MoveSelection` deltas through `source_node.objectTransform`, matching the verified T-edge movement path; committed positions are still verified in the live Edit Poly coordinate domain.
+- Complete the paired T-Corner mirror topology path observed at runtime: its second ConnectEdges pass legitimately adds only two strip vertices / one polygon / three edges, so explicitly divide the mirror branch at the planned fraction and connect that anchor to the new upper cut before the normal move/weld stage.
+- Preserve the final per-side +2 vertex / +1 polygon / +3 edge repair contract and keep all topology edits inside the same removable `WALL THICKNESS FIX T EDGE CORNERS` Edit Poly.
+- Update `Wall-Thickness-Test.ms` to 0.008 / project 1.004 and add TEST PART 9 for transformed-node live-coordinate movement.
+
+2026-10-07
+- Wall Thickness 1.003: fix T-Corner detection/authoring after the 1.002 runtime log showed only one base T case on the two-sided corner fixture.
+- Treat a source T anchor with exactly four incident source edges as a corner endpoint: keep the proven first T plan, then synthesize the mirrored side by swapping its branch and continuing-plan edges and solving the mirrored source-edge intersection.
+- Pair T-Corner cases by the same source anchor/continuation with swapped branch/plan neighbors instead of the incorrect reciprocal-endpoint rule from 1.002.
+- Author the mirrored side in the same `WALL THICKNESS FIX T EDGE CORNERS` Edit Poly using the live upper/lower sub-edges preserved by the primary cut, so the second case does not try to reuse the original strip edges after they have been split.
+- Preserve the ordinary mid-wall T-junction path unchanged; only degree-4 source anchors can expand into the mirrored T-Corner case.
+- Update `Wall-Thickness-Test.ms` to 0.007 / project 1.003 and correct TEST PART 8 for same-anchor mirrored T-Corner pairing.
+
+2026-10-06
+- Wall Thickness 1.002: add paired T-Corner support for two reciprocal T-junction repairs on opposite ends of the same source branch edge.
+- Fix the live T-edge writer so the new branch anchor is moved from ConnectEdges' temporary 50% midpoint to the exact intersection position already computed by the planner before the vertical strip cut is aligned and welded.
+- Keep the existing ConnectEdges topology sequence and per-case +2 vertex / +1 polygon / +3 edge contract; all cases are still planned before the first topology edit and authored in one removable `WALL THICKNESS FIX T EDGE CORNERS` Edit Poly.
+- Add explicit reciprocal-case T-Corner pairing diagnostics and `testWallThicknessTCornerSelected()` for the selected two-sided corner fixture.
+- Update `Wall-Thickness-Test.ms` to 0.006 / project 1.002 and add TEST PART 8 for reciprocal T-Corner pairing plus exact planned-anchor movement.
+
+2026-10-06
+- Wall Thickness 1.001: fix the multi-object `REMOVE MODIFIERS` catch rethrow so it uses MAXScript's required bare `throw()` syntax instead of the invalid `throw exception_text`.
+- Preserve the existing exception logging and editing-state restoration before rethrowing; no removal behavior, T-edge behavior, geometry, topology, or material logic changed.
+- Update `Wall-Thickness-Test.ms` to 0.005 / project 1.001 and add TEST PART 7 to guard against reintroducing the invalid argument-bearing catch rethrow.
+
+2026-10-06
+- Wall Thickness 1.000: make `REMOVE MODIFIERS` process every currently selected object in one undo/redraw batch instead of requiring exactly one selected wall.
+- Preserve unrelated modifiers and base geometry on every selected node; the UI log reports reset and failed object counts.
+- After a successful `FIX T EDGE CORNERS`, select the canonical `WALL THICKNESS FIX T EDGE CORNERS` Edit Poly as the current modifier in the Modify panel.
+- Keep the T-edge geometry/topology/material algorithm and its existing result tuple unchanged; modifier-selection failure is reported as a UI warning without fabricating geometry failure.
+- Update `Wall-Thickness-Test.ms` to 0.004 / project 1.000, add multi-object REMOVE MODIFIERS and T-edge modifier-selection tests, and extend the focused T-edge regression to require the new modifier to remain current.
+- Preserve the three-decimal version display at the 0.999 -> 1.000 boundary.
+
+2026-10-06
+- Wall Thickness 0.999: fix the shared .NET tool-title restart helper path for the current `Codebase\Tools\GEOMETRY\Wall-Thickness` repository layout.
+- Resolve `UI\Default\ScriptReload.ms` and `UI\Default\ToolTitleButton.ms` from the shared MaxScript agent root; retain the legacy `Modules` relative layout as a fallback.
+- Keep the 0.998 .NET `WALL THICKNESS` title button and restart behavior unchanged; no geometry, PREP, EXTRUDE, FIX INNER CORNERS, FIX T EDGE CORNERS, material, or cleanup behavior changed.
+- Update `Wall-Thickness-Test.ms` to 0.003 / project 0.999 and add TEST PART 4 for shared UI helper path resolution and loaded restart globals.
+
+2026-10-06
 - Wall Thickness 0.997: second cleanup/refactor pass; merge duplicated implementations while preserving existing public function names and behavior.
 - Centralize exact modifier lookup behind one shared name/class/property-aware helper; existing specialized getters remain as compatibility wrappers.
 - Merge duplicated boolean node-property parsing/writing for FIX INNER CORNERS and Material ID mode.

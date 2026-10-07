@@ -1,5 +1,5 @@
 /*
-Vertex Level Aligner Main 0.389
+Vertex Level Aligner Main 0.392
 Main executable entry. Loads backend FN and frontend UI, then opens or registers the Tool.
 */
 
@@ -18,7 +18,7 @@ global DialogHost
 global ScriptReload
 global ToolTitleButton
 
-vertex_level_aligner_main_version = 0.389
+vertex_level_aligner_main_version = 0.392
 vertex_level_aligner_main_source = getSourceFileName()
 
 /*
@@ -176,9 +176,9 @@ function executeVertexLevelAligner =
 
     vertexLevelAlignerWriteLog ("030 MAIN runtime mode = " + (runtime_mode as string))
 
-    if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.119 then
+    if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.122 then
     (
-        epoly_tools_project_version = 1.119
+        epoly_tools_project_version = 1.122
     )
 
     if runtime_mode == #standalone then
@@ -192,7 +192,7 @@ function executeVertexLevelAligner =
         if EPolyToolsIntegration == undefined then return false
 
         vertexLevelAlignerWriteLog "040 MAIN before embedded registration"
-        EPolyToolsIntegration.registerTool "vertex-level-aligner" "Vertex Level Aligner" vertex_level_aligner vertex_level_aligner_rollout vertex_level_aligner.file_version 1.119 vertex_level_aligner_main_source capabilities:#(#detect, #selection, #vertex, #editable_poly, #edit_poly, #ui)
+        EPolyToolsIntegration.registerTool "vertex-level-aligner" "Vertex Level Aligner" vertex_level_aligner vertex_level_aligner_rollout vertex_level_aligner.file_version 1.122 vertex_level_aligner_main_source capabilities:#(#detect, #selection, #vertex, #editable_poly, #edit_poly, #ui)
         vertexLevelAlignerWriteLog "041 MAIN embedded registration complete"
     )
 

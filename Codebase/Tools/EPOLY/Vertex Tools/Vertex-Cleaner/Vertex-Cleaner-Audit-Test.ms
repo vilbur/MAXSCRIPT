@@ -1,5 +1,5 @@
-﻿/*
-Vertex Cleaner project 0.840 audit test.
+/*
+Vertex Cleaner Audit 0.851 / project 0.851 audit test.
 The audit loads the sibling canonical Vertex-Cleaner.ms itself and verifies the expected release before geometry tests.
 */
 
@@ -13,6 +13,12 @@ global tev_audit_pass_count
 global tev_audit_fail_count
 global tev_audit_exception_count
 global tev_audit_ready
+global tev_audit_file_version
+global tev_audit_project_version
+global two_edge_verts_ui_title
+
+tev_audit_file_version = 0.851
+tev_audit_project_version = 0.851
 
 /*
 Resets audit result counters before the canonical Tool is loaded.
@@ -337,8 +343,8 @@ function findEditPolyVertexAtExactPosition node edit_poly_mod target_position =
 )
 
 /*
-Loads the sibling canonical Tool in library mode and verifies the audit is running against project 0.840 main with backend 0.81 / frontend 0.79 or newer.
-This prevents stale already-loaded globals from producing misleading geometry failures.
+Loads the sibling canonical Tool in library mode and verifies one exact unified 0.851 version across main/backend/frontend.
+This prevents stale already-loaded globals or split file/project versions from producing misleading geometry failures.
 */
 function loadAuditTool =
 (
@@ -395,10 +401,13 @@ function loadAuditTool =
         return false
     )
 
-    main_version_ok = TwoEdgeVertsMain.file_version >= 0.10 and TwoEdgeVertsMain.project_version >= 0.840
+    expected_version = 0.851
+    audit_version_ok = tev_audit_file_version == expected_version and tev_audit_project_version == expected_version
+    main_version_ok = TwoEdgeVertsMain.file_version == expected_version and TwoEdgeVertsMain.project_version == expected_version
     main_name_ok = getFilenameFile TwoEdgeVertsMain.source_path == "Vertex-Cleaner"
-    backend_version_ok = TwoEdgeVerts.file_version >= 0.81 and TwoEdgeVerts.project_version >= 0.839
-    frontend_version_ok = TwoEdgeVertsUI != undefined and TwoEdgeVertsUI.file_version >= 0.79 and TwoEdgeVertsUI.project_version >= 0.839
+    backend_version_ok = TwoEdgeVerts.file_version == expected_version and TwoEdgeVerts.project_version == expected_version
+    frontend_version_ok = TwoEdgeVertsUI != undefined and TwoEdgeVertsUI.file_version == expected_version and TwoEdgeVertsUI.project_version == expected_version
+    unified_version_ok = audit_version_ok and main_version_ok and backend_version_ok and frontend_version_ok
     main_backend_name_ok = TwoEdgeVertsMain.backend_file_name == "Vertex-Cleaner-FN.ms"
     main_frontend_name_ok = TwoEdgeVertsMain.frontend_file_name == "Vertex-Cleaner-UI.ms"
 
@@ -406,6 +415,8 @@ function loadAuditTool =
         main_version_ok \
         ("Loaded current main | file:" + (TwoEdgeVertsMain.file_version as string) + " | project:" + (TwoEdgeVertsMain.project_version as string))
 
+    auditCheck audit_version_ok "Audit file version equals audit project version 0.851"
+    auditCheck unified_version_ok "Audit/main/backend/frontend file version equals project version 0.851"
     auditCheck main_name_ok "Canonical main filename is Vertex-Cleaner.ms"
     auditCheck main_backend_name_ok "Main expects canonical backend Vertex-Cleaner-FN.ms"
     auditCheck main_frontend_name_ok "Main expects canonical frontend Vertex-Cleaner-UI.ms"
@@ -418,9 +429,9 @@ function loadAuditTool =
         frontend_version_ok \
         ("Loaded current frontend | file:" + (TwoEdgeVertsUI.file_version as string) + " | project:" + (TwoEdgeVertsUI.project_version as string))
 
-    if not(main_version_ok and main_name_ok and main_backend_name_ok and main_frontend_name_ok and backend_version_ok and frontend_version_ok) then
+    if not(unified_version_ok and main_name_ok and main_backend_name_ok and main_frontend_name_ok) then
     (
-        format "AUDIT STOPPED | Expected Vertex-Cleaner main >= 0.10/project 0.840 with current canonical sibling names, backend >= 0.81/project 0.839, and frontend >= 0.79/project 0.839. The local Google Drive copy is stale or misnamed.\n"
+        format "AUDIT STOPPED | Expected unified Vertex Cleaner version 0.851: audit/main/backend/frontend file_version == project_version == 0.851. The local Google Drive copy is stale or mis-versioned.\n"
         return false
     )
 
@@ -1241,8 +1252,8 @@ function partOfTest6 =
 
 
 /*
-Creates fresh Editable Poly and Edit Poly fixtures and verifies SEARCH RMB reaches a fixed point.
-The operation must repeatedly re-detect live topology until no true two-edge candidates remain.
+Creates fresh Editable Poly and Edit Poly fixtures and verifies SEARCH RMB converges through repeated FORCE reverse batches.
+Each pass keeps the stable edge-preserving target-weld mechanism and the public call must finish with zero live FORCE candidates on the fixture.
 */
 function partOfTest7 =
 (
@@ -1283,14 +1294,15 @@ function partOfTest7 =
     )
 
     select stable_editable
-    editable_initial = TwoEdgeVerts.getTwoEdgeVerts stable_editable
+    editable_force_selected_ok = TwoEdgeVerts.selectTwoEdgeVerts force_mode:true
+    editable_initial = polyop.getVertSelection stable_editable.baseObject
     editable_before = polyop.getNumVerts stable_editable.baseObject
-    editable_removed = TwoEdgeVerts.removeTwoEdgeVertsUntilStable()
+    editable_removed = TwoEdgeVerts.removeTwoEdgeVertsUsingManualWorkflow()
     editable_compact_after_cleanup = polyop.getHasDeadStructs stable_editable.baseObject == 0
 
     auditCheck \
         editable_compact_after_cleanup \
-        "Editable Poly fixed-point cleanup returns with compact topology before fresh ID reads"
+        "Editable Poly SEARCH RMB FORCE repeated cleanup returns with compact topology before fresh ID reads"
 
     if not(editable_compact_after_cleanup) then return false
 
@@ -1298,16 +1310,16 @@ function partOfTest7 =
     editable_remaining = TwoEdgeVerts.getTwoEdgeVerts stable_editable
 
     auditCheck \
-        (classOf editable_initial == BitArray and editable_initial.numberSet == 2) \
-        "Editable Poly stable fixture begins with two true 2-edge candidates"
+        (editable_force_selected_ok and classOf editable_initial == BitArray and editable_initial.numberSet == 2) \
+        "Editable Poly stable fixture begins with two FORCE 2-edge candidates"
 
     auditCheck \
         (editable_removed == 2 and editable_after == (editable_before - 2)) \
-        "Editable Poly fixed-point cleanup removes both live candidates"
+        "Editable Poly SEARCH RMB FORCE repeated cleanup removes both live candidates"
 
     auditCheck \
         (classOf editable_remaining == BitArray and editable_remaining.numberSet == 0) \
-        "Editable Poly fixed-point cleanup finishes with zero true 2-edge candidates"
+        "Editable Poly SEARCH RMB FORCE repeated cleanup finishes with zero true 2-edge candidates"
 
     select stable_edit_poly_node
     max modify mode
@@ -1319,23 +1331,24 @@ function partOfTest7 =
     stable_edit_poly_mod.SetEPolySelLevel #Vertex
     subObjectLevel = 1
 
-    edit_initial = TwoEdgeVerts.getTwoEdgeVerts stable_edit_poly_node edit_poly_mod:stable_edit_poly_mod
+    edit_force_selected_ok = TwoEdgeVerts.selectTwoEdgeVerts force_mode:true
+    edit_initial = stable_edit_poly_mod.GetSelection #Vertex node:stable_edit_poly_node
     edit_before = EditPolyMod.GetNumVertices stable_edit_poly_mod node:stable_edit_poly_node
-    edit_removed = TwoEdgeVerts.removeTwoEdgeVertsUntilStable()
+    edit_removed = TwoEdgeVerts.removeTwoEdgeVertsUsingManualWorkflow()
     edit_after = EditPolyMod.GetNumVertices stable_edit_poly_mod node:stable_edit_poly_node
     edit_remaining = TwoEdgeVerts.getTwoEdgeVerts stable_edit_poly_node edit_poly_mod:stable_edit_poly_mod
 
     auditCheck \
-        (classOf edit_initial == BitArray and edit_initial.numberSet == 2) \
-        "Edit Poly stable fixture begins with two live true 2-edge candidates"
+        (edit_force_selected_ok and classOf edit_initial == BitArray and edit_initial.numberSet == 2) \
+        "Edit Poly stable fixture begins with two FORCE 2-edge candidates"
 
     auditCheck \
         (edit_removed == 2 and edit_after == (edit_before - 2)) \
-        "Edit Poly fixed-point cleanup removes both live candidates"
+        "Edit Poly SEARCH RMB FORCE repeated cleanup removes both live candidates"
 
     auditCheck \
         (classOf edit_remaining == BitArray and edit_remaining.numberSet == 0) \
-        "Edit Poly fixed-point cleanup finishes with zero live true 2-edge candidates"
+        "Edit Poly SEARCH RMB FORCE repeated cleanup finishes with zero live true 2-edge candidates"
 
     -- return
 )
@@ -1714,12 +1727,14 @@ function partOfTest11 =
 
     dialog_open = TwoEdgeVerts_UI != undefined and TwoEdgeVerts_UI.inDialog
     tool_title_ok = false
+    title_version_ok = false
     docking_registered = false
     dock_state_ok = false
 
     if dialog_open then
     (
         tool_title_ok = TwoEdgeVerts_UI.btn_tool_title != undefined and TwoEdgeVerts_UI.btn_tool_title.Text == "Vertex Cleaner"
+        title_version_ok = TwoEdgeVertsUI != undefined and two_edge_verts_ui_title == ("Vertex Cleaner | v" + (TwoEdgeVertsUI.project_version as string)) and TwoEdgeVertsUI.file_version == TwoEdgeVertsUI.project_version
         docking_registered = TwoEdgeVerts_UI.dialogBar
 
         if docking_registered then
@@ -1752,10 +1767,11 @@ function partOfTest11 =
     auditCheck run_ok "Standalone canonical main reports startup success"
     auditCheck dialog_open "Standalone canonical main opens Vertex Cleaner dialog"
     auditCheck tool_title_ok "Standalone UI exposes the .NET Vertex Cleaner tool title restart button"
+    auditCheck title_version_ok "Standalone rollout title version equals frontend file/project version"
     auditCheck docking_registered "Standalone UI is registered as a CUI dialog bar"
     auditCheck dock_state_ok "Standalone UI dock state is floating, left, or right only"
 
-    run_error == undefined and run_ok and dialog_open and tool_title_ok and docking_registered and dock_state_ok
+    run_error == undefined and run_ok and dialog_open and tool_title_ok and title_version_ok and docking_registered and dock_state_ok
     -- return
 )
 
@@ -1936,27 +1952,219 @@ function partOfTest13 =
 
 
 /*
+Verifies timer-equivalent vertex-info reads are non-destructive and SELECT \ REMOVE LMB/RMB rebuild their own fresh manual state without SEARCH RMB.
+The dirty fixture keeps its dead-structure state and stored IDs unchanged; the clean fixture resets manual state, then runs LMB arm and RMB remove directly.
+*/
+function partOfTest14 =
+(
+    info_dirty_node = undefined
+    manual_node = undefined
+
+    undo "RVC AUDIT 14 - UI Manual Workflow Regression" on
+    (
+        info_dirty_node = mesh \
+            name:(uniqueName "RVC_Audit_InfoReadOnly_") \
+            vertices:#([0,0,0], [20,0,0], [0,20,0], [40,40,0]) \
+            faces:#([1,2,3])
+
+        convertTo info_dirty_node Editable_Poly
+        info_dirty_node.position = [-60.0, 700.0, 0.0]
+        info_dirty_node.showCage = off
+
+        info_dirty_base = info_dirty_node.baseObject
+        info_delete_vertex = polyop.getNumVerts info_dirty_base
+        polyop.deleteVerts info_dirty_base #{info_delete_vertex}
+        update info_dirty_node
+
+        select info_dirty_node
+        info_dead_before = polyop.getHasDeadStructs info_dirty_base
+
+        TwoEdgeVerts.manual_remove_node = info_dirty_node
+        TwoEdgeVerts.manual_remove_target_type = #EditablePoly
+        TwoEdgeVerts.manual_remove_modifier = undefined
+        TwoEdgeVerts.manual_remove_vertex_ids = #(1)
+        TwoEdgeVerts.manual_remove_candidate_id = 1
+
+        info_counts = TwoEdgeVerts.getSelectedVertexCounts()
+        info_dead_after = polyop.getHasDeadStructs info_dirty_base
+        info_stored_after = TwoEdgeVerts.getStoredCandidateIds()
+
+        auditCheck \
+            (info_dead_after == info_dead_before) \
+            "Vertex-info refresh never collapses or otherwise mutates Editable Poly dead topology"
+
+        auditCheck \
+            (arraysMatchByValue info_stored_after #(1)) \
+            "Vertex-info refresh never invalidates stored SELECT \\ REMOVE candidate IDs"
+
+        if info_dead_before != 0 then
+        (
+            auditCheck \
+                (classOf info_counts == Array and info_counts.count == 0) \
+                "Vertex-info refresh refuses unsafe Editable Poly component counts while dead topology exists"
+        )
+        else
+        (
+            auditCheck \
+                (classOf info_counts == Array and info_counts.count == 3) \
+                "Vertex-info refresh returns normal counts when the runtime already compacted the fixture"
+        )
+
+        TwoEdgeVerts.resetManualRemoveState()
+
+        manual_node = Plane \
+            name:(uniqueName "RVC_Audit_UIManual_") \
+            width:80.0 \
+            length:40.0 \
+            widthsegs:2 \
+            lengthsegs:1
+
+        convertTo manual_node Editable_Poly
+        manual_node.position = [60.0, 700.0, 0.0]
+        manual_node.showCage = off
+
+        if not(prepareAuditTrueTwoEdgeFixture manual_node) then throw "RVC Audit UI manual workflow setup failed."
+
+        select manual_node
+        manual_before_count = polyop.getNumVerts manual_node.baseObject
+        TwoEdgeVerts.resetManualRemoveState()
+
+        info_counts = TwoEdgeVerts.getSelectedVertexCounts()
+        auditCheck \
+            (classOf info_counts == Array and info_counts.count == 3) \
+            "Timer-equivalent vertex-info refresh remains readable before manual LMB"
+
+        manual_selected_ok = TwoEdgeVerts.selectNextManualRemoveCandidate()
+        manual_armed_id = TwoEdgeVerts.manual_remove_candidate_id
+        manual_stored_ids = TwoEdgeVerts.getStoredCandidateIds()
+
+        auditCheck \
+            (manual_selected_ok and manual_armed_id > 0 and classOf manual_stored_ids == Array and manual_stored_ids.count > 0) \
+            "SELECT \\ REMOVE LMB performs a fresh filtered search, stores current candidates, and arms one candidate"
+
+        manual_fixed_ok = TwoEdgeVerts.fixManualRemoveCandidate()
+        manual_after_count = polyop.getNumVerts manual_node.baseObject
+
+        auditCheck \
+            (manual_fixed_ok and manual_after_count == (manual_before_count - 1)) \
+            "SELECT \\ REMOVE RMB removes the candidate armed by LMB without SEARCH RMB"
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Verifies 2-EDGE VERTS \\ FIX works on evaluated top-of-stack topology when another modifier already exists.
+The Tool must add exactly one top Edit Poly, preserve the existing modifier below it, reuse the same top Edit Poly, and keep the stable FORCE batch geometry.
+*/
+function partOfTest15 =
+(
+    stack_node = undefined
+    blocker_mod = undefined
+    top_edit_poly_mod = undefined
+
+    undo "RVC AUDIT 15 - Top Stack Two Edge" on
+    (
+        stack_node = Plane \
+            name:(uniqueName "RVC_Audit_TopStack_") \
+            width:80.0 \
+            length:40.0 \
+            widthsegs:2 \
+            lengthsegs:1
+
+        convertTo stack_node Editable_Poly
+        stack_node.position = [180.0, 700.0, 0.0]
+        stack_node.showCage = off
+
+        if not(prepareAuditTrueTwoEdgeFixture stack_node) then throw "RVC Audit top-stack setup failed."
+
+        blocker_mod = Bend()
+        blocker_mod.name = "RVC AUDIT STACK MODIFIER"
+        addModifier stack_node blocker_mod
+    )
+
+    select stack_node
+    modifier_count_before = stack_node.modifiers.count
+    search_ok = TwoEdgeVerts.selectTwoEdgeVerts force_mode:true
+    modifier_count_after_search = stack_node.modifiers.count
+    top_edit_poly_mod = if modifier_count_after_search > 0 then stack_node.modifiers[1] else undefined
+    second_stack_mod = if modifier_count_after_search > 1 then stack_node.modifiers[2] else undefined
+
+    selected_bits = undefined
+    before_count = 0
+
+    if classOf top_edit_poly_mod == Edit_Poly then
+    (
+        selected_bits = top_edit_poly_mod.GetSelection #Vertex node:stack_node
+        before_count = EditPolyMod.GetNumVertices top_edit_poly_mod node:stack_node
+    )
+
+    auditCheck \
+        (search_ok and classOf top_edit_poly_mod == Edit_Poly) \
+        "2-EDGE VERTS \\ FIX creates a top Edit Poly when the existing stack top is not Edit Poly"
+
+    auditCheck \
+        (modifier_count_after_search == (modifier_count_before + 1) and second_stack_mod == blocker_mod) \
+        "Top-stack Edit Poly insertion preserves the pre-existing modifier directly below it"
+
+    auditCheck \
+        (selected_bits != undefined and selected_bits.numberSet == 2) \
+        "Top-stack Edit Poly receives the FORCE 2-edge selection"
+
+    first_top_edit_poly_mod = top_edit_poly_mod
+    second_search_ok = TwoEdgeVerts.selectTwoEdgeVerts force_mode:true
+    modifier_count_after_second_search = stack_node.modifiers.count
+    second_top_edit_poly_mod = if modifier_count_after_second_search > 0 then stack_node.modifiers[1] else undefined
+
+    auditCheck \
+        (second_search_ok and modifier_count_after_second_search == modifier_count_after_search and second_top_edit_poly_mod == first_top_edit_poly_mod) \
+        "2-EDGE VERTS \\ FIX reuses the existing top Edit Poly instead of adding another one"
+
+    removed_count = TwoEdgeVerts.removeTwoEdgeVertsUsingManualWorkflow()
+    after_count = EditPolyMod.GetNumVertices first_top_edit_poly_mod node:stack_node
+    remaining_bits = TwoEdgeVerts.getTwoEdgeVerts stack_node edit_poly_mod:first_top_edit_poly_mod
+
+    auditCheck \
+        (removed_count == 2 and after_count == (before_count - 2)) \
+        "Top-stack SEARCH RMB keeps the stable repeated FORCE batch and removes both 2-edge vertices"
+
+    auditCheck \
+        (classOf remaining_bits == BitArray and remaining_bits.numberSet == 0) \
+        "Top-stack SEARCH RMB finishes with zero live true 2-edge candidates"
+
+    true
+    -- return
+)
+
+
+/*
 Prints the expected undo order after all numbered audit stages have been attempted.
 The scene is intentionally left in its final tested state for visual inspection.
 */
 function printAuditUndoOrder =
 (
     format "\nUNDO ORDER:\n"
-    format "1. RVC AUDIT 13 - FORCE 15 Degree Limit\n"
-    format "2. RVC AUDIT 12 - Dead Topology Sync\n"
-    format "3. RVC AUDIT 10 - Detector Status Setup\n"
-    format "4. Remove One 2-Edge Vert - Edit Poly direct selected fix\n"
-    format "5. Remove One 2-Edge Vert - Editable Poly direct selected fix\n"
-    format "6. RVC AUDIT 9 - Direct Selected Fix Setup\n"
-    format "7. RVC AUDIT 8 - Inner Outer Border Corners\n"
-    format "8. Remove 2-Edge Verts Until Stable - Edit Poly\n"
-    format "9. Remove 2-Edge Verts Until Stable - Editable Poly\n"
-    format "10. RVC AUDIT 7 - Stable Cleanup Setup\n"
-    format "11. RVC AUDIT 6 - Exact Duplicate Vertices\n"
-    format "12. TEV AUDIT 5 - Classification Separation\n"
-    format "13. Remove One 2-Edge Vert - Edit Poly manual fix\n"
-    format "14. Remove One 2-Edge Vert - Editable Poly manual fix\n"
-    format "15. TEV AUDIT 1 - Setup\n"
+    format "1. SEARCH RMB FORCE repeated cleanup - top-stack Edit Poly (one undo record per batch pass)\n"
+    format "2. RVC AUDIT 15 - Top Stack Two Edge\n"
+    format "3. Remove One 2-Edge Vert - Editable Poly UI manual regression\n"
+    format "4. RVC AUDIT 14 - UI Manual Workflow Regression\n"
+    format "5. RVC AUDIT 13 - FORCE 15 Degree Limit\n"
+    format "6. RVC AUDIT 12 - Dead Topology Sync\n"
+    format "7. RVC AUDIT 10 - Detector Status Setup\n"
+    format "8. Remove One 2-Edge Vert - Edit Poly direct selected fix\n"
+    format "9. Remove One 2-Edge Vert - Editable Poly direct selected fix\n"
+    format "10. RVC AUDIT 9 - Direct Selected Fix Setup\n"
+    format "11. RVC AUDIT 8 - Inner Outer Border Corners\n"
+    format "12. SEARCH RMB FORCE repeated cleanup - Edit Poly (one undo record per batch pass)\n"
+    format "13. SEARCH RMB FORCE repeated cleanup - Editable Poly (one undo record per batch pass)\n"
+    format "14. RVC AUDIT 7 - Stable Cleanup Setup\n"
+    format "15. RVC AUDIT 6 - Exact Duplicate Vertices\n"
+    format "16. TEV AUDIT 5 - Classification Separation\n"
+    format "17. Remove One 2-Edge Vert - Edit Poly manual fix\n"
+    format "18. Remove One 2-Edge Vert - Editable Poly manual fix\n"
+    format "19. TEV AUDIT 1 - Setup\n"
     format "\nScene is intentionally left in the final tested state for inspection.\n"
     true
     -- return
@@ -1968,7 +2176,7 @@ tev_audit_ready = loadAuditTool()
 
 if tev_audit_ready then
 (
-    format "\n=== REDUNDANT VERTEX CLEANER AUDIT | project 0.838 ===\n"
+    format "\n=== VERTEX CLEANER AUDIT | project 0.851 ===\n"
 
     try
     (
@@ -2086,6 +2294,24 @@ if tev_audit_ready then
     catch
     (
         auditRecordException "PART 13 - FORCE 15-degree angle limit" (getCurrentException())
+    )
+
+    try
+    (
+        partOfTest14()
+    )
+    catch
+    (
+        auditRecordException "PART 14 - UI manual workflow regression" (getCurrentException())
+    )
+
+    try
+    (
+        partOfTest15()
+    )
+    catch
+    (
+        auditRecordException "PART 15 - Top-stack 2-EDGE VERTS \\ FIX" (getCurrentException())
     )
 
     printAuditUndoOrder()

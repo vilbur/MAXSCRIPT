@@ -1,12 +1,12 @@
-﻿/*
-Wall Thickness Tests 0.002
-Project version 0.997.
+/*
+Wall Thickness Tests 0.009
+Project version 1.005.
 Contains regression helpers and test-fixture builders extracted from the production tool.
 */
-global wall_thickness_test_file_version = 0.002
-global wall_thickness_test_stored_project_version = 0.997
+global wall_thickness_test_file_version = 0.009
+global wall_thickness_test_stored_project_version = 1.005
 global wall_thickness_test_source_file_path = getSourceFileName()
-global wall_thickness_test_production_path = (getFilenamePath wall_thickness_test_source_file_path) + "Wall-Thickness_0.997.ms"
+global wall_thickness_test_production_path = (getFilenamePath wall_thickness_test_source_file_path) + "Wall-Thickness_1.005.ms"
 if doesFileExist wall_thickness_test_production_path then
 (
         fileIn wall_thickness_test_production_path
@@ -63,6 +63,57 @@ function testWallThicknessTEdgeSkewedVerticalCut =
         format "Wall Thickness T EDGE SKEWED CUT TEST: % | top:% -> % | bottom:% -> % | anchor:%\n" (if test_passed then "PASS" else "FAIL") original_top_position moved_top_position original_bottom_position moved_bottom_position fixed_anchor_position
         format "Undo order: Move T Edge Skew Test Cut, Create T Edge Skew Test.\n"
         test_passed
+        -- return
+)
+/*
+Runs the focused paired T-Corner regression on the currently selected wall.
+A T-Corner requires one detected T case plus its mirrored branch/plan case, and both must complete inside the same removable T-edge Edit Poly.
+*/
+function testWallThicknessTCornerSelected =
+(
+        if selection.count != 1 then
+        (
+                format "Wall Thickness T-CORNER TEST: FAIL - select exactly one T-Corner wall object.\n"
+                false
+        )
+        else
+        (
+                test_node = selection[1]
+                inner_result = fixWallThicknessInnerCorners test_node
+                if inner_result == undefined or inner_result[1] != true then
+                (
+                        format "Wall Thickness T-CORNER TEST: FAIL - FIX INNER CORNERS setup failed.\n"
+                        false
+                )
+                else
+                (
+                        plan_data = planWallThicknessTEdgeModifierRepairs test_node
+                        plan_ok = plan_data != undefined and plan_data.count >= 2 and plan_data[1] == true
+                        planned_cases = if plan_ok then plan_data[2] else #()
+                        t_corner_pairs = getWallThicknessTCornerCasePairs planned_cases
+                        before_probe = if t_corner_pairs.count > 0 then createWallThicknessTEdgePolyProbe test_node "T CORNER BEFORE" else undefined
+                        before_counts = if before_probe != undefined then getWallThicknessTEdgeProbeCounts before_probe else #(0, 0, 0)
+                        result_data = if before_probe != undefined then fixWallThicknessTEdgeCorners test_node else #(false, 0, 0, 0)
+                        after_probe = if result_data[1] then createWallThicknessTEdgePolyProbe test_node "T CORNER AFTER" else undefined
+                        after_counts = if after_probe != undefined then getWallThicknessTEdgeProbeCounts after_probe else #(0, 0, 0)
+                        expected_case_count = planned_cases.count
+                        topology_ok =
+                                before_probe != undefined and
+                                after_probe != undefined and
+                                result_data[2] == expected_case_count and
+                                after_counts[1] == (before_counts[1] + (expected_case_count * 2)) and
+                                after_counts[2] == (before_counts[2] + expected_case_count) and
+                                after_counts[3] == (before_counts[3] + (expected_case_count * 3))
+                        t_edge_modifier = getWallThicknessTEdgeFixModifier test_node
+                        t_edge_modifiers = getWallThicknessTEdgeFixModifiers test_node
+                        modifier_ok = t_edge_modifier != undefined and t_edge_modifiers.count == 1
+                        test_passed = plan_ok and t_corner_pairs.count > 0 and result_data[1] and topology_ok and modifier_ok
+                        format "Wall Thickness T-CORNER TEST: % | planned:% | pairs:% | repaired:% | verts:%->% | faces:%->% | edges:%->%\n" (if test_passed then "PASS" else "FAIL") planned_cases.count t_corner_pairs.count result_data[2] before_counts[1] after_counts[1] before_counts[2] after_counts[2] before_counts[3] after_counts[3]
+                        if before_probe != undefined then deleteWallThicknessTEdgePolyProbe before_probe "T CORNER BEFORE"
+                        if after_probe != undefined then deleteWallThicknessTEdgePolyProbe after_probe "T CORNER AFTER"
+                        test_passed
+                )
+        )
         -- return
 )
 /*
@@ -125,6 +176,13 @@ function testWallThicknessTEdgeCornersSelected =
                         base_unchanged = wallThicknessBaseTopologySignaturesMatch base_signature_before base_signature_after
                         t_edge_modifiers = getWallThicknessTEdgeFixModifiers test_node
                         t_edge_modifier = getWallThicknessTEdgeFixModifier test_node
+                        current_stack_object = undefined
+                        try (current_stack_object = modPanel.getCurrentObject()) catch ()
+                        modifier_selected_ok =
+                                t_edge_modifier != undefined and
+                                current_stack_object == t_edge_modifier and
+                                selection.count == 1 and
+                                selection[1] == test_node
                         inner_modifier = getWallThicknessInnerCornerFixModifier test_node
                         thickness_modifier = getWallThicknessModifier test_node
                         inner_index = 0
@@ -189,10 +247,11 @@ function testWallThicknessTEdgeCornersSelected =
                                 result_data[2] > 0 and
                                 base_unchanged and
                                 stack_order_ok and
+                                modifier_selected_ok and
                                 polygon_delta_ok and
                                 disable_restore_ok and
                                 after_polygon_counts[1] == expected_vertex_count
-                        format "Wall Thickness FIX T EDGE CORNERS DIRECT-STACK TEST: % | cases:% | polygon V/F/E:% -> % | expected verts:% | base unchanged:% | stack order:% | polygon delta:% | disable restores exact pre-T:%\n" (if test_passed then "PASS" else "FAIL") result_data[2] before_polygon_counts after_polygon_counts expected_vertex_count base_unchanged stack_order_ok polygon_delta_ok disable_restore_ok
+                        format "Wall Thickness FIX T EDGE CORNERS DIRECT-STACK TEST: % | cases:% | polygon V/F/E:% -> % | expected verts:% | base unchanged:% | stack order:% | modifier selected:% | polygon delta:% | disable restores exact pre-T:%\n" (if test_passed then "PASS" else "FAIL") result_data[2] before_polygon_counts after_polygon_counts expected_vertex_count base_unchanged stack_order_ok modifier_selected_ok polygon_delta_ok disable_restore_ok
                         format "Undo order: Wall Thickness - Fix T Edge Corners, Wall Thickness - Fix Inner Corners.\n"
                         if before_probe != undefined and isValidNode before_probe then deleteWallThicknessTEdgePolyProbe before_probe "TEST BEFORE CLEANUP"
                         if after_probe != undefined and isValidNode after_probe then deleteWallThicknessTEdgePolyProbe after_probe "TEST AFTER CLEANUP"
@@ -2017,20 +2076,15 @@ function testWallThicknessSmoothingResetPolicy =
         -- return
 )
 /*
-Tests that RESTART TOOL resolves an existing versioned script whose numeric version is not older than the currently loaded source.
+Tests that the shared ScriptReload helper resolves an existing Wall Thickness reload target.
 This test resolves the path only and does not reload the script.
 */
 function testWallThicknessLatestReloadPath =
 (
-        latest_script_path = getLatestWallThicknessScriptPath()
-        latest_version_data = getWallThicknessScriptVersionData latest_script_path
-        source_version_data = getWallThicknessScriptVersionData wall_thickness_source_file_path
-        test_passed = latest_script_path != undefined and doesFileExist latest_script_path and latest_version_data[1]
-        if test_passed and source_version_data[1] then
-        (
-                test_passed = latest_version_data[2] >= source_version_data[2]
-        )
-        format "Wall Thickness RESTART TOOL PATH TEST: % | %\n" (if test_passed then "PASS" else "FAIL") latest_script_path
+        current_script = wall_thickness_source_file_path
+        latest_script_path = ScriptReload.findNewestVersionedScript current_script "Wall-Thickness"
+        test_passed = latest_script_path != undefined and latest_script_path != "" and doesFileExist latest_script_path
+        format "Wall Thickness TITLE RESTART PATH TEST: % | %\n" (if test_passed then "PASS" else "FAIL") latest_script_path
         test_passed
         -- return
 )
@@ -2150,6 +2204,271 @@ function partOfTest3 =
         test_passed
         -- return
 )
+/*
+Checks that Wall Thickness resolves the shared UI helpers from the actual source layout.
+This structural stage verifies both helper files and loaded globals without restarting the tool.
+*/
+function partOfTest4 =
+(
+        shared_ui_folder = getWallThicknessSharedUiFolder()
+        helpers_exist = false
+        if shared_ui_folder != undefined then
+        (
+                helpers_exist =
+                        (doesFileExist (shared_ui_folder + "ScriptReload.ms")) and
+                        (doesFileExist (shared_ui_folder + "ToolTitleButton.ms"))
+        )
+        framework_loaded =
+                (globalVars.isGlobal #ScriptReload) and
+                (globalVars.isGlobal #ToolTitleButton) and
+                (globalVars.isGlobal #restartTool)
+        test_passed = helpers_exist and framework_loaded
+        format "Wall Thickness TEST PART 4 - SHARED UI PATH: % | %\n" (if test_passed then "PASS" else "FAIL") shared_ui_folder
+        test_passed
+        -- return
+)
+/*
+Tests REMOVE MODIFIERS across two nodes while preserving unrelated stack modifiers.
+The two nodes remain in the scene after the test so the surviving unrelated modifiers can be inspected.
+*/
+function partOfTest5 =
+(
+        undo "Wall Thickness Multi Remove Setup" on
+        (
+                test_node_a = box name:(uniqueName "WallThickness_MultiRemove_A_") length:100 width:100 height:100
+                test_node_b = box name:(uniqueName "WallThickness_MultiRemove_B_") length:100 width:100 height:100
+                test_node_b.pos = [150, 0, 0]
+                convertToPoly test_node_a
+                convertToPoly test_node_b
+                try (test_node_a.baseObject.showCage = off) catch ()
+                try (test_node_b.baseObject.showCage = off) catch ()
+                for test_node in #(test_node_a, test_node_b) do
+                (
+                        thickness_modifier = Edit_Poly()
+                        thickness_modifier.name = wall_thickness_modifier_name
+                        thickness_modifier.showCage = off
+                        addModifier test_node thickness_modifier
+                        t_edge_modifier = Edit_Poly()
+                        t_edge_modifier.name = wall_thickness_t_edge_fix_modifier_name
+                        t_edge_modifier.showCage = off
+                        addModifier test_node t_edge_modifier
+                        unrelated_modifier = Edit_Poly()
+                        unrelated_modifier.name = "USER MODIFIER - KEEP"
+                        unrelated_modifier.showCage = off
+                        addModifier test_node unrelated_modifier
+                )
+        )
+        result_data = resetWallThicknessSelected #(test_node_a, test_node_b)
+        node_a_ok =
+                getWallThicknessModifier test_node_a == undefined and
+                getWallThicknessTEdgeFixModifier test_node_a == undefined and
+                getWallThicknessNamedModifier test_node_a "USER MODIFIER - KEEP" != undefined
+        node_b_ok =
+                getWallThicknessModifier test_node_b == undefined and
+                getWallThicknessTEdgeFixModifier test_node_b == undefined and
+                getWallThicknessNamedModifier test_node_b "USER MODIFIER - KEEP" != undefined
+        test_passed = result_data[1] and result_data[2] == 2 and result_data[3] == 0 and node_a_ok and node_b_ok
+        format "Wall Thickness TEST PART 5 - MULTI REMOVE MODIFIERS: % | reset:% | failed:%\n" (if test_passed then "PASS" else "FAIL") result_data[2] result_data[3]
+        format "Undo order: Reset Wall Thickness Selected, Wall Thickness Multi Remove Setup.\n"
+        test_passed
+        -- return
+)
+/*
+Tests selection of the canonical FIX T EDGE CORNERS modifier in the Modify panel.
+The test object remains selected with the T-edge modifier current for visual inspection.
+*/
+function partOfTest6 =
+(
+        undo "Wall Thickness T Edge Modifier Selection Setup" on
+        (
+                test_node = box name:(uniqueName "WallThickness_TEdge_Select_") length:100 width:100 height:100
+                convertToPoly test_node
+                try (test_node.baseObject.showCage = off) catch ()
+                t_edge_modifier = Edit_Poly()
+                t_edge_modifier.name = wall_thickness_t_edge_fix_modifier_name
+                t_edge_modifier.showCage = off
+                addModifier test_node t_edge_modifier
+        )
+        selection_succeeded = selectWallThicknessTEdgeFixModifier test_node
+        current_stack_object = undefined
+        try (current_stack_object = modPanel.getCurrentObject()) catch ()
+        test_passed =
+                selection_succeeded and
+                selection.count == 1 and
+                selection[1] == test_node and
+                current_stack_object == t_edge_modifier
+        format "Wall Thickness TEST PART 6 - T EDGE MODIFIER SELECTED: %\n" (if test_passed then "PASS" else "FAIL")
+        format "Undo order: Wall Thickness T Edge Modifier Selection Setup.\n"
+        test_passed
+        -- return
+)
+
+/*
+Checks that catch rethrows use MAXScript's required bare throw() syntax.
+This source-level guard prevents argument-bearing rethrows from reaching the compiler again.
+*/
+function partOfTest7 =
+(
+        production_stream = openFile wall_thickness_test_production_path mode:"rt"
+        if production_stream == undefined then
+        (
+                format "Wall Thickness TEST PART 7 - CATCH RETHROW SYNTAX: FAIL | could not open production source.\n"
+                false
+        )
+        else
+        (
+                production_text = ""
+                while not eof production_stream do
+                (
+                        production_text += (readLine production_stream) + "\n"
+                )
+                close production_stream
+                illegal_rethrow_found = findString production_text "throw exception_text" != undefined
+                test_passed = not illegal_rethrow_found
+                format "Wall Thickness TEST PART 7 - CATCH RETHROW SYNTAX: %\n" (if test_passed then "PASS" else "FAIL")
+                test_passed
+        )
+        -- return
+)
+/*
+Tests same-anchor mirrored T-Corner pairing and exact planned-anchor movement in Edit Poly.
+The created box remains in the scene with the moved test vertex available for inspection.
+*/
+function partOfTest8 =
+(
+        synthetic_cases = #(
+                #(4, 2, 5, 9, 0.25, [10,0,0], [10,0,-10], #t_corner_primary, 2),
+                #(4, 9, 5, 2, 0.75, [20,0,0], [20,0,-10], #t_corner_mirror, 1),
+                #(20, 21, 22, 23, 0.5, [30,0,0], [30,0,-10], #standard, 0)
+        )
+        case_pairs = getWallThicknessTCornerCasePairs synthetic_cases
+        pair_ok =
+                case_pairs.count == 1 and
+                case_pairs[1][1] == 1 and
+                case_pairs[1][2] == 2 and
+                synthetic_cases[1][8] == #t_corner_primary and
+                synthetic_cases[2][8] == #t_corner_mirror
+        undo "Wall Thickness T-Corner Anchor Move Setup" on
+        (
+                test_node = box name:(uniqueName "WallThickness_TCorner_Anchor_") length:100 width:100 height:100
+                convertToPoly test_node
+                try (test_node.showCage = off) catch ()
+                try (test_node.baseObject.showCage = off) catch ()
+                edit_modifier = Edit_Poly()
+                edit_modifier.name = "TEST T-CORNER ANCHOR MOVE"
+                edit_modifier.showCage = off
+                addModifier test_node edit_modifier
+                select test_node
+                max modify mode
+                edit_modifier.SetPrimaryNode test_node
+                modPanel.setCurrentObject edit_modifier node:test_node
+        )
+        start_position = edit_modifier.GetVertex 1 node:test_node
+        target_position = start_position + [units.decodeValue "37mm", units.decodeValue "19mm", 0]
+        tolerance = units.decodeValue "0.01mm"
+        undo "Wall Thickness T-Corner Anchor Move" on
+        (
+                move_ok = moveWallThicknessTEdgeVertexToPosition edit_modifier test_node 1 target_position tolerance
+        )
+        moved_position = edit_modifier.GetVertex 1 node:test_node
+        anchor_ok = move_ok and moved_position != undefined and distance moved_position target_position <= tolerance
+        test_passed = pair_ok and anchor_ok
+        format "Wall Thickness TEST PART 8 - T-CORNER PAIR/ANCHOR: % | pair:% | start:% | target:% | moved:%\n" (if test_passed then "PASS" else "FAIL") pair_ok start_position target_position moved_position
+        format "Undo order: Wall Thickness T-Corner Anchor Move, Wall Thickness T-Corner Anchor Move Setup.\n"
+        test_passed
+        -- return
+)
+/*
+Tests T-edge live target reconstruction and MoveSelection transform handling on a transformed node.
+The expected anchor is derived only from live Edit Poly endpoints plus the stored fraction.
+*/
+function partOfTest9 =
+(
+        undo "Wall Thickness T Edge Live Coordinate Setup" on
+        (
+                test_node = box name:(uniqueName "WallThickness_TEdge_LiveCoord_") length:100 width:100 height:100
+                convertToPoly test_node
+                try (test_node.showCage = off) catch ()
+                try (test_node.baseObject.showCage = off) catch ()
+                test_node.rotation = quat 0 0 0.382683 0.92388
+                test_node.position = [units.decodeValue "137mm", units.decodeValue "-83mm", units.decodeValue "19mm"]
+                edit_modifier = Edit_Poly()
+                edit_modifier.name = "TEST T-EDGE LIVE COORDINATE"
+                edit_modifier.showCage = off
+                addModifier test_node edit_modifier
+                select test_node
+                max modify mode
+                edit_modifier.SetPrimaryNode test_node
+                modPanel.setCurrentObject edit_modifier node:test_node
+        )
+        anchor_start = edit_modifier.GetVertex 1 node:test_node
+        branch_end = edit_modifier.GetVertex 2 node:test_node
+        fraction_from_anchor = 0.37
+        live_target = anchor_start + ((branch_end - anchor_start) * fraction_from_anchor)
+        tolerance = units.decodeValue "0.01mm"
+        undo "Wall Thickness T Edge Live Coordinate Move" on
+        (
+                move_ok = moveWallThicknessTEdgeVertexToPosition edit_modifier test_node 1 live_target tolerance
+        )
+        moved_position = edit_modifier.GetVertex 1 node:test_node
+        test_passed = move_ok and moved_position != undefined and distance moved_position live_target <= tolerance
+        format "Wall Thickness TEST PART 9 - T EDGE LIVE COORDINATE MOVE: % | target:% | moved:%\n" (if test_passed then "PASS" else "FAIL") live_target moved_position
+        format "Undo order: Wall Thickness T Edge Live Coordinate Move, Wall Thickness T Edge Live Coordinate Setup.\n"
+        test_passed
+        -- return
+)
+
+/*
+Checks that every EXTRUDE and FIX UI action snapshots the current selection and loops object by object.
+This source-level regression protects the multi-object wrapper without changing the existing single-object geometry functions.
+*/
+function partOfTest10 =
+(
+        production_stream = openFile wall_thickness_test_production_path mode:"rt"
+        if production_stream == undefined then
+        (
+                format "Wall Thickness TEST PART 10 - MULTI-OBJECT EXTRUDE/FIX WRAPPERS: FAIL | could not open production source.\n"
+                false
+        )
+        else
+        (
+                production_text = ""
+                while not eof production_stream do
+                (
+                        production_text += (readLine production_stream) + "\n"
+                )
+                close production_stream
+                create_ok =
+                        findString production_text "on btn_create pressed do" != undefined and
+                        findString production_text "applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:true" != undefined
+                extrude_only_ok =
+                        findString production_text "on btn_extrude_only pressed do" != undefined and
+                        findString production_text "applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:false" != undefined
+                inner_ok =
+                        findString production_text "on btn_fix_inner pressed do" != undefined and
+                        findString production_text "fixWallThicknessInnerCorners source_node change_material_ids:batch_change_material_ids" != undefined
+                t_edge_ok =
+                        findString production_text "on btn_fix_t_edge pressed do" != undefined and
+                        findString production_text "fixWallThicknessTEdgeCorners source_node" != undefined
+                outer_ok =
+                        findString production_text "on btn_fix_outer pressed do" != undefined and
+                        findString production_text "fixWallThicknessOuterCorners source_node" != undefined
+                selection_snapshot_ok =
+                        findString production_text "selected_nodes = selection as array" != undefined and
+                        findString production_text "for source_node in selected_nodes do" != undefined
+                test_passed = create_ok and extrude_only_ok and inner_ok and t_edge_ok and outer_ok and selection_snapshot_ok
+                format "Wall Thickness TEST PART 10 - MULTI-OBJECT EXTRUDE/FIX WRAPPERS: % | update:% | raw:% | inner:% | t-edge:% | outer:% | snapshot:%\n" (if test_passed then "PASS" else "FAIL") create_ok extrude_only_ok inner_ok t_edge_ok outer_ok selection_snapshot_ok
+                test_passed
+        )
+        -- return
+)
 partOfTest1()
 partOfTest2()
 partOfTest3()
+partOfTest4()
+partOfTest5()
+partOfTest6()
+partOfTest7()
+partOfTest8()
+partOfTest9()
+partOfTest10()

@@ -1,10 +1,14 @@
 /*
-    Redundant Ring Collapser 0.06
+    Redundant Ring Collapser 0.07
     Standalone conservative tool for detecting and collapsing edge rings between pairs of adjacent redundant loops.
 */
 
 global RedundantRingCollapser
 global RedundantRingCollapser_Test_UI
+global RedundantRingCollapser_Title
+global RedundantRingCollapser_Source_File
+global RedundantRingCollapser_Script_Reload_Path
+global RedundantRingCollapser_Tool_Title_Button_Path
 global epoly_tools_project_version
 global EPolyToolsIntegration
 global EPOLY_TOOLS_RUNTIME_MODE
@@ -16,6 +20,31 @@ global EPOLY_TOOLS_MANAGER_PARENT_DIRECTORY
 global EPOLY_TOOLS_MANAGER_CANDIDATE_PATH
 global EPOLY_TOOLS_MANAGER_SEARCH_DEPTH
 global EPOLY_TOOLS_MANAGER_SEARCH_PATH_WITHOUT_SEPARATOR
+
+RedundantRingCollapser_Source_File = getSourceFileName()
+
+if RedundantRingCollapser_Source_File == undefined or RedundantRingCollapser_Source_File == "" then
+(
+    throw "Redundant-Ring-Collapser must be executed from a saved .ms file."
+)
+
+RedundantRingCollapser_Script_Reload_Path = (getFilenamePath RedundantRingCollapser_Source_File) + "..\\..\\..\\..\\..\\UI\\Default\\ScriptReload.ms"
+RedundantRingCollapser_Tool_Title_Button_Path = (getFilenamePath RedundantRingCollapser_Source_File) + "..\\..\\..\\..\\..\\UI\\Default\\ToolTitleButton.ms"
+
+if not doesFileExist RedundantRingCollapser_Script_Reload_Path then
+(
+    throw ("Missing shared UI dependency: " + RedundantRingCollapser_Script_Reload_Path)
+)
+
+if not doesFileExist RedundantRingCollapser_Tool_Title_Button_Path then
+(
+    throw ("Missing shared UI dependency: " + RedundantRingCollapser_Tool_Title_Button_Path)
+)
+
+fileIn RedundantRingCollapser_Script_Reload_Path
+fileIn RedundantRingCollapser_Tool_Title_Button_Path
+
+try(destroyDialog RedundantRingCollapser_Test_UI)catch()
 
 if EPolyToolsIntegration == undefined then
 (
@@ -94,8 +123,8 @@ if EPolyToolsIntegration == undefined then
 
 struct RedundantRingCollapser_v
 (
-    file_version = 0.06,
-    project_version = 0.52,
+    file_version = 0.07,
+    project_version = 1.188,
     face_angle_threshold = 0.1,
     straight_angle_threshold = 2.0,
     coincidence_tolerance = 0.001,
@@ -2067,6 +2096,7 @@ struct RedundantRingCollapser_v
     (
         this.hideUI()
         createDialog RedundantRingCollapser_Test_UI
+        windows.processPostedMessages()
         true
         -- return
     ),
@@ -2088,13 +2118,33 @@ struct RedundantRingCollapser_v
 
 RedundantRingCollapser = RedundantRingCollapser_v()
 RedundantRingCollapser.registerProjectVersion()
+RedundantRingCollapser_Title = "Redundant Ring Collapser | v" + (epoly_tools_project_version as string)
 
-rollout RedundantRingCollapser_Test_UI "Redundant Ring Collapser" width:286 height:114
+rollout RedundantRingCollapser_Test_UI RedundantRingCollapser_Title width:286 height:144
 (
-    label lbl_info "Face plane: 0.1 deg    Straight: 2.0 deg" pos:[12,10] width:260 height:18 align:#left
-    button btn_detect "DETECT RINGS \\ REMOVE LOOPS" pos:[12,32] width:262 height:30 tooltip:"LMB: Detect edge rings between uniquely paired redundant loops and select them.\n\nRMB: Remove redundant-loop edges and their vertices through SELECT REDUNDANT LOOPS."
-    button btn_create "CREATE TEST MESH" pos:[12,68] width:126 height:28 tooltip:"Create a planar quad grid containing one valid redundant ring."
-    button btn_tests "RUN TESTS" pos:[148,68] width:126 height:28 tooltip:"Run valid-ring and ambiguous/no-pair regression tests."
+    dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:262 height:18
+    label lbl_info "Face plane: 0.1 deg    Straight: 2.0 deg" pos:[12,42] width:260 height:18 align:#left
+    button btn_detect "DETECT RINGS \\ REMOVE LOOPS" pos:[12,66] width:262 height:30 tooltip:"LMB: Detect edge rings between uniquely paired redundant loops and select them.\n\nRMB: Remove redundant-loop edges and their vertices through SELECT REDUNDANT LOOPS."
+    button btn_create "CREATE TEST MESH" pos:[12,108] width:126 height:24 tooltip:"Create a planar quad grid containing one valid redundant ring."
+    button btn_tests "RUN TESTS" pos:[148,108] width:126 height:24 tooltip:"Run valid-ring and ambiguous/no-pair regression tests."
+
+    on RedundantRingCollapser_Test_UI open do
+    (
+        ToolTitleButton.setupToolTitleButton btn_tool_title "Redundant Ring Collapser"
+        ToolTitleButton.resizeToolTitleButton btn_tool_title (RedundantRingCollapser_Test_UI.width - 24)
+        btn_tool_title.height = 18
+    )
+
+    on RedundantRingCollapser_Test_UI resized dialog_size do
+    (
+        ToolTitleButton.resizeToolTitleButton btn_tool_title (dialog_size.x - 24)
+        btn_tool_title.height = 18
+    )
+
+    on btn_tool_title Click sender event_args do
+    (
+        restartTool RedundantRingCollapser_Source_File "Redundant-Ring-Collapser"
+    )
 
     on btn_detect pressed do
     (
@@ -2125,6 +2175,5 @@ if EPolyToolsIntegration != undefined then
 )
 else
 (
-    RedundantRingCollapser_Test_UI.title = "Redundant Ring Collapser " + (epoly_tools_project_version as string)
     RedundantRingCollapser.showUI()
 )

@@ -1,4 +1,60 @@
-﻿# Vertex Cleaner — Changes
+## 2026-10-06 — project 0.851
+
+- Renamed the visible `SEARCH 2-EDGE VERTS` control to `2-EDGE VERTS \\ FIX`. Its confirmed-stable LMB/RMB behavior is unchanged.
+- Reordered the three cleanup rows so `SELECT \\ REMOVE` now sits directly below `2-EDGE VERTS \\ FIX`, with `REMOVE` moved one row lower. No backend behavior changed.
+
+# Vertex Cleaner — Changes
+
+## 2026-10-06 — project 0.850
+
+- Fixed top-stack Edit Poly SEARCH RMB removal. The FORCE detector was finding the correct candidates, but the batch then called `suspendEditing which:#modify`; local live Edit Poly topology/snapshot validation consequently rejected every captured source, producing `removed:0 | skipped:<all>`. Edit Poly batch cleanup now keeps editing live while retaining one Modify-panel setup, one undo record, `with redraw off`, and one final refresh.
+- Hardened the repeated FORCE outer loop: a pass that starts with candidates but removes zero now stops as `#sameCount`/no-progress instead of allowing an immediate transient zero read to be reported as `#complete`. The stable highest-ID-first target-weld geometry is unchanged.
+
+## 2026-10-06 — project 0.849
+
+- `SEARCH 2-EDGE VERTS` now resolves its working topology at the evaluated top of the modifier stack. An unmodified Editable Poly base keeps the stable base-object path; when modifiers are present, the Tool reuses the exact top `Edit_Poly` or adds one new tool Edit Poly at the visual top when the current top modifier is not Edit Poly. Lower Edit Poly modifiers are intentionally not adopted because they do not represent the evaluated stack top.
+- The confirmed-stable 0.848 repeated FORCE batch is unchanged once the target topology is resolved. The new top Edit Poly uses local selection (`useStackSelection = false`), keeps `showCage = false`, preserves all existing modifiers below it, and is reused on later SEARCH LMB/RMB calls instead of adding another modifier.
+
+## 2026-10-06 — project 0.848
+
+- `SEARCH 2-EDGE VERTS` RMB now automatically repeats the confirmed-stable 0.847 FORCE reverse batch. After each completed batch it performs one fresh FORCE detection and runs another identical reverse batch when candidates remain, so cases that previously required a second manual RMB pass now converge automatically.
+- Added a no-progress stop rule: if the next outer pass starts with the same FORCE candidate count as the previous pass, the loop stops before running that pass. The stable per-vertex target-weld behavior, reverse ordering, local validation, and per-pass UI/redraw suppression are unchanged.
+
+## 2026-10-06 — project 0.847
+
+- Optimized `SEARCH 2-EDGE VERTS` RMB batch cleanup without changing the stable 0.846 keep-edge geometry. Edit Poly now prepares the Modify-panel/Edit Poly context once, uses one undo record for the whole batch, suppresses redraw for the loop, suspends Command Panel editing once, and refreshes the modifier/viewport only once after the batch. This removes the per-vertex modifier-stack blinking caused by repeated `modPanel.setCurrentObject`, `RefreshScreen`, and `completeRedraw`.
+- Removed the per-candidate full-object FORCE detector from the batch path. The FORCE set is still captured once and processed highest-ID-first, but each captured source now receives only local live validation before the same target-weld keep-edge operation. Edit Poly reuses one visible-neighbor snapshot for both validation and target choice instead of running the full detector plus duplicate neighbor snapshots. Interactive `SELECT \\ REMOVE` behavior is unchanged.
+
+## 2026-10-06 — project 0.846
+
+- Corrected the removal topology contract for `SELECT \\ REMOVE` and SEARCH RMB. The shared low-level removal path no longer calls native Remove Vertex at all. It now target-welds the two-edge source into its closest actually visible neighbor so the source disappears while the opposite source edge survives as a direct edge between the two surviving neighbors.
+- The same edge-preserving target-weld path is used for Editable Poly and Edit Poly and supports both filtered manual candidates and FORCE SEARCH RMB candidates. Existing highest-ID-first ordering is unchanged. The audit continues to require exactly one vertex removed, the surviving neighbors still edge-connected, and the chosen target neighbor unchanged in position.
+
+## 2026-10-06 — project 0.845
+
+- Simplified `SEARCH 2-EDGE VERTS` RMB to one captured FORCE candidate set processed strictly from highest vertex ID to lowest. The batch no longer re-runs the filtered manual LMB search after every removal, which was why it stopped after the filtered subset was exhausted while FORCE candidates still remained.
+- SEARCH RMB reuses the same native Remove Vertex / existing fallback mechanism as the stable `SELECT \ REMOVE` path, but validates candidates in FORCE mode. A candidate that is no longer valid when reached is skipped and the reverse loop continues instead of aborting the entire batch. `SELECT \ REMOVE` itself remains unchanged and continues highest-ID-first.
+
+## 2026-10-06 — project 0.844
+
+- `SEARCH 2-EDGE VERTS` RMB now reuses the confirmed-stable `SELECT \\ REMOVE` workflow instead of its own filtered-search/manual-state path. It repeatedly calls the same fresh filtered candidate search/arm step used by `SELECT \\ REMOVE` LMB and the same revalidate/native-Remove/fallback/rebuild step used by `SELECT \\ REMOVE` RMB until a fresh pass finds no candidates.
+- The existing `SEARCH 2-EDGE VERTS` LMB FORCE behavior is unchanged. `REMOVE` keeps its existing fixed-point backend path. All package scripts advance together to unified file/project/title version `0.844`, and `_Versions` uses the same `0.844` suffix for every package script.
+
+## 2026-10-06 — project 0.843
+
+- Unified the version contract: every modified production script now uses the same value for `file_version` and `project_version`, and the visible rollout title shows that same Tool version. Current audit/main/backend/UI are all exactly **0.843**; the audit now requires exact equality instead of accepting independent per-file version lines.
+- The rollout title is derived directly from `TwoEdgeVertsUI.project_version`, not from the shared `epoly_tools_project_version` global, so another loaded EPolyTools component cannot make the Vertex Cleaner title display a different version.
+- Versioned snapshots created for project 0.843 use the same `0.843` suffix. The three misnamed project-0.842 snapshots (`Vertex-Cleaner_0.12.ms`, `Vertex-Cleaner-FN_0.83.ms`, `Vertex-Cleaner-UI_0.81.ms`) are renamed in place to the common `0.842` suffix; their Drive IDs and contents are preserved.
+
+## 2026-10-06 — project 0.842
+
+- `SELECT \ REMOVE` is now independent from `SEARCH 2-EDGE VERTS` RMB. Every LMB runs its own fresh filtered true-two-edge pass on the current Editable Poly/Edit Poly target, rebuilds the live candidate set, selects the highest current candidate, and arms that exact vertex for RMB. It no longer waits for SEARCH to have prepared a queue.
+- RMB uses the exact armed vertex and can recover from one currently selected live filtered two-edge vertex if the arm/state was lost. The UI no longer falls through to `FIX SELECTED VERT`, so this button keeps its native Remove Vertex / audited fallback behavior. `Vertex-Cleaner-FN.ms` advances to 0.83, `Vertex-Cleaner-UI.ms` to 0.81, `Vertex-Cleaner.ms` to 0.12, and the audit targets project 0.842.
+
+## 2026-10-06 — project 0.841
+- Restored the manual filtered-search workflow reported as non-responsive. `Vertex-Cleaner-FN.ms` advances to 0.82 / project 0.841 with `prepareManualRemoveStateFromFilteredSearch()`: SEARCH RMB now detects the filtered true-two-edge set, visibly selects it, and stores that exact fresh live BitArray atomically instead of selecting first and then re-reading viewport selection to build the queue. `SELECT \ REMOVE` continues to use the stored highest-ID-first workflow, and its stale guidance now correctly points to SEARCH RMB.
+- Fixed the live `VERTS / SEL / UNSEL` refresh so it is strictly read-only. `getSelectedVertexCounts()` no longer calls the Editable Poly dead-topology collapse boundary from the 250 ms UI timer; when dead structures exist it returns no counts rather than reindexing topology or invalidating stored manual candidate IDs. This removes an asynchronous source of lost selection/manual state that could make `FIX SELECTED VERT`, SEARCH RMB, and `SELECT \ REMOVE` appear to do nothing.
+- `Vertex-Cleaner-UI.ms` advances to 0.80 / project 0.841 and routes SEARCH RMB through the new atomic backend operation. `Vertex-Cleaner.ms` advances to 0.11 / project 0.841. `Vertex-Cleaner-Audit-Test.ms` advances to project 0.841 with a regression stage proving timer-equivalent info reads do not mutate dirty Editable Poly topology or candidate state and exercising the production SEARCH RMB -> SELECT \ REMOVE LMB -> RMB sequence.
 
 ## 2026-10-06 — project 0.840
 

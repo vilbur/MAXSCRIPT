@@ -1,5 +1,9 @@
 # Changes
 
+## 2026-10-06
+
+- Project 1.188: `Loop Tools/Redundant-Ring-Collapser/Redundant-Ring-Collapser.ms` advances to file version 0.07 and adds the canonical shared `.NET` tool title button at the top of the rollout. LMB on the title button restarts through `ScriptReload.ms`, loading the newest matching versioned `Redundant-Ring-Collapser_*.ms` when available and otherwise reloading the current script. The title button uses `ToolTitleButton.ms`, keeps the required 18 px height, and the native rollout title is resolved before rollout creation as `Redundant Ring Collapser | v1.188`; the previous runtime `.title` mutation is removed. Geometry detection, ring selection, loop removal, collapse logic, and test actions are unchanged. Added snapshot `Redundant-Ring-Collapser_0.07.ms`.
+
 
 ## 2026-10-05
 

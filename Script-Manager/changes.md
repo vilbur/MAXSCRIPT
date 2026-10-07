@@ -1,3 +1,35 @@
+﻿## 2026-10-06 — 1.153
+
+- `Script-Manager.ms` advances to `1.153` from the 1.152 destroy-first batch-dialog reload candidate.
+- Fixed a HOST reload edge case where a script that already had a standalone rollout open could be executed again in embedded mode, redefining the rollout global while leaving the old standalone instance alive.
+- Embedded/HOST loads now collect the current source-declared and registry-owned rollout instances and close any standalone dialogs **before** the script is `fileIn`-loaded in `#embedded` mode. The new rollout instance can then be embedded without leaving a duplicate standalone window.
+- `tests/Script-Manager-test.ms` advances to file version `1.152` / project `1.153` and adds a regression sequence that direct-loads a rollout first, then HOST-loads it and verifies the stale standalone instance is closed before the hosted reload continues.
+- Stable baseline remains `1.149` until a newer version is explicitly confirmed stable.
+
+## 2026-10-06 — 1.152
+
+- `Script-Manager.ms` advances to `1.152` from the 1.151 per-dialog SOURCES reload candidate.
+- Per-dialog reload now kills the existing batch host first: the old host dialog is saved, unregistered when docked, fully destroyed, and removed from manager tracking before any assigned HOST scripts are executed again.
+- The same destroy-first behavior is used by both SOURCES `LOAD \ RELOAD DIALOG` and the generated batch dialog title-button reload path, preventing stale docked dialog-bar state from interfering with recreation.
+- Other batch dialogs and DIRECT/standalone scripts remain untouched. `tests/Script-Manager-test.ms` advances to file version `1.151` / project `1.152` and verifies that per-dialog reload recreates a new host instance.
+- Stable baseline remains `1.149` until a newer version is explicitly confirmed stable.
+
+## 2026-10-06 — 1.151
+
+- `Script-Manager.ms` advances to `1.151` from the 1.150 batch-grouping candidate.
+- Added `LOAD \ RELOAD DIALOG` to the SOURCES RMB menu for an explicit checked batch-dialog item. The command is shown only when that checked source is the second matching checked ancestor for at least one configured HOST script; the first checked discovery source is ignored.
+- The command loads a not-yet-open batch or hard reloads an existing one using only the currently configured HOST scripts assigned to that dialog. Other HOST dialogs, DIRECT/standalone scripts, and skipped scripts are untouched.
+- Added source-dialog targeting helpers and regression coverage for cross-parent HOST membership, DIRECT exclusion, first-source exclusion, and context-menu visibility. `tests/Script-Manager-test.ms` advances to file version `1.150` / project `1.151`.
+- Stable baseline remains `1.149` until a newer version is explicitly confirmed stable.
+
+## 2026-10-06 — 1.150
+
+- `Script-Manager.ms` advances to `1.150` to correct cross-parent batch ownership.
+- The first checked SOURCES ancestor is discovery-only. The second checked ancestor becomes the batch-dialog owner for the complete subtree, and deeper checked descendants no longer split that batch into separate dialogs.
+- HOST script coloring follows the resolved batch dialog; DIRECT/standalone scripts remain orange.
+- `tests/Script-Manager-test.ms` advances to file version `1.149` / project `1.150` with a regression case proving scripts from different parent folders resolve to one explicit batch dialog.
+- Version `1.149` remains the latest user-confirmed stable baseline.
+
 ## 2026-10-06 — 1.148
 
 - `Script-Manager.ms` advances to `1.148` while preserving the 1.147 same-name/empty-directory SOURCES stopper behavior.

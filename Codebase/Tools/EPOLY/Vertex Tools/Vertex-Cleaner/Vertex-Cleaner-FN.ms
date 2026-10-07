@@ -1,9 +1,10 @@
-﻿/*
-    Vertex Cleaner Backend 0.81
+/*
+    Vertex Cleaner Backend 0.851
     Reusable geometry backend for redundant-vertex detection, selection, exact duplicate collapse, and two-edge cleanup.
 
     Public input/output API:
     getSelectedVertexCounts() -> Array
+    prepareManualRemoveStateFromFilteredSearch() -> Boolean
     getTwoEdgeVerts node edit_poly_mod:<Edit_Poly> -> BitArray
     selectTwoEdgeVerts force_mode:<Boolean> -> Boolean
     wasLastTwoEdgeDetectionSuccessful() -> Boolean
@@ -29,6 +30,7 @@
     selectCandidateById node vertex_id edit_poly_mod:<Edit_Poly> -> Boolean
     fixCandidateById node source_vertex edit_poly_mod:<Edit_Poly> -> Boolean
     fixSelectedVertex() -> Boolean
+    removeTwoEdgeVertsUsingManualWorkflow() -> Integer
     removeTwoEdgeVertsUntilStable() -> Integer
     removeSelectedTwoEdgeVertsBatch() -> Integer
 */
@@ -36,15 +38,15 @@
 global TwoEdgeVerts
 global epoly_tools_project_version
 
-if epoly_tools_project_version == undefined or epoly_tools_project_version < 0.839 then
+if epoly_tools_project_version == undefined or epoly_tools_project_version < 0.851 then
 (
-    epoly_tools_project_version = 0.839
+    epoly_tools_project_version = 0.851
 )
 
 struct TwoEdgeVerts_v
 (
-    file_version = 0.81,
-    project_version = 0.839,
+    file_version = 0.851,
+    project_version = 0.851,
     straight_pair_dot_limit = -0.999847695,
     force_straight_deviation_degrees = 15.0,
     manual_remove_node = undefined,
@@ -52,6 +54,8 @@ struct TwoEdgeVerts_v
     manual_remove_target_type = undefined,
     manual_remove_vertex_ids = #(),
     manual_remove_candidate_id = 0,
+    two_edge_owned_edit_poly_node = undefined,
+    two_edge_owned_edit_poly_modifier = undefined,
     last_two_edge_detection_ok = false,
 
     /*
@@ -226,8 +230,85 @@ struct TwoEdgeVerts_v
 
 
     /*
-    Returns #(all_vertices, selected_vertices, unselected_vertices) for the single selected supported topology target.
-    INPUT: current scene selection. OUTPUT: three-Integer Array, or #() when no single supported target is active.
+    Resolves the topology used by SEARCH 2-EDGE VERTS at the evaluated top of the modifier stack.
+    Returns #(#EditablePoly, base) or #(#EditPoly, modifier); returns undefined after a diagnostic when no safe target can be resolved or created.
+    */
+    function getTwoEdgeTopStackTarget node create_edit_poly:true =
+    (
+        if node == undefined or not(isValidNode node) then
+        (
+            format "Vertex Cleaner | SEARCH 2-EDGE VERTS target resolution failed | node:% | required:valid node\n" node
+            return undefined
+        )
+        if not(isProperty node #modifiers) then
+        (
+            format "Vertex Cleaner | SEARCH 2-EDGE VERTS selected node has no modifier stack | node:%\n" node.name
+            return undefined
+        )
+
+        local top_stack_mod = undefined
+        local edit_poly_mod = undefined
+        local add_ok = false
+        local exception_text = ""
+
+        if node.modifiers.count > 0 then
+        (
+            top_stack_mod = node.modifiers[1]
+
+            if classOf top_stack_mod == Edit_Poly then
+            (
+                top_stack_mod.useStackSelection = false
+                top_stack_mod.selectMode = 0
+                top_stack_mod.showCage = false
+                return #(#EditPoly, top_stack_mod)
+            )
+        )
+        else if classOf node.baseObject == Editable_Poly then
+        (
+            node.baseObject.showCage = false
+            return #(#EditablePoly, node.baseObject)
+        )
+
+        if not(create_edit_poly) then return undefined
+
+        edit_poly_mod = Edit_Poly()
+        edit_poly_mod.name = "Vertex Cleaner"
+        edit_poly_mod.useStackSelection = false
+        edit_poly_mod.selectMode = 0
+        edit_poly_mod.showCage = false
+
+        try
+        (
+            addModifier node edit_poly_mod
+            add_ok = true
+        )
+        catch
+        (
+            exception_text = getCurrentException()
+            format "Vertex Cleaner | SEARCH 2-EDGE VERTS could not add top Edit Poly | node:% | ERROR:%\n" node.name exception_text
+            add_ok = false
+        )
+
+        if not(add_ok) then return undefined
+
+        if node.modifiers.count < 1 or node.modifiers[1] != edit_poly_mod then
+        (
+            format "Vertex Cleaner | SEARCH 2-EDGE VERTS top Edit Poly verification failed | node:% | expected:% | actualTop:%\n" \
+                node.name edit_poly_mod (if node.modifiers.count > 0 then node.modifiers[1] else undefined)
+            return undefined
+        )
+
+        two_edge_owned_edit_poly_node = node
+        two_edge_owned_edit_poly_modifier = edit_poly_mod
+
+        #(#EditPoly, edit_poly_mod)
+        -- return
+    ),
+
+
+    /*
+    Returns read-only vertex counts for the single selected supported topology target.
+    Editable Poly dead topology is never collapsed from this UI-info path; unsafe dirty counts return #() until an operation owns synchronization.
     */
     function getSelectedVertexCounts =
     (
@@ -249,8 +330,8 @@ struct TwoEdgeVerts_v
         )
         else if target[1] == #EditablePoly then
         (
-            topology_state = this.ensureCleanEditablePolyTopology node
-            if topology_state == #failed or topology_state == #blocked then return #()
+            dead_structs = polyop.getHasDeadStructs node.baseObject
+            if dead_structs != 0 then return #()
 
             vertex_count = polyop.getNumVerts node.baseObject
             selected_bits = polyop.getVertSelection node.baseObject
@@ -1793,7 +1874,7 @@ struct TwoEdgeVerts_v
 
     /*
     Clears the stored manual REMOVE VERT data and the currently armed candidate.
-    SEARCH 2-EDGE VERTS LMB creates a fresh stored candidate list.
+    SELECT \\ REMOVE LMB rebuilds a fresh filtered candidate list when needed.
     */
     function resetManualRemoveState =
     (
@@ -1859,18 +1940,21 @@ struct TwoEdgeVerts_v
     Selects exactly one Editable Poly vertex by its current live vertex ID.
     This is used by the manual REMOVE VERT stepper after each successful removal.
     */
-    function selectManualEditablePolyVertex node vertex_id =
+    function selectManualEditablePolyVertex node vertex_id topology_prevalidated:false =
     (
         if node == undefined or not(isValidNode node) then return false
         if classOf node.baseObject != Editable_Poly then return false
 
-        topology_state = this.ensureCleanEditablePolyTopology node
-        if topology_state == #failed or topology_state == #blocked then return false
-
-        if topology_state == #collapsed then
+        if not(topology_prevalidated) then
         (
-            format "REMOVE VERT LMB | Editable Poly candidate IDs were invalidated by topology synchronization.\n"
-            return false
+            topology_state = this.ensureCleanEditablePolyTopology node
+            if topology_state == #failed or topology_state == #blocked then return false
+
+            if topology_state == #collapsed then
+            (
+                format "REMOVE VERT LMB | Editable Poly topology was synchronized before candidate selection; reacquire the candidate from current topology.\n"
+                return false
+            )
         )
 
         poly_value = node.baseObject
@@ -1879,7 +1963,21 @@ struct TwoEdgeVerts_v
 
         single_vertex = #{}
         single_vertex[vertex_id] = true
+
+        select node
+        if getCommandPanelTaskMode() != #modify then
+        (
+            max modify mode
+        )
+
+        forceSelectModeZero poly_value
+        if modPanel.getCurrentObject() != poly_value then
+        (
+            modPanel.setCurrentObject poly_value node:node
+        )
+
         polyop.setVertSelection poly_value single_vertex
+        subObjectLevel = 1
         update node
         completeRedraw()
 
@@ -1933,10 +2031,10 @@ struct TwoEdgeVerts_v
     ),
 
     /*
-    Removes one Editable Poly source vertex with native Remove Vertex and falls back to the proven target-weld path only when native Remove changes nothing.
-    Native Remove preserves the surrounding faces and reconnects the source vertex's two-edge path directly.
+    Removes one Editable Poly two-edge source by target-welding it into its closest visible neighbor.
+    Native Remove Vertex is not used; the opposite source edge must survive as a direct edge between the two surviving neighbors.
     */
-    function removeOneManualEditablePolyVert node source_vertex quiet_mode:false =
+    function removeOneManualEditablePolyVert node source_vertex quiet_mode:false force_mode:false =
     (
         if node == undefined or not(isValidNode node) then return false
         if classOf node.baseObject != Editable_Poly then return false
@@ -1958,96 +2056,40 @@ struct TwoEdgeVerts_v
         vertex_count = polyop.getNumVerts poly_value
         if source_vertex < 1 or source_vertex > vertex_count then return false
 
-        valid_bits = findTwoEdgeVertsOnEditablePoly node
+        valid_bits = findTwoEdgeVertsOnEditablePoly node force_mode:force_mode
         if not(last_two_edge_detection_ok) then return false
 
         if source_vertex > valid_bits.count or not(valid_bits[source_vertex]) then
         (
             if not(quiet_mode) then
             (
-                format "REMOVE VERT | Editable Poly | source:% | SKIP: source is no longer a valid true 2-edge vertex.\n" source_vertex
+                format "REMOVE VERT | Editable Poly | source:% | SKIP: source is no longer a valid 2-edge vertex.\n" source_vertex
             )
             return false
         )
 
-        source_position = polyop.getVert poly_value source_vertex
-
-        single_vertex = #{}
-        single_vertex[source_vertex] = true
-        polyop.setVertSelection poly_value single_vertex
-        selected_bits = polyop.getVertSelection poly_value
-        if selected_bits != single_vertex then return false
-
-        before_count = vertex_count
-        native_remove_invoked = false
-
-        try
-        (
-            native_remove_invoked = node.EditablePoly.Remove selLevel:#Vertex
-        )
-        catch
-        (
-            exception_text = getCurrentException()
-            format "REMOVE VERT | Editable Poly | source:% | mode:#NativeRemove | ERROR:%\n" source_vertex exception_text
-            native_remove_invoked = false
-        )
-
-        update node
-        this.invalidateStoredTopologyIdsForNode node
-        topology_state = this.ensureCleanEditablePolyTopology node
-        if topology_state == #failed or topology_state == #blocked then return false
-
-        after_native_count = polyop.getNumVerts poly_value
-        native_removed = after_native_count == (before_count - 1)
-
-        if native_removed then
+        visible_neighbors = getEditablePolyVisibleNeighborVerts poly_value source_vertex
+        if visible_neighbors.count != 2 then
         (
             if not(quiet_mode) then
             (
-                format "REMOVE VERT | Editable Poly | mode:#NativeRemove | removed:true\n"
-            )
-            return true
-        )
-
-        if after_native_count != before_count then
-        (
-            format "REMOVE VERT | Editable Poly | mode:#NativeRemove | ERROR: unexpected vertex count % -> %.\n" before_count after_native_count
-            return false
-        )
-
-        refreshed_source_ids = getEditablePolyVertexIdsAtExactPosition node source_position
-        if refreshed_source_ids.count != 1 then
-        (
-            if not(quiet_mode) then
-            (
-                format "REMOVE VERT | Editable Poly | mode:#TargetWeldFallback | ABORT: source could not be uniquely reacquired after native Remove.\n"
-            )
-            return false
-        )
-
-        source_vertex = refreshed_source_ids[1]
-        valid_bits = findTwoEdgeVertsOnEditablePoly node
-
-        if not(last_two_edge_detection_ok) or source_vertex > valid_bits.count or not(valid_bits[source_vertex]) then
-        (
-            if not(quiet_mode) then
-            (
-                format "REMOVE VERT | Editable Poly | mode:#TargetWeldFallback | ABORT: reacquired source is not a current true 2-edge vertex.\n"
+                format "REMOVE VERT | Editable Poly | source:% | ERROR: expected exactly two visible neighbors, got:%.\n" source_vertex visible_neighbors.count
             )
             return false
         )
 
         target_vertex = getClosestEditablePolyVisibleNeighborVert poly_value source_vertex
-        if target_vertex < 1 then
+        if target_vertex < 1 or findItem visible_neighbors target_vertex == 0 then
         (
             if not(quiet_mode) then
             (
-                format "REMOVE VERT | Editable Poly | source:% | mode:#TargetWeldFallback | SKIP: no visible-edge target.\n" source_vertex
+                format "REMOVE VERT | Editable Poly | source:% | SKIP: no visible-edge target.\n" source_vertex
             )
             return false
         )
 
         target_position = polyop.getVert poly_value target_vertex
+        before_count = vertex_count
         weld_ok = false
 
         try
@@ -2058,7 +2100,7 @@ struct TwoEdgeVerts_v
         catch
         (
             exception_text = getCurrentException()
-            format "REMOVE VERT | Editable Poly | source:% | target:% | mode:#TargetWeldFallback | ERROR:%\n" source_vertex target_vertex exception_text
+            format "REMOVE VERT | Editable Poly | source:% | target:% | mode:#TargetWeldKeepEdge | ERROR:%\n" source_vertex target_vertex exception_text
             weld_ok = false
         )
 
@@ -2072,17 +2114,18 @@ struct TwoEdgeVerts_v
 
         if not(quiet_mode) then
         (
-            format "REMOVE VERT | Editable Poly | mode:#TargetWeldFallback | removed:% | nativeInvoked:%\n" removed_ok native_remove_invoked
+            format "REMOVE VERT | Editable Poly | source:% | target:% | mode:#TargetWeldKeepEdge | removed:%\n" source_vertex target_vertex removed_ok
         )
+
         removed_ok
         -- return
     ),
 
     /*
-    Removes one Edit Poly source vertex with the modifier's native Remove Vertex button operation.
-    The existing target-weld path is retained only as a fallback when native Remove leaves topology unchanged.
+    Removes one Edit Poly two-edge source by target-welding it into its closest visible neighbor.
+    Native Remove Vertex is not used; the opposite source edge must survive as a direct edge between the two surviving neighbors.
     */
-    function removeOneManualEditPolyVert node edit_poly_mod source_vertex quiet_mode:false =
+    function removeOneManualEditPolyVert node edit_poly_mod source_vertex quiet_mode:false force_mode:false =
     (
         if node == undefined or not(isValidNode node) then return false
         if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then return false
@@ -2102,12 +2145,12 @@ struct TwoEdgeVerts_v
         vertex_count = EditPolyMod.GetNumVertices edit_poly_mod node:node
         if source_vertex < 1 or source_vertex > vertex_count then return false
 
-        valid_bits = findTwoEdgeVertsOnEditPoly node edit_poly_mod quiet_mode:quiet_mode
+        valid_bits = findTwoEdgeVertsOnEditPoly node edit_poly_mod quiet_mode:quiet_mode force_mode:force_mode
         if not(last_two_edge_detection_ok) then
         (
             if not(quiet_mode) then
             (
-                format "REMOVE VERT | Edit Poly | source:% | ERROR: true 2-edge detection failed.\n" source_vertex
+                format "REMOVE VERT | Edit Poly | source:% | ERROR: 2-edge detection failed.\n" source_vertex
             )
             return false
         )
@@ -2116,117 +2159,206 @@ struct TwoEdgeVerts_v
         (
             if not(quiet_mode) then
             (
-                format "REMOVE VERT | Edit Poly | source:% | SKIP: source is no longer a valid true 2-edge vertex.\n" source_vertex
+                format "REMOVE VERT | Edit Poly | source:% | SKIP: source is no longer a valid 2-edge vertex.\n" source_vertex
             )
             return false
         )
 
-        current_selection = edit_poly_mod.GetSelection #Vertex node:node
-        if current_selection == undefined then
-        (
-            format "REMOVE VERT | Edit Poly | source:% | ERROR: selection read failed before native Remove.\n" source_vertex
-            return false
-        )
-        if current_selection.numberSet > 0 then edit_poly_mod.Select #Vertex current_selection select:false node:node
-
-        single_vertex = #{}
-        single_vertex[source_vertex] = true
-        edit_poly_mod.Select #Vertex single_vertex select:true node:node
-        selected_bits = edit_poly_mod.GetSelection #Vertex node:node
-        if selected_bits != single_vertex then return false
-
-        source_position = EditPolyMod.GetVertex edit_poly_mod source_vertex node:node
-        before_count = vertex_count
-        native_remove_invoked = false
-
-        try
-        (
-            edit_poly_mod.ButtonOp #RemoveVertex
-            native_remove_invoked = true
-        )
-        catch
-        (
-            exception_text = getCurrentException()
-            format "REMOVE VERT | Edit Poly | source:% | mode:#NativeRemove | ERROR:%\n" source_vertex exception_text
-            native_remove_invoked = false
-        )
-
-        edit_poly_mod.RefreshScreen()
-        update node
-        this.invalidateStoredTopologyIdsForNode node
-        after_native_count = EditPolyMod.GetNumVertices edit_poly_mod node:node
-        native_removed = after_native_count == (before_count - 1)
-
-        if native_removed then
+        visible_neighbors = getActuallyVisibleEditPolyNeighborVerts node edit_poly_mod source_vertex
+        if visible_neighbors.count != 2 then
         (
             if not(quiet_mode) then
             (
-                format "REMOVE VERT | Edit Poly | source:% | mode:#NativeRemove | removed:true\n" source_vertex
-            )
-            return true
-        )
-
-        if after_native_count != before_count then
-        (
-            format "REMOVE VERT | Edit Poly | source:% | mode:#NativeRemove | ERROR: unexpected vertex count % -> %.\n" source_vertex before_count after_native_count
-            return false
-        )
-
-        refreshed_source_ids = getEditPolyVertexIdsAtExactPosition node edit_poly_mod source_position
-        if refreshed_source_ids.count != 1 then
-        (
-            if not(quiet_mode) then
-            (
-                format "REMOVE VERT | Edit Poly | mode:#TargetWeldFallback | ABORT: source could not be uniquely reacquired after native Remove.\n"
-            )
-            return false
-        )
-
-        source_vertex = refreshed_source_ids[1]
-        valid_bits = findTwoEdgeVertsOnEditPoly node edit_poly_mod quiet_mode:quiet_mode
-
-        if not(last_two_edge_detection_ok) or source_vertex > valid_bits.count or not(valid_bits[source_vertex]) then
-        (
-            if not(quiet_mode) then
-            (
-                format "REMOVE VERT | Edit Poly | mode:#TargetWeldFallback | ABORT: reacquired source is not a current true 2-edge vertex.\n"
-            )
-            return false
-        )
-
-        current_selection = edit_poly_mod.GetSelection #Vertex node:node
-        if current_selection == undefined then
-        (
-            format "REMOVE VERT | Edit Poly | source:% | mode:#TargetWeldFallback | ERROR: selection read failed.\n" source_vertex
-            return false
-        )
-        if current_selection.numberSet > 0 then edit_poly_mod.Select #Vertex current_selection select:false node:node
-
-        single_vertex = #{}
-        single_vertex[source_vertex] = true
-        edit_poly_mod.Select #Vertex single_vertex select:true node:node
-        selected_bits = edit_poly_mod.GetSelection #Vertex node:node
-        if selected_bits != single_vertex then
-        (
-            if not(quiet_mode) then
-            (
-                format "REMOVE VERT | Edit Poly | source:% | mode:#TargetWeldFallback | SKIP: reacquired source could not be selected.\n" source_vertex
+                format "REMOVE VERT | Edit Poly | source:% | ERROR: expected exactly two visible neighbors, got:%.\n" source_vertex visible_neighbors.count
             )
             return false
         )
 
         target_vertex = getClosestEditPolyVisibleNeighborVert node edit_poly_mod source_vertex
-        if target_vertex < 1 then
+        if target_vertex < 1 or findItem visible_neighbors target_vertex == 0 then
         (
             if not(quiet_mode) then
             (
-                format "REMOVE VERT | Edit Poly | source:% | mode:#TargetWeldFallback | SKIP: no visible-edge target.\n" source_vertex
+                format "REMOVE VERT | Edit Poly | source:% | SKIP: no visible-edge target.\n" source_vertex
+            )
+            return false
+        )
+
+        current_selection = edit_poly_mod.GetSelection #Vertex node:node
+        if current_selection == undefined then
+        (
+            format "REMOVE VERT | Edit Poly | source:% | ERROR: selection read failed before target weld.\n" source_vertex
+            return false
+        )
+
+        if current_selection.numberSet > 0 then
+        (
+            edit_poly_mod.Select #Vertex current_selection select:false node:node
+        )
+
+        single_vertex = #{}
+        single_vertex[source_vertex] = true
+        edit_poly_mod.Select #Vertex single_vertex select:true node:node
+
+        selected_bits = edit_poly_mod.GetSelection #Vertex node:node
+        if selected_bits == undefined or selected_bits != single_vertex then
+        (
+            if not(quiet_mode) then
+            (
+                format "REMOVE VERT | Edit Poly | source:% | ERROR: source could not be selected for target weld.\n" source_vertex
             )
             return false
         )
 
         source_position = EditPolyMod.GetVertex edit_poly_mod source_vertex node:node
         target_position = EditPolyMod.GetVertex edit_poly_mod target_vertex node:node
+        move_amount = target_position - source_position
+        before_count = vertex_count
+        weld_ok = false
+
+        try
+        (
+            edit_poly_mod.MoveSelection move_amount
+            edit_poly_mod.Commit()
+            edit_poly_mod.WeldVertices target_vertex source_vertex node:node
+            edit_poly_mod.Commit()
+            weld_ok = true
+        )
+        catch
+        (
+            exception_text = getCurrentException()
+            format "REMOVE VERT | Edit Poly | source:% | target:% | mode:#TargetWeldKeepEdge | ERROR:%\n" source_vertex target_vertex exception_text
+            weld_ok = false
+        )
+
+        edit_poly_mod.RefreshScreen()
+        update node
+        this.invalidateStoredTopologyIdsForNode node
+
+        after_count = EditPolyMod.GetNumVertices edit_poly_mod node:node
+        removed_ok = weld_ok and after_count == (before_count - 1)
+
+        if not(quiet_mode) then
+        (
+            format "REMOVE VERT | Edit Poly | source:% | target:% | mode:#TargetWeldKeepEdge | removed:%\n" source_vertex target_vertex removed_ok
+        )
+
+        removed_ok
+        -- return
+    ),
+
+    /*
+    Prepares one Edit Poly target for a batch operation without repeating Command Panel setup per vertex.
+    The caller may suspend editing/redraw only after this function succeeds.
+    */
+    function prepareEditPolyBatchContext node edit_poly_mod =
+    (
+        if node == undefined or not(isValidNode node) then return false
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then return false
+        if not(modifierBelongsToNode node edit_poly_mod) then return false
+
+        if selection.count != 1 then
+        (
+            select node
+        )
+        else if selection[1] != node then
+        (
+            select node
+        )
+
+        if getCommandPanelTaskMode() != #modify then
+        (
+            max modify mode
+        )
+
+        edit_poly_mod.SetPrimaryNode node
+        edit_poly_mod.useStackSelection = false
+        edit_poly_mod.selectMode = 0
+        edit_poly_mod.showCage = false
+
+        if modPanel.getCurrentObject() != edit_poly_mod then
+        (
+            modPanel.setCurrentObject edit_poly_mod node:node
+        )
+
+        edit_poly_mod.SetEPolySelLevel #Vertex
+        subObjectLevel = 1
+
+        true
+        -- return
+    ),
+
+    /*
+    Resolves one current FORCE Edit Poly source locally and returns its target-weld data.
+    This avoids a full-object FORCE detector pass and reuses one visible-neighbor snapshot for validation and target choice.
+    */
+    function getForceEditPolyBatchTargetData node edit_poly_mod source_vertex =
+    (
+        if node == undefined or not(isValidNode node) then return undefined
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then return undefined
+        if not(modifierBelongsToNode node edit_poly_mod) then return undefined
+
+        vertex_count = EditPolyMod.GetNumVertices edit_poly_mod node:node
+        if source_vertex < 1 or source_vertex > vertex_count then return undefined
+
+        visible_neighbors = getActuallyVisibleEditPolyNeighborVerts node edit_poly_mod source_vertex
+        if visible_neighbors.count != 2 then return undefined
+
+        source_position = EditPolyMod.GetVertex edit_poly_mod source_vertex node:node
+        neighbor_a = visible_neighbors[1]
+        neighbor_b = visible_neighbors[2]
+        neighbor_position_a = EditPolyMod.GetVertex edit_poly_mod neighbor_a node:node
+        neighbor_position_b = EditPolyMod.GetVertex edit_poly_mod neighbor_b node:node
+
+        if not(isTwoEdgePairWithinStraightDeviation source_position neighbor_position_a neighbor_position_b force_straight_deviation_degrees) then
+        (
+            return undefined
+        )
+
+        distance_a = distance source_position neighbor_position_a
+        distance_b = distance source_position neighbor_position_b
+        target_vertex = neighbor_a
+        target_position = neighbor_position_a
+
+        if distance_b < distance_a or (distance_b == distance_a and neighbor_b < neighbor_a) then
+        (
+            target_vertex = neighbor_b
+            target_position = neighbor_position_b
+        )
+
+        #(target_vertex, source_position, target_position)
+        -- return
+    ),
+
+    /*
+    Removes one captured FORCE Edit Poly source inside an already prepared batch context.
+    No Command Panel setup, full-object detector pass, RefreshScreen, update-node redraw, or completeRedraw occurs here.
+    */
+    function removeOneManualEditPolyVertBatch node edit_poly_mod source_vertex =
+    (
+        target_data = this.getForceEditPolyBatchTargetData node edit_poly_mod source_vertex
+        if target_data == undefined or target_data.count != 3 then return false
+
+        target_vertex = target_data[1]
+        source_position = target_data[2]
+        target_position = target_data[3]
+
+        current_selection = edit_poly_mod.GetSelection #Vertex node:node
+        if current_selection == undefined then return false
+
+        if current_selection.numberSet > 0 then
+        (
+            edit_poly_mod.Select #Vertex current_selection select:false node:node
+        )
+
+        single_vertex = #{}
+        single_vertex[source_vertex] = true
+        edit_poly_mod.Select #Vertex single_vertex select:true node:node
+
+        selected_bits = edit_poly_mod.GetSelection #Vertex node:node
+        if selected_bits == undefined or selected_bits != single_vertex then return false
+
+        before_count = EditPolyMod.GetNumVertices edit_poly_mod node:node
         move_amount = target_position - source_position
         weld_ok = false
 
@@ -2241,21 +2373,105 @@ struct TwoEdgeVerts_v
         catch
         (
             exception_text = getCurrentException()
-            format "REMOVE VERT | Edit Poly | source:% | target:% | mode:#TargetWeldFallback | ERROR:%\n" source_vertex target_vertex exception_text
+            format "Vertex Cleaner | SEARCH RMB batch | Edit Poly source:% target:% ERROR:%\n" source_vertex target_vertex exception_text
             weld_ok = false
         )
 
-        edit_poly_mod.RefreshScreen()
+        if not(weld_ok) then return false
+
+        after_count = EditPolyMod.GetNumVertices edit_poly_mod node:node
+        removed_ok = after_count == (before_count - 1)
+
+        if removed_ok then
+        (
+            this.invalidateStoredTopologyIdsForNode node
+        )
+
+        removed_ok
+        -- return
+    ),
+
+    /*
+    Resolves one current FORCE Editable Poly source locally and returns its target-weld data.
+    Visible neighbors come directly from live Editable Poly edge visibility, avoiding a full-object detector pass.
+    */
+    function getForceEditablePolyBatchTargetData node source_vertex =
+    (
+        if node == undefined or not(isValidNode node) then return undefined
+        if classOf node.baseObject != Editable_Poly then return undefined
+
+        poly_value = node.baseObject
+        vertex_count = polyop.getNumVerts poly_value
+        if source_vertex < 1 or source_vertex > vertex_count then return undefined
+
+        visible_neighbors = getEditablePolyVisibleNeighborVerts poly_value source_vertex
+        if visible_neighbors.count != 2 then return undefined
+
+        source_position = polyop.getVert poly_value source_vertex
+        neighbor_a = visible_neighbors[1]
+        neighbor_b = visible_neighbors[2]
+        neighbor_position_a = polyop.getVert poly_value neighbor_a
+        neighbor_position_b = polyop.getVert poly_value neighbor_b
+
+        if not(isTwoEdgePairWithinStraightDeviation source_position neighbor_position_a neighbor_position_b force_straight_deviation_degrees) then
+        (
+            return undefined
+        )
+
+        distance_a = distance source_position neighbor_position_a
+        distance_b = distance source_position neighbor_position_b
+        target_vertex = neighbor_a
+        target_position = neighbor_position_a
+
+        if distance_b < distance_a or (distance_b == distance_a and neighbor_b < neighbor_a) then
+        (
+            target_vertex = neighbor_b
+            target_position = neighbor_position_b
+        )
+
+        #(target_vertex, target_position)
+        -- return
+    ),
+
+    /*
+    Removes one captured FORCE Editable Poly source inside the reverse batch.
+    It performs only local FORCE validation plus the stable target weld and controlled dead-topology synchronization.
+    */
+    function removeOneManualEditablePolyVertBatch node source_vertex =
+    (
+        topology_state = this.ensureCleanEditablePolyTopology node
+        if topology_state == #failed or topology_state == #blocked or topology_state == #collapsed then return false
+
+        target_data = this.getForceEditablePolyBatchTargetData node source_vertex
+        if target_data == undefined or target_data.count != 2 then return false
+
+        target_vertex = target_data[1]
+        target_position = target_data[2]
+        poly_value = node.baseObject
+        before_count = polyop.getNumVerts poly_value
+        weld_ok = false
+
+        try
+        (
+            weld_result = poly_value.weldVerts target_vertex source_vertex target_position
+            weld_ok = weld_result == true
+        )
+        catch
+        (
+            exception_text = getCurrentException()
+            format "Vertex Cleaner | SEARCH RMB batch | Editable Poly source:% target:% ERROR:%\n" source_vertex target_vertex exception_text
+            weld_ok = false
+        )
+
+        if not(weld_ok) then return false
+
         update node
         this.invalidateStoredTopologyIdsForNode node
-        after_count = EditPolyMod.GetNumVertices edit_poly_mod node:node
-        removed_ok = weld_ok and after_count == (before_count - 1)
+        topology_state = this.ensureCleanEditablePolyTopology node
+        if topology_state == #failed or topology_state == #blocked then return false
 
-        if not(quiet_mode) then
-        (
-            format "REMOVE VERT | Edit Poly | source:% | target:% | mode:#TargetWeldFallback | removed:% | nativeInvoked:%\n" source_vertex target_vertex removed_ok native_remove_invoked
-        )
-        removed_ok
+        after_count = polyop.getNumVerts poly_value
+        after_count == (before_count - 1)
         -- return
     ),
 
@@ -2368,8 +2584,89 @@ struct TwoEdgeVerts_v
     ),
 
     /*
-    Stores the vertex data created by SEARCH 2-EDGE VERTS LMB for one active object.
-    Manual REMOVE VERT intentionally supports one object so every stored vertex ID belongs to one live topology target.
+    Runs filtered SEARCH and atomically stores that same live candidate set for SELECT \ REMOVE.
+    INPUT: current single supported object. OUTPUT: Boolean success; false also represents a valid zero-candidate search.
+    */
+    function prepareManualRemoveStateFromFilteredSearch =
+    (
+        this.resetManualRemoveState()
+
+        if selection.count != 1 then
+        (
+            format "REMOVE VERT DATA | Filtered SEARCH requires exactly one selected object.\n"
+            return false
+        )
+
+        node = selection[1]
+        if node == undefined or not(isValidNode node) then return false
+
+        target = getSelectionTarget node multi_object:false
+        if target == undefined then return false
+
+        target_type = target[1]
+        target_value = target[2]
+        candidate_bits = #{}
+        selection_ok = false
+
+        if target_type == #EditPoly then
+        (
+            candidate_bits = findTwoEdgeVertsOnEditPoly node target_value
+
+            if not(last_two_edge_detection_ok) then
+            (
+                format "REMOVE VERT DATA | Edit Poly filtered SEARCH detection failed.\n"
+                return false
+            )
+
+            selection_ok = selectEditPolyVerts node target_value candidate_bits
+        )
+        else if target_type == #EditablePoly then
+        (
+            candidate_bits = findTwoEdgeVertsOnEditablePoly node
+
+            if not(last_two_edge_detection_ok) then
+            (
+                format "REMOVE VERT DATA | Editable Poly filtered SEARCH detection failed.\n"
+                return false
+            )
+
+            selection_ok = selectEditablePolyVerts node candidate_bits enter_subobject:(candidate_bits.numberSet > 0)
+        )
+        else
+        (
+            return false
+        )
+
+        if not(selection_ok) then
+        (
+            this.resetManualRemoveState()
+            format "REMOVE VERT DATA | Filtered SEARCH candidate selection failed.\n"
+            return false
+        )
+
+        if candidate_bits.numberSet < 1 then
+        (
+            this.resetManualRemoveState()
+            format "REMOVE VERT DATA | Filtered SEARCH found no manual candidates.\n"
+            return false
+        )
+
+        manual_remove_node = node
+        manual_remove_target_type = target_type
+        manual_remove_modifier = if target_type == #EditPoly then target_value else undefined
+        manual_remove_vertex_ids = candidate_bits as array
+        sort manual_remove_vertex_ids
+        manual_remove_candidate_id = 0
+
+        format "REMOVE VERT DATA | node:% | target:% | ids:%\n" node.name target_type manual_remove_vertex_ids
+        true
+        -- return
+    ),
+
+
+    /*
+    Stores the vertex data created by SEARCH 2-EDGE VERTS RMB for one active object.
+    Compatibility path: captures the currently selected filtered set; the production UI uses prepareManualRemoveStateFromFilteredSearch().
     */
     function storeManualRemoveStateFromCurrentSelection =
     (
@@ -2446,6 +2743,59 @@ struct TwoEdgeVerts_v
     ),
 
     /*
+    Arms the one currently selected live filtered two-edge vertex when manual state was lost.
+    INPUT: explicit current topology target. OUTPUT: Boolean success.
+    */
+    function armManualRemoveCandidateFromCurrentSelection node target_type target_value =
+    (
+        if node == undefined or not(isValidNode node) then return false
+
+        selected_bits = #{}
+        valid_bits = #{}
+
+        if target_type == #EditPoly then
+        (
+            if target_value == undefined or classOf target_value != Edit_Poly then return false
+            if not(modifierBelongsToNode node target_value) then return false
+
+            selected_bits = target_value.GetSelection #Vertex node:node
+            if selected_bits == undefined then return false
+
+            valid_bits = findTwoEdgeVertsOnEditPoly node target_value
+            if not(last_two_edge_detection_ok) then return false
+        )
+        else if target_type == #EditablePoly then
+        (
+            topology_state = this.ensureCleanEditablePolyTopology node
+            if topology_state == #failed or topology_state == #blocked then return false
+
+            valid_bits = findTwoEdgeVertsOnEditablePoly node
+            if not(last_two_edge_detection_ok) then return false
+            selected_bits = polyop.getVertSelection node.baseObject
+        )
+        else
+        (
+            return false
+        )
+
+        if classOf selected_bits != BitArray or selected_bits.numberSet != 1 then return false
+
+        selected_ids = selected_bits as array
+        source_vertex = selected_ids[1]
+        if source_vertex < 1 or source_vertex > valid_bits.count or not(valid_bits[source_vertex]) then return false
+
+        manual_remove_node = node
+        manual_remove_target_type = target_type
+        manual_remove_modifier = if target_type == #EditPoly then target_value else undefined
+        manual_remove_vertex_ids = valid_bits as array
+        sort manual_remove_vertex_ids
+        manual_remove_candidate_id = source_vertex
+
+        true
+        -- return
+    ),
+
+    /*
     Selects the highest-ID candidate still present in the stored manual data without modifying that data.
     This is the LMB half of the manual REMOVE VERT workflow and performs no geometry change.
     */
@@ -2453,37 +2803,33 @@ struct TwoEdgeVerts_v
     (
         if selection.count != 1 then
         (
-            format "REMOVE VERT LMB | Select the object whose 2-edge data was stored.\n"
+            format "REMOVE VERT LMB | Select exactly one Editable Poly / Edit Poly object.\n"
             return false
         )
 
         node = selection[1]
         if node == undefined or not(isValidNode node) then return false
 
-        target = getSelectionTarget node multi_object:false
-        if target == undefined then return false
+        target = getSelectionTarget node multi_object:true
+        if target == undefined then
+        (
+            format "REMOVE VERT LMB | No Editable Poly / Edit Poly target found.\n"
+            return false
+        )
 
         target_type = target[1]
         target_value = target[2]
 
-        if target_type == #EditablePoly then
+        rebuilt_ok = this.rebuildManualRemoveStateFromCurrentTopology node target_type target_value
+        if not(rebuilt_ok) then
         (
-            topology_state = this.ensureCleanEditablePolyTopology node
-
-            if topology_state == #collapsed then
-            (
-                rebuilt_ok = this.rebuildManualRemoveStateFromCurrentTopology node target_type target_value
-                if not(rebuilt_ok) then return false
-            )
-            else if topology_state == #failed or topology_state == #blocked then
-            (
-                return false
-            )
+            format "REMOVE VERT LMB | Fresh filtered candidate search failed.\n"
+            return false
         )
 
-        if not(this.manualRemoveContextMatches node target_type target_value) then
+        if manual_remove_vertex_ids == undefined or manual_remove_vertex_ids.count < 1 then
         (
-            format "REMOVE VERT LMB | No stored 2-edge data for this object. Run SEARCH 2-EDGE VERTS LMB first.\n"
+            format "REMOVE VERT LMB | No current filtered 2-edge candidate found.\n"
             return false
         )
 
@@ -2496,13 +2842,13 @@ struct TwoEdgeVerts_v
         )
         else if target_type == #EditablePoly then
         (
-            selected_ok = this.selectManualEditablePolyVertex node candidate_id
+            selected_ok = this.selectManualEditablePolyVertex node candidate_id topology_prevalidated:true
         )
 
         if selected_ok then
         (
             manual_remove_candidate_id = candidate_id
-            format "REMOVE VERT LMB | candidate:% | remaining:%\n" candidate_id manual_remove_vertex_ids
+            format "REMOVE VERT LMB | candidate:% | current:%\n" candidate_id manual_remove_vertex_ids
         )
         else
         (
@@ -2522,56 +2868,37 @@ struct TwoEdgeVerts_v
     (
         if selection.count != 1 then
         (
-            format "REMOVE VERT RMB | Select the object whose candidate is armed.\n"
+            format "REMOVE VERT RMB | Select exactly one Editable Poly / Edit Poly object.\n"
             return false
         )
 
         node = selection[1]
         if node == undefined or not(isValidNode node) then return false
 
-        target = getSelectionTarget node multi_object:false
-        if target == undefined then return false
+        target = getSelectionTarget node multi_object:true
+        if target == undefined then
+        (
+            format "REMOVE VERT RMB | No Editable Poly / Edit Poly target found.\n"
+            return false
+        )
 
         target_type = target[1]
         target_value = target[2]
 
-        if target_type == #EditablePoly then
+        context_ok = this.manualRemoveContextMatches node target_type target_value
+        if not(context_ok) or manual_remove_candidate_id < 1 then
         (
-            topology_state = this.ensureCleanEditablePolyTopology node
+            recovered_ok = this.armManualRemoveCandidateFromCurrentSelection node target_type target_value
 
-            if topology_state == #collapsed then
+            if not(recovered_ok) then
             (
-                this.rebuildManualRemoveStateFromCurrentTopology node target_type target_value
-                format "REMOVE VERT RMB | Editable Poly topology was synchronized; the armed candidate ID was invalidated. Use LMB to arm a fresh candidate.\n"
+                format "REMOVE VERT RMB | No armed live filtered candidate. Use LMB first.\n"
                 return false
             )
-            else if topology_state == #failed or topology_state == #blocked then
-            (
-                return false
-            )
-        )
-
-        if not(this.manualRemoveContextMatches node target_type target_value) then
-        (
-            format "REMOVE VERT RMB | Stored data does not match the active object.\n"
-            return false
-        )
-
-        if manual_remove_candidate_id < 1 then
-        (
-            format "REMOVE VERT RMB | No candidate armed. Use REMOVE VERT LMB first.\n"
-            return false
         )
 
         source_vertex = manual_remove_candidate_id
-        expected_vertex = manual_remove_vertex_ids[manual_remove_vertex_ids.count]
-
-        if source_vertex != expected_vertex then
-        (
-            format "REMOVE VERT RMB | Armed candidate % is not the highest stored ID %. Use REMOVE VERT LMB again.\n" source_vertex expected_vertex
-            manual_remove_candidate_id = 0
-            return false
-        )
+        if source_vertex < 1 then return false
 
         removed_ok = false
 
@@ -3311,6 +3638,263 @@ struct TwoEdgeVerts_v
     ),
 
     /*
+    Runs one already-detected FORCE candidate batch using the confirmed-stable project 0.847 reverse-removal path.
+    Returns #(removed_count, skipped_count, batch_error) without performing another full-object FORCE search.
+    */
+    function removeTwoEdgeVertsUsingManualWorkflowPass node target_type target_value candidate_ids =
+    (
+        if node == undefined or not(isValidNode node) then
+        (
+            format "Vertex Cleaner | SEARCH RMB FORCE batch invalid node.\n"
+            return #(0, 0, true)
+        )
+
+        if classOf candidate_ids != Array then
+        (
+            format "Vertex Cleaner | SEARCH RMB FORCE batch expected candidate Array, got:%\n" (classOf candidate_ids)
+            return #(0, 0, true)
+        )
+
+        if candidate_ids.count < 1 then return #(0, 0, false)
+
+        removed_count = 0
+        skipped_count = 0
+        batch_error = false
+
+        if target_type == #EditPoly then
+        (
+            prepared_ok = this.prepareEditPolyBatchContext node target_value
+            if not(prepared_ok) then
+            (
+                format "Vertex Cleaner | SEARCH RMB FORCE batch context preparation failed.\n"
+                return #(0, candidate_ids.count, true)
+            )
+
+            /*
+            Keep Edit Poly editing live during the topology loop.
+            suspendEditing() prevents the local live topology/snapshot validation from resolving valid FORCE sources on a top-stack Edit Poly.
+            Modify-panel setup still happens only once, redraw remains suppressed, and no per-candidate RefreshScreen/completeRedraw occurs.
+            */
+            with redraw off
+            (
+                try
+                (
+                    undo "Vertex Cleaner SEARCH RMB FORCE Batch" on
+                    (
+                        for candidate_index = candidate_ids.count to 1 by -1 do
+                        (
+                            source_vertex = candidate_ids[candidate_index]
+                            removed_ok = this.removeOneManualEditPolyVertBatch node target_value source_vertex
+
+                            if removed_ok then
+                            (
+                                removed_count += 1
+                            )
+                            else
+                            (
+                                skipped_count += 1
+                            )
+                        )
+                    )
+                )
+                catch
+                (
+                    exception_text = getCurrentException()
+                    format "Vertex Cleaner | SEARCH RMB FORCE batch ERROR:%\n" exception_text
+                    batch_error = true
+                )
+            )
+
+            current_selection = target_value.GetSelection #Vertex node:node
+            if current_selection != undefined and current_selection.numberSet > 0 then
+            (
+                target_value.Select #Vertex current_selection select:false node:node
+            )
+
+            target_value.RefreshScreen()
+            update node
+        )
+        else if target_type == #EditablePoly then
+        (
+            with redraw off
+            (
+                try
+                (
+                    undo "Vertex Cleaner SEARCH RMB FORCE Batch" on
+                    (
+                        for candidate_index = candidate_ids.count to 1 by -1 do
+                        (
+                            source_vertex = candidate_ids[candidate_index]
+                            removed_ok = this.removeOneManualEditablePolyVertBatch node source_vertex
+
+                            if removed_ok then
+                            (
+                                removed_count += 1
+                            )
+                            else
+                            (
+                                skipped_count += 1
+                            )
+                        )
+                    )
+                )
+                catch
+                (
+                    exception_text = getCurrentException()
+                    format "Vertex Cleaner | SEARCH RMB FORCE batch ERROR:%\n" exception_text
+                    batch_error = true
+                )
+            )
+
+            polyop.setVertSelection node.baseObject #{}
+            update node
+        )
+        else
+        (
+            format "Vertex Cleaner | SEARCH RMB FORCE batch received unsupported target:%\n" target_type
+            return #(0, candidate_ids.count, true)
+        )
+
+        this.resetManualRemoveState()
+
+        if removed_count > 0 then
+        (
+            completeRedraw()
+        )
+
+        format "Vertex Cleaner | SEARCH RMB FORCE batch | initial:% | removed:% | skipped:% | error:%\n" candidate_ids.count removed_count skipped_count batch_error
+
+        #(removed_count, skipped_count, batch_error)
+        -- return
+    ),
+
+    /*
+    Repeats the stable FORCE reverse batch until no candidates remain or the next pass starts with the same candidate count.
+    Each pass performs one fresh FORCE detection, then delegates the actual removals unchanged to the confirmed-stable project 0.847 batch path.
+    */
+    function removeTwoEdgeVertsUsingManualWorkflow =
+    (
+        if selection.count != 1 then
+        (
+            format "Vertex Cleaner | SEARCH RMB requires exactly one selected object.\n"
+            return 0
+        )
+
+        node = selection[1]
+        if node == undefined or not(isValidNode node) then
+        (
+            format "Vertex Cleaner | SEARCH RMB FORCE loop selected node is invalid.\n"
+            return 0
+        )
+
+        target = getTwoEdgeTopStackTarget node create_edit_poly:true
+        if target == undefined then
+        (
+            format "Vertex Cleaner | SEARCH RMB FORCE loop could not resolve or create the top-stack Edit Poly target.\n"
+            return 0
+        )
+
+        target_type = target[1]
+        target_value = target[2]
+        previous_candidate_count = -1
+        current_candidate_count = 0
+        total_removed_count = 0
+        pass_count = 0
+        keep_processing = true
+        stop_reason = #none
+
+        this.resetManualRemoveState()
+
+        while keep_processing do
+        (
+            candidate_bits = #{}
+
+            if target_type == #EditPoly then
+            (
+                candidate_bits = findTwoEdgeVertsOnEditPoly node target_value quiet_mode:true force_mode:true
+            )
+            else if target_type == #EditablePoly then
+            (
+                candidate_bits = findTwoEdgeVertsOnEditablePoly node force_mode:true
+            )
+            else
+            (
+                format "Vertex Cleaner | SEARCH RMB FORCE loop received unsupported target:%\n" target_type
+                stop_reason = #unsupportedTarget
+                keep_processing = false
+            )
+
+            if keep_processing then
+            (
+                if not(last_two_edge_detection_ok) then
+                (
+                    format "Vertex Cleaner | SEARCH RMB FORCE detection failed before pass:%\n" (pass_count + 1)
+                    stop_reason = #detectionFailed
+                    keep_processing = false
+                )
+                else
+                (
+                    candidate_ids = candidate_bits as array
+                    sort candidate_ids
+                    current_candidate_count = candidate_ids.count
+
+                    if current_candidate_count < 1 then
+                    (
+                        stop_reason = #complete
+                        keep_processing = false
+                    )
+                    else if previous_candidate_count == current_candidate_count then
+                    (
+                        format "Vertex Cleaner | SEARCH RMB FORCE loop stopped | next pass:% | candidate count unchanged:%\n" (pass_count + 1) current_candidate_count
+                        stop_reason = #sameCount
+                        keep_processing = false
+                    )
+                    else
+                    (
+                        pass_count += 1
+                        batch_result = this.removeTwoEdgeVertsUsingManualWorkflowPass node target_type target_value candidate_ids
+
+                        if classOf batch_result != Array or batch_result.count != 3 then
+                        (
+                            format "Vertex Cleaner | SEARCH RMB FORCE loop invalid batch result | pass:% | result:%\n" pass_count batch_result
+                            stop_reason = #batchResultFailed
+                            keep_processing = false
+                        )
+                        else
+                        (
+                            pass_removed_count = batch_result[1]
+                            batch_error = batch_result[3]
+                            total_removed_count += pass_removed_count
+
+                            if batch_error then
+                            (
+                                stop_reason = #batchError
+                                keep_processing = false
+                            )
+                            else if pass_removed_count < 1 then
+                            (
+                                format "Vertex Cleaner | SEARCH RMB FORCE loop stopped | pass:% | candidate count unchanged:% | removed:0\n" pass_count current_candidate_count
+                                stop_reason = #sameCount
+                                keep_processing = false
+                            )
+                            else
+                            (
+                                previous_candidate_count = current_candidate_count
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        this.resetManualRemoveState()
+        format "Vertex Cleaner | SEARCH RMB FORCE loop | passes:% | removed:% | next_count:% | stop:%\n" pass_count total_removed_count current_candidate_count stop_reason
+
+        total_removed_count
+        -- return
+    ),
+
+    /*
     Repeatedly searches the live topology and removes one highest-ID true two-edge vertex until no candidates remain.
     A fresh detector pass runs after every successful removal so topology changes never leave a stale candidate batch.
     */
@@ -3323,10 +3907,18 @@ struct TwoEdgeVerts_v
         )
 
         node = selection[1]
-        if node == undefined or not(isValidNode node) then return 0
+        if node == undefined or not(isValidNode node) then
+        (
+            format "Vertex Cleaner | SEARCH RMB FORCE loop selected node is invalid.\n"
+            return 0
+        )
 
         target = getSelectionTarget node multi_object:false
-        if target == undefined then return 0
+        if target == undefined then
+        (
+            format "Vertex Cleaner | SEARCH RMB FORCE loop could not resolve Editable Poly / Edit Poly target.\n"
+            return 0
+        )
 
         target_type = target[1]
         target_value = target[2]
@@ -3486,17 +4078,17 @@ struct TwoEdgeVerts_v
     (
         if selection.count != 1 then
         (
-            format "Two Edge Verts | SEARCH requires exactly one selected Editable Poly / Edit Poly object.\n"
+            format "Two Edge Verts | SEARCH requires exactly one selected object.\n"
             return false
         )
 
         node = selection[1]
         if node == undefined or not(isValidNode node) then return false
 
-        target = getSelectionTarget node multi_object:false
+        target = getTwoEdgeTopStackTarget node create_edit_poly:true
         if target == undefined then
         (
-            format "Two Edge Verts | node:% | target:#Unsupported | selected:#{} | count:0 | ok:false\n" node.name
+            format "Two Edge Verts | node:% | target:#UnsupportedTopStack | selected:#{} | count:0 | ok:false\n" node.name
             return false
         )
 

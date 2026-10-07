@@ -4,6 +4,17 @@
 These rules are mandatory for every MaxScript project change and do not need to be repeated by the user in each chat.
 
 
+## CRITICAL TOOL ENTRY FILE NAMING
+
+
+- For every MaxScript tool stored in its own parent folder, the canonical main/entry `.ms` file must use exactly the same base name as that parent folder.
+- Required pattern: `<Tool-Name>\<Tool-Name>.ms`.
+- The matching-name main file is the stable canonical launch/entry file for the tool.
+- Keep the parent-folder name and canonical entry-file name synchronized when creating or renaming a tool.
+- Versioned development/history copies may coexist when the project uses versioned files, but they must not replace or rename the canonical matching-name entry file.
+- Do not use generic canonical entry names such as `main.ms`, `tool.ms`, `launcher.ms`, or a version-suffixed filename unless the current project explicitly overrides this rule.
+
+
 ## CRITICAL SYNTAX AND CODE SAFETY
 
 
@@ -26,6 +37,12 @@ These rules are mandatory for every MaxScript project change and do not need to 
 - A tolerance must be named, documented, and come from an explicit feature/user/project contract; do not invent one to make an algorithm behave.
 - UI display rounding is allowed for presentation only; it must not alter the stored/computed backend value.
 - Before delivery, inspect changed unit/geometry code for hidden `round`, `floor`, `ceil`, Float-to-Integer conversion, decimal truncation, and hard-coded epsilon/tolerance constants.
+- Any operation that uses Point3/position values for matching, comparison, grouping, identity, lookup, duplicate detection, or expected-versus-actual verification must accept an explicit `position_precision` value.
+- Canonical position-precision choices are `1mm`, `0.1mm`, and `0.01mm`; the default is `0.01mm`.
+- For position-based equality/identity logic, round temporary position copies to the selected position precision before comparing them. Convert the millimeter precision explicitly to current scene/system units; do not hard-code a scene-unit epsilon.
+- Position precision is an explicit feature contract and is the controlled exception to the general no-hidden-rounding rule. It must not silently snap or rewrite actual geometry positions unless the operation explicitly exists to snap/move geometry.
+- UI-backed tools that use position-based operations must expose the setting as a dropdown labeled `postion preccision`, with choices `1mm`, `0.1mm`, `0.01mm`, default `0.01mm`, persist the selected value, and pass it explicitly into the backend operation.
+- When a position verification still fails, diagnostics must include raw expected/actual positions, rounded expected/actual positions, and the active position precision.
 
 
 ## CRITICAL IDENTIFIER SAFETY
@@ -60,6 +77,32 @@ catch
 (
     local exception_text = getCurrentException()
     format "ERROR: %\n" exception_text
+)
+```
+
+
+## CRITICAL FATAL-CONDITION DIAGNOSTICS
+
+
+- Any failed precondition, postcondition, invariant, verification, or safety check that aborts an operation, returns `false`/`undefined`, sets a failure flag, or prevents a required commit must emit a diagnostic before taking the failure path.
+- Never use a silent fatal branch such as `if actual_value != expected_value then return false`.
+- For expected-versus-actual comparisons, log both raw values. When useful, also log the difference/delta plus the relevant node, modifier, component ID, operation/stage name, and input values needed to reproduce the failure.
+- Do not replace raw diagnostic values with rounded UI text. Preserve full backend values so precision failures can be diagnosed.
+- A generic message such as `"verification failed"` is insufficient when the values that failed the comparison are available.
+- Diagnostics do not convert failure into success. After logging, preserve the real failure result and abort exactly as the operation contract requires.
+- When the shared DUMP logger is active, mirror the same diagnostic through DUMP/Listener. Otherwise use `format` or the tool's normal diagnostic logger so the failure is still visible.
+- Do not weaken an exact comparison, add a tolerance, round values, or suppress the verification merely to avoid the failure. Fix the real cause unless the feature contract explicitly defines another comparison rule.
+
+
+Example:
+
+
+```maxscript
+if moved_position != expected_position then
+(
+    format "MOVE FAILED | vertex:% expected:% actual:% delta:%\n" \
+        vertex_id expected_position moved_position (moved_position - expected_position)
+    return false
 )
 ```
 

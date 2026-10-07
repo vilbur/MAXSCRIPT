@@ -1,5 +1,5 @@
-﻿/*
-Wall Thickness Tool 0.997
+/*
+Wall Thickness Tool 1.005
 Keeps the stable strict face-normal wall shell unchanged; CLEANUP quadrifies only the current Edit Poly and smoothing reset edits existing geometry without adding a modifier.
 */
 global wallThicknessRollout
@@ -45,12 +45,61 @@ global wall_thickness_cleanup_quadrify_modifier_name = "CLEANUP 01 - QUADRIFY"
 global wall_thickness_cleanup_cap_modifier_name = "CLEANUP 02 - CAP HOLES"
 global wall_thickness_cleanup_weld_modifier_name = "CLEANUP 03 - WELD"
 global wall_thickness_cleanup_multiple_modifier_name = "CLEANUP 04 - MULTIPLE EDGES"
-global wall_thickness_file_version = 0.997
+global wall_thickness_file_version = 1.005
 global wall_thickness_stored_project_version = wall_thickness_file_version
 global wall_thickness_project_version = wall_thickness_file_version
-global wall_thickness_ui_title = "WALL THICKNESS " + (wall_thickness_project_version as string)
+global wall_thickness_ui_title = "WALL THICKNESS " + (formattedPrint wall_thickness_project_version format:"1.3f")
 global wall_thickness_source_file_path = getSourceFileName()
 global wall_thickness_inner_corners_module_path = undefined
+/*
+Resolves the canonical shared UI folder from the current Wall Thickness source path.
+Supports the current Codebase\Tools\GEOMETRY layout and the legacy Modules layout.
+*/
+function getWallThicknessSharedUiFolder =
+(
+        source_path = wall_thickness_source_file_path
+        if source_path == undefined or source_path == "" then return undefined
+        source_folder = getFilenamePath source_path
+        candidate_folders = #(
+                source_folder + @"..\..\..\..\UI\Default\",
+                source_folder + @"..\..\UI\Default\"
+        )
+        for candidate_folder in candidate_folders do
+        (
+                script_reload_path = candidate_folder + "ScriptReload.ms"
+                tool_title_button_path = candidate_folder + "ToolTitleButton.ms"
+                if (doesFileExist script_reload_path) and (doesFileExist tool_title_button_path) then
+                (
+                        return candidate_folder
+                )
+        )
+        undefined
+        -- return
+)
+/*
+Loads the canonical shared UI restart helpers used by the tool title button.
+The shared UI folder is resolved from the current tool source path.
+*/
+function loadWallThicknessUiFramework =
+(
+        source_path = wall_thickness_source_file_path
+        if source_path == undefined or source_path == "" then return false
+        shared_ui_folder = getWallThicknessSharedUiFolder()
+        if shared_ui_folder == undefined then
+        (
+                throw ("Missing shared UI helpers above Wall Thickness source path: " + source_path)
+        )
+        script_reload_path = shared_ui_folder + "ScriptReload.ms"
+        tool_title_button_path = shared_ui_folder + "ToolTitleButton.ms"
+        fileIn script_reload_path
+        fileIn tool_title_button_path
+        (globalVars.isGlobal #ScriptReload) and (globalVars.isGlobal #ToolTitleButton) and (globalVars.isGlobal #restartTool)
+        -- return
+)
+if not loadWallThicknessUiFramework() then
+(
+        throw "Wall Thickness could not load the shared UI restart framework."
+)
 global wall_thickness_ui_log_lines = #()
 global wall_thickness_dump_logger = undefined
 global wall_thickness_inner_dump_file = undefined
@@ -1934,6 +1983,39 @@ function getWallThicknessTEdgeFixModifier source_node =
         -- return
 )
 /*
+Selects the canonical FIX T EDGE CORNERS modifier as the current Modify-panel object.
+Returns true only when the exact modifier remains current after selection.
+*/
+function selectWallThicknessTEdgeFixModifier source_node =
+(
+        fix_modifier = getWallThicknessTEdgeFixModifier source_node
+        if not isValidNode source_node or fix_modifier == undefined then
+        (
+                false
+        )
+        else
+        (
+                selected = WallThicknessPreprocess.prepareEditPoly source_node fix_modifier selection_level:#Object
+                if selected then
+                (
+                        current_modifier = undefined
+                        try
+                        (
+                                current_modifier = modPanel.getCurrentObject()
+                        )
+                        catch
+                        (
+                                exception_text = getCurrentException()
+                                format "Wall Thickness FIX T EDGE CORNERS SELECT ERROR: %\n" exception_text
+                                selected = false
+                        )
+                        if selected then selected = current_modifier == fix_modifier
+                )
+                selected
+        )
+        -- return
+)
+/*
 Returns every tool-owned FIX T EDGE CORNERS Edit Poly layer in current stack order.
 Current builds create one canonical layer; prefixed case layers are recognized only so older experimental stacks can be cleaned safely.
 */
@@ -2148,6 +2230,40 @@ function removeWallThicknessModifier source_node =
         -- return
 )
 /*
+Removes every Wall Thickness modifier and stored Wall Thickness state from one valid node.
+This core performs no undo wrapping or redraw so selected nodes can be processed as one batch.
+*/
+function resetWallThicknessNodeCore source_node =
+(
+        if not isValidNode source_node then
+        (
+                false
+        )
+        else
+        (
+                removeWallThicknessSTLCheckModifier source_node
+                removeWallThicknessInnerCornerWeldModifier source_node
+                removeWallThicknessInnerCornerFixModifier source_node
+                removeWallThicknessTEdgeFixModifier source_node
+                removeWallThicknessChamferWeldModifier source_node
+                removeWallThicknessChamferFixModifier source_node
+                removeWallThicknessLegacyChamferModifiers source_node
+                removeWallThicknessNamedModifier source_node wall_thickness_auto_quadrify_modifier_name
+                removeWallThicknessCleanupModifier source_node
+                removeWallThicknessCleanupStageModifiers source_node
+                removeWallThicknessModifier source_node
+                removeFinishedWallThicknessModifier source_node
+                removeWallThicknessPreprocessModifiers source_node
+                try (deleteUserProp source_node wall_thickness_source_face_count_prop) catch ()
+                try (deleteUserProp source_node wall_thickness_source_vert_count_prop) catch ()
+                try (deleteUserProp source_node wall_thickness_inner_fix_enabled_prop) catch ()
+                try (deleteUserProp source_node wall_thickness_change_material_ids_prop) catch ()
+                if wall_thickness_target == source_node then wall_thickness_target = undefined
+                true
+        )
+        -- return
+)
+/*
 Removes every Wall Thickness modifier owned by this tool from one node.
 Both live and finished thickness modifiers are removed while unrelated modifiers and source geometry remain untouched.
 */
@@ -2160,30 +2276,67 @@ function resetWallThickness source_node =
         )
         else
         (
+                reset_succeeded = false
                 undo "Reset Wall Thickness" on
                 (
-                        removeWallThicknessSTLCheckModifier source_node
-                        removeWallThicknessInnerCornerWeldModifier source_node
-                        removeWallThicknessInnerCornerFixModifier source_node
-                        removeWallThicknessTEdgeFixModifier source_node
-                        removeWallThicknessChamferWeldModifier source_node
-                        removeWallThicknessChamferFixModifier source_node
-                        removeWallThicknessLegacyChamferModifiers source_node
-                        removeWallThicknessNamedModifier source_node wall_thickness_auto_quadrify_modifier_name
-                        removeWallThicknessCleanupModifier source_node
-                        removeWallThicknessCleanupStageModifiers source_node
-                        removeWallThicknessModifier source_node
-                        removeFinishedWallThicknessModifier source_node
-                        removeWallThicknessPreprocessModifiers source_node
+                        reset_succeeded = resetWallThicknessNodeCore source_node
                 )
-                try (deleteUserProp source_node wall_thickness_source_face_count_prop) catch ()
-                try (deleteUserProp source_node wall_thickness_source_vert_count_prop) catch ()
-                try (deleteUserProp source_node wall_thickness_inner_fix_enabled_prop) catch ()
-                try (deleteUserProp source_node wall_thickness_change_material_ids_prop) catch ()
-                if wall_thickness_target == source_node then wall_thickness_target = undefined
                 subObjectLevel = 0
-                completeRedraw()
-                true
+                if reset_succeeded then completeRedraw()
+                reset_succeeded
+        )
+        -- return
+)
+/*
+Removes Wall Thickness history from every supplied selected node in one undo/redraw batch.
+Returns #(all_succeeded, reset_count, failed_count).
+*/
+function resetWallThicknessSelected source_nodes =
+(
+        if classOf source_nodes != Array then source_nodes = #(source_nodes)
+        if source_nodes.count == 0 then
+        (
+                #(false, 0, 0)
+        )
+        else
+        (
+                reset_count = 0
+                failed_count = 0
+                editing_suspended = false
+                try
+                (
+                        with redraw off
+                        (
+                                suspendEditing()
+                                editing_suspended = true
+                                undo "Reset Wall Thickness Selected" on
+                                (
+                                        for source_node in source_nodes do
+                                        (
+                                                if resetWallThicknessNodeCore source_node then
+                                                (
+                                                        reset_count += 1
+                                                )
+                                                else
+                                                (
+                                                        failed_count += 1
+                                                )
+                                        )
+                                )
+                                resumeEditing()
+                                editing_suspended = false
+                        )
+                )
+                catch
+                (
+                        exception_text = getCurrentException()
+                        if editing_suspended then resumeEditing()
+                        format "Wall Thickness REMOVE MODIFIERS ERROR: %\n" exception_text
+                        throw()
+                )
+                subObjectLevel = 0
+                if reset_count > 0 then completeRedraw()
+                #(failed_count == 0 and reset_count > 0, reset_count, failed_count)
         )
         -- return
 )
@@ -6900,6 +7053,73 @@ function wallThicknessBaseTopologySignaturesMatch signature_a signature_b =
         -- return
 )
 /*
+Finds paired T-Corner cases that share one source anchor and swap branch/plan sides.
+Each returned item contains the two planned-case indices that form one two-sided T-Corner.
+*/
+function getWallThicknessTCornerCasePairs planned_cases =
+(
+        case_pairs = #()
+        if planned_cases == undefined then return case_pairs
+        if classOf planned_cases != Array then return case_pairs
+        if planned_cases.count < 2 then return case_pairs
+        paired_indices = #{}
+        for case_a_index = 1 to (planned_cases.count - 1) do
+        (
+                if not paired_indices[case_a_index] then
+                (
+                        case_a = planned_cases[case_a_index]
+                        if case_a != undefined and case_a.count >= 4 then
+                        (
+                                for case_b_index = (case_a_index + 1) to planned_cases.count while not paired_indices[case_a_index] do
+                                (
+                                        if not paired_indices[case_b_index] then
+                                        (
+                                                case_b = planned_cases[case_b_index]
+                                                if case_b != undefined and case_b.count >= 4 then
+                                                (
+                                                        mirrored_corner =
+                                                                case_a[1] == case_b[1] and
+                                                                case_a[3] == case_b[3] and
+                                                                case_a[2] == case_b[4] and
+                                                                case_a[4] == case_b[2]
+                                                        if mirrored_corner then
+                                                        (
+                                                                append case_pairs #(case_a_index, case_b_index)
+                                                                paired_indices[case_a_index] = true
+                                                                paired_indices[case_b_index] = true
+                                                        )
+                                                )
+                                        )
+                                )
+                        )
+                )
+        )
+        case_pairs
+        -- return
+)
+/*
+Counts unique source-topology edges incident to one source vertex on the baked planner.
+The result is used only to distinguish an endpoint T-Corner from a mid-wall T-junction.
+*/
+function getWallThicknessTEdgeSourceDegree source_node source_face_count anchor_source_id =
+(
+        source_degree = 0
+        if isValidNode source_node and classOf source_node.baseObject == Editable_Poly and source_face_count > 0 and anchor_source_id > 0 then
+        (
+                source_face_ids = #{1..source_face_count}
+                source_edge_records = buildWallThicknessTEdgeRecordsCore source_node source_face_ids
+                for edge_record in source_edge_records do
+                (
+                        if edge_record[1] == anchor_source_id or edge_record[2] == anchor_source_id then
+                        (
+                                source_degree += 1
+                        )
+                )
+        )
+        source_degree
+        -- return
+)
+/*
 Plans T-edge repairs from a temporary baked copy of the fully evaluated FIX INNER CORNERS result.
 The temporary copy is the 0.969 geometry oracle; the source node and its Editable Poly base remain untouched.
 */
@@ -6980,9 +7200,60 @@ function planWallThicknessTEdgeModifierRepairs source_node =
                                 continuing_plan_source_id,
                                 anchor_fraction_from_source,
                                 fixed_anchor_position,
-                                expected_bottom_position
+                                expected_bottom_position,
+                                #standard,
+                                0
                         )
+                        primary_case_index = planned_cases.count
                         format "FIX T EDGE CORNERS PLAN: source V% | branch V% | upper %-% | lower %-% | generated %-% | continuing %-% | anchor fraction % | target % | lower target %\n" anchor_source_id branch_neighbor_id anchor_source_id generated_anchor_id continuation_source_id generated_continuation_id generated_anchor_id generated_continuation_id generated_anchor_id generated_plan_id anchor_fraction_from_source fixed_anchor_position expected_bottom_position
+                        source_degree = getWallThicknessTEdgeSourceDegree planner_node source_face_count anchor_source_id
+                        if source_degree == 4 then
+                        (
+                                mirror_branch_position = planner_node.GetVertex continuing_plan_source_id
+                                mirror_generated_plan_id = branch_neighbor_id + source_vert_count
+                                mirror_generated_plan_position = planner_node.GetVertex mirror_generated_plan_id
+                                if mirror_branch_position != undefined and mirror_generated_plan_position != undefined then
+                                (
+                                        mirror_branch_plan = [mirror_branch_position.x - source_anchor_position.x, mirror_branch_position.y - source_anchor_position.y, 0]
+                                        mirror_generated_plan = [mirror_generated_plan_position.x - generated_anchor_position.x, mirror_generated_plan_position.y - generated_anchor_position.y, 0]
+                                        mirror_denominator = (mirror_branch_plan.x * mirror_generated_plan.y) - (mirror_branch_plan.y * mirror_generated_plan.x)
+                                        if mirror_denominator != 0.0 then
+                                        (
+                                                mirror_between_lines = [generated_anchor_position.x - source_anchor_position.x, generated_anchor_position.y - source_anchor_position.y, 0]
+                                                mirror_fraction = ((mirror_between_lines.x * mirror_generated_plan.y) - (mirror_between_lines.y * mirror_generated_plan.x)) / mirror_denominator
+                                                if mirror_fraction > 0.0 and mirror_fraction < 1.0 then
+                                                (
+                                                        mirror_anchor_position = source_anchor_position + ((mirror_branch_position - source_anchor_position) * mirror_fraction)
+                                                        mirror_bottom_position = [mirror_anchor_position.x, mirror_anchor_position.y, expected_bottom_position.z]
+                                                        planned_cases[primary_case_index][8] = #t_corner_primary
+                                                        append planned_cases #(
+                                                                anchor_source_id,
+                                                                continuing_plan_source_id,
+                                                                continuation_source_id,
+                                                                branch_neighbor_id,
+                                                                mirror_fraction,
+                                                                mirror_anchor_position,
+                                                                mirror_bottom_position,
+                                                                #t_corner_mirror,
+                                                                primary_case_index
+                                                        )
+                                                        mirror_case_index = planned_cases.count
+                                                        planned_cases[primary_case_index][9] = mirror_case_index
+                                                        format "FIX T EDGE CORNERS T-CORNER MIRROR: primary case % | mirror case % | source V% | first branch V% | mirror branch V% | mirror fraction % | mirror target % | mirror lower target %\n" primary_case_index mirror_case_index anchor_source_id branch_neighbor_id continuing_plan_source_id mirror_fraction mirror_anchor_position mirror_bottom_position
+                                                )
+                                        )
+                                )
+                        )
+                )
+                t_corner_pairs = getWallThicknessTCornerCasePairs planned_cases
+                if t_corner_pairs.count > 0 then
+                (
+                        for pair_data in t_corner_pairs do
+                        (
+                                case_a = planned_cases[pair_data[1]]
+                                case_b = planned_cases[pair_data[2]]
+                                format "FIX T EDGE CORNERS T-CORNER PLAN: case % anchor V% branch V% | case % anchor V% mirror branch V%\n" pair_data[1] case_a[1] case_a[2] pair_data[2] case_b[1] case_b[2]
+                        )
                 )
                 plan_succeeded = true
         )
@@ -7147,6 +7418,86 @@ function wallThicknessTEdgeProbeMaterialsMatch probe_a probe_b =
         -- return
 )
 /*
+Moves one live Edit Poly vertex to a target expressed in the current Edit Poly coordinate domain.
+MoveSelection receives the transformed delta; the committed vertex is verified against the same live target.
+*/
+function moveWallThicknessTEdgeVertexToPosition edit_modifier source_node vertex_id target_position tolerance =
+(
+        if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: expected Edit Poly modifier, got:%\n" edit_modifier
+                return false
+        )
+        if not isValidNode source_node then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: invalid source node:%\n" source_node
+                return false
+        )
+        if target_position == undefined then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: target position is undefined | node:% | vertex:%\n" source_node vertex_id
+                return false
+        )
+        if vertex_id < 1 then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: invalid vertex id:% | node:%\n" vertex_id source_node
+                return false
+        )
+        vertex_count = edit_modifier.GetNumVertices node:source_node
+        if vertex_id > vertex_count then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: vertex id out of range | vertex:% | count:% | node:%\n" vertex_id vertex_count source_node
+                return false
+        )
+        start_position = edit_modifier.GetVertex vertex_id node:source_node
+        if start_position == undefined then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: could not read vertex position | vertex:% | node:%\n" vertex_id source_node
+                return false
+        )
+        object_tm = source_node.objectTransform
+        move_delta = (target_position * object_tm) - (start_position * object_tm)
+        select source_node
+        max modify mode
+        edit_modifier.SetPrimaryNode source_node
+        edit_modifier.useStackSelection = false
+        edit_modifier.selectMode = 0
+        modPanel.setCurrentObject edit_modifier node:source_node
+        edit_modifier.SetEPolySelLevel #Vertex
+        subObjectLevel = 1
+        old_vertices = edit_modifier.GetSelection #Vertex node:source_node
+        if old_vertices.numberSet > 0 then
+        (
+                edit_modifier.Select #Vertex old_vertices select:false node:source_node
+        )
+        vertex_bits = #{}
+        vertex_bits[vertex_id] = true
+        edit_modifier.Select #Vertex vertex_bits node:source_node
+        stored_vertices = edit_modifier.GetSelection #Vertex node:source_node
+        if stored_vertices != vertex_bits then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: vertex selection mismatch | requested:% | stored:% | vertex:% | node:%\n" vertex_bits stored_vertices vertex_id source_node
+                return false
+        )
+        edit_modifier.MoveSelection move_delta
+        edit_modifier.Commit()
+        edit_modifier.RefreshScreen()
+        completeRedraw()
+        moved_position = edit_modifier.GetVertex vertex_id node:source_node
+        if moved_position == undefined then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: could not read committed vertex position | vertex:% | node:%\n" vertex_id source_node
+                return false
+        )
+        if distance moved_position target_position > tolerance then
+        (
+                format "FIX T EDGE CORNERS ANCHOR MOVE FAILED | vertex:% expected:% actual:% delta:% tolerance:%\n" vertex_id target_position moved_position (moved_position - target_position) tolerance
+                return false
+        )
+        true
+        -- return
+)
+/*
 Moves one newly connected T-edge vertical edge onto the branch anchor in XY.
 Both edge vertices are selected and moved together in one Edit Poly MoveSelection call,
 so their Z values and the vertical edge length are preserved exactly.
@@ -7163,7 +7514,9 @@ function moveWallThicknessTEdgeLiveCutEdgeToAnchor edit_modifier source_node top
         anchor_position = edit_modifier.GetVertex anchor_vertex_id node:source_node
         if top_position == undefined or bottom_position == undefined or anchor_position == undefined then return false
         original_bottom_z = bottom_position.z
-        move_delta = [anchor_position.x - top_position.x, anchor_position.y - top_position.y, 0.0]
+        top_target_position = [anchor_position.x, anchor_position.y, top_position.z]
+        object_tm = source_node.objectTransform
+        move_delta = (top_target_position * object_tm) - (top_position * object_tm)
         select source_node
         max modify mode
         edit_modifier.SetPrimaryNode source_node
@@ -7240,6 +7593,8 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
         repaired_case_count = 0
         welded_vertex_count = 0
         material_face_count = 0
+        t_corner_anchor_ids = for planned_case_data in planned_cases collect 0
+        t_corner_bottom_ids = for planned_case_data in planned_cases collect 0
         build_succeeded = false
         inner_restored = false
         fix_modifier = undefined
@@ -7292,8 +7647,11 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                 branch_neighbor_id = planned_case[2]
                                 continuation_source_id = planned_case[3]
                                 continuing_plan_source_id = planned_case[4]
-                                planned_anchor_position = planned_case[6]
-                                planned_bottom_position = planned_case[7]
+                                anchor_fraction_from_source = planned_case[5]
+                                planner_anchor_position = planned_case[6]
+                                planner_bottom_position = planned_case[7]
+                                case_kind = if planned_case.count >= 8 then planned_case[8] else #standard
+                                paired_case_index = if planned_case.count >= 9 then planned_case[9] else 0
                                 generated_anchor_id = anchor_source_id + source_vert_count
                                 generated_continuation_id = continuation_source_id + source_vert_count
                                 generated_plan_id = continuing_plan_source_id + source_vert_count
@@ -7306,27 +7664,42 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                 if source_face_count < 1 or source_face_count > case_start_face_count then throw "invalid source face count in direct stacked T-edge modifier"
                                 operation_stage = "resolve live T-edge edge IDs for case " + (case_index as string)
                                 branch_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node anchor_source_id branch_neighbor_id
-                                upper_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node anchor_source_id generated_anchor_id
-                                lower_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node continuation_source_id generated_continuation_id
+                                upper_edge_end_id = generated_anchor_id
+                                lower_edge_end_id = generated_continuation_id
+                                if case_kind == #t_corner_mirror then
+                                (
+                                        if paired_case_index < 1 or paired_case_index >= case_index then throw "T-Corner mirror case does not reference an earlier primary case"
+                                        upper_edge_end_id = t_corner_anchor_ids[paired_case_index]
+                                        lower_edge_end_id = t_corner_bottom_ids[paired_case_index]
+                                        if upper_edge_end_id < 1 or lower_edge_end_id < 1 then throw "T-Corner primary cut IDs are unavailable for mirror case"
+                                )
+                                upper_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node anchor_source_id upper_edge_end_id
+                                lower_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node continuation_source_id lower_edge_end_id
                                 generated_vertical_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node generated_anchor_id generated_continuation_id
                                 generated_plan_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node generated_anchor_id generated_plan_id
-                                format "FIX T EDGE CORNERS STACK MAP: branch E% | upper E% | lower E% | generated vertical E% | generated continuing E%\n" branch_edge_id upper_edge_id lower_edge_id generated_vertical_edge_id generated_plan_edge_id
+                                format "FIX T EDGE CORNERS STACK MAP: case kind % | branch E% | upper E% (%-%) | lower E% (%-%) | generated vertical E% | generated continuing E%\n" case_kind branch_edge_id upper_edge_id anchor_source_id upper_edge_end_id lower_edge_id continuation_source_id lower_edge_end_id generated_vertical_edge_id generated_plan_edge_id
                                 if branch_edge_id < 1 then throw "direct stacked modifier could not map T branch edge"
                                 if upper_edge_id < 1 then throw "direct stacked modifier could not map upper strip edge"
                                 if lower_edge_id < 1 then throw "direct stacked modifier could not map lower strip edge"
                                 if generated_vertical_edge_id < 1 then throw "direct stacked modifier could not map generated vertical edge"
                                 if generated_plan_edge_id < 1 then throw "direct stacked modifier could not map generated continuing edge"
                                 upper_source_position = fix_modifier.GetVertex anchor_source_id node:source_node
-                                upper_generated_position = fix_modifier.GetVertex generated_anchor_id node:source_node
+                                upper_generated_position = fix_modifier.GetVertex upper_edge_end_id node:source_node
                                 lower_source_position = fix_modifier.GetVertex continuation_source_id node:source_node
-                                lower_generated_position = fix_modifier.GetVertex generated_continuation_id node:source_node
+                                lower_generated_position = fix_modifier.GetVertex lower_edge_end_id node:source_node
                                 branch_neighbor_position = fix_modifier.GetVertex branch_neighbor_id node:source_node
-                                if upper_source_position == undefined or upper_generated_position == undefined then throw "direct stacked modifier could not read upper strip positions"
-                                if lower_source_position == undefined or lower_generated_position == undefined then throw "direct stacked modifier could not read lower strip positions"
+                                if upper_source_position == undefined or upper_generated_position == undefined then throw "direct stacked modifier could not read active upper strip positions"
+                                if lower_source_position == undefined or lower_generated_position == undefined then throw "direct stacked modifier could not read active lower strip positions"
                                 if branch_neighbor_position == undefined then throw "direct stacked modifier could not read branch neighbor position"
                                 expected_anchor_connect_position = upper_source_position + ((branch_neighbor_position - upper_source_position) * 0.5)
                                 expected_upper_cut_position = upper_source_position + ((upper_generated_position - upper_source_position) * 0.5)
                                 expected_lower_cut_position = lower_source_position + ((lower_generated_position - lower_source_position) * 0.5)
+                                live_planned_anchor_position = upper_source_position + ((branch_neighbor_position - upper_source_position) * anchor_fraction_from_source)
+                                live_planned_bottom_position = [live_planned_anchor_position.x, live_planned_anchor_position.y, expected_lower_cut_position.z]
+                                if distance planner_anchor_position live_planned_anchor_position > tolerance or distance planner_bottom_position live_planned_bottom_position > tolerance then
+                                (
+                                        format "FIX T EDGE CORNERS COORDINATE REBASE: case % | planner anchor % -> live anchor % | planner lower % -> live lower %\n" case_index planner_anchor_position live_planned_anchor_position planner_bottom_position live_planned_bottom_position
+                                )
                                 connect_edges = #{}
                                 connect_edges[branch_edge_id] = true
                                 connect_edges[upper_edge_id] = true
@@ -7337,37 +7710,95 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                 connect_face_count = fix_modifier.GetNumFaces node:source_node
                                 connect_edge_count = fix_modifier.GetNumEdges node:source_node
                                 format "FIX T EDGE CORNERS STACK AFTER CONNECT: verts % | polygons % | edges %\n" connect_vertex_count connect_face_count connect_edge_count
-                                if connect_vertex_count != (case_start_vertex_count + 3) then throw "direct stacked Connect Edges did not add exactly three vertices"
-                                if connect_face_count != (case_start_face_count + 2) then throw "direct stacked Connect Edges did not add exactly two polygons"
-                                if connect_edge_count != (case_start_edge_count + 5) then throw "direct stacked Connect Edges did not add exactly five edges"
-                                operation_stage = "resolve three new ConnectEdges vertices for case " + (case_index as string)
                                 first_new_vertex_id = case_start_vertex_count + 1
-                                fixed_anchor_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_anchor_connect_position tolerance first_new_vertex_id
-                                top_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_upper_cut_position tolerance first_new_vertex_id
-                                bottom_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_lower_cut_position tolerance first_new_vertex_id
-                                if fixed_anchor_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new branch anchor"
-                                if top_cut_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new upper cut vertex"
-                                if bottom_cut_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new lower cut vertex"
-                                fixed_anchor_vertex_id = fixed_anchor_ids[1]
-                                top_cut_vertex_id = top_cut_ids[1]
-                                bottom_cut_vertex_id = bottom_cut_ids[1]
-                                if findWallThicknessTEdgeLiveEdge fix_modifier source_node fixed_anchor_vertex_id top_cut_vertex_id < 1 then throw "direct stacked Connect Edges did not create anchor-to-upper edge"
-                                if findWallThicknessTEdgeLiveEdge fix_modifier source_node top_cut_vertex_id bottom_cut_vertex_id < 1 then throw "direct stacked Connect Edges did not create upper-to-lower edge"
+                                if case_kind == #t_corner_mirror then
+                                (
+                                        if connect_vertex_count != (case_start_vertex_count + 2) then throw "T-Corner mirror ConnectEdges did not add exactly two strip vertices"
+                                        if connect_face_count != (case_start_face_count + 1) then throw "T-Corner mirror ConnectEdges did not add exactly one polygon"
+                                        if connect_edge_count != (case_start_edge_count + 3) then throw "T-Corner mirror ConnectEdges did not add exactly three edges"
+                                        operation_stage = "resolve two new T-Corner mirror strip vertices for case " + (case_index as string)
+                                        top_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_upper_cut_position tolerance first_new_vertex_id
+                                        bottom_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_lower_cut_position tolerance first_new_vertex_id
+                                        if top_cut_ids.count != 1 then throw "T-Corner mirror ConnectEdges did not resolve one new upper cut vertex"
+                                        if bottom_cut_ids.count != 1 then throw "T-Corner mirror ConnectEdges did not resolve one new lower cut vertex"
+                                        top_cut_vertex_id = top_cut_ids[1]
+                                        bottom_cut_vertex_id = bottom_cut_ids[1]
+                                        if findWallThicknessTEdgeLiveEdge fix_modifier source_node top_cut_vertex_id bottom_cut_vertex_id < 1 then throw "T-Corner mirror ConnectEdges did not create upper-to-lower edge"
+                                        operation_stage = "divide T-Corner mirror branch at planned fraction for case " + (case_index as string)
+                                        before_branch_divide_vertex_count = fix_modifier.GetNumVertices node:source_node
+                                        before_branch_divide_face_count = fix_modifier.GetNumFaces node:source_node
+                                        before_branch_divide_edge_count = fix_modifier.GetNumEdges node:source_node
+                                        divided_anchor_vertex_id = divideWallThicknessTEdgeFromVertexFraction fix_modifier source_node anchor_source_id branch_neighbor_id anchor_fraction_from_source
+                                        after_branch_divide_vertex_count = fix_modifier.GetNumVertices node:source_node
+                                        after_branch_divide_face_count = fix_modifier.GetNumFaces node:source_node
+                                        after_branch_divide_edge_count = fix_modifier.GetNumEdges node:source_node
+                                        if divided_anchor_vertex_id < 1 then throw "T-Corner mirror branch divide failed"
+                                        if after_branch_divide_vertex_count != (before_branch_divide_vertex_count + 1) then throw "T-Corner mirror branch divide did not add exactly one vertex"
+                                        if after_branch_divide_face_count != before_branch_divide_face_count then throw "T-Corner mirror branch divide changed polygon count"
+                                        if after_branch_divide_edge_count != (before_branch_divide_edge_count + 1) then throw "T-Corner mirror branch divide did not add exactly one edge"
+                                        fixed_anchor_vertex_id = divided_anchor_vertex_id
+                                        divided_anchor_position = fix_modifier.GetVertex fixed_anchor_vertex_id node:source_node
+                                        if divided_anchor_position == undefined or distance divided_anchor_position live_planned_anchor_position > tolerance then
+                                        (
+                                                format "FIX T EDGE CORNERS T-CORNER BRANCH DIVIDE VERIFY FAILED | case:% expected:% actual:% tolerance:%\n" case_index live_planned_anchor_position divided_anchor_position tolerance
+                                                throw "T-Corner mirror branch divide did not land at the live planned anchor"
+                                        )
+                                        operation_stage = "connect T-Corner mirror anchor to upper cut for case " + (case_index as string)
+                                        before_anchor_connect_vertex_count = fix_modifier.GetNumVertices node:source_node
+                                        before_anchor_connect_face_count = fix_modifier.GetNumFaces node:source_node
+                                        before_anchor_connect_edge_count = fix_modifier.GetNumEdges node:source_node
+                                        if not connectWallThicknessTEdgeVertices fix_modifier source_node fixed_anchor_vertex_id top_cut_vertex_id then throw "T-Corner mirror anchor-to-upper connect failed"
+                                        after_anchor_connect_vertex_count = fix_modifier.GetNumVertices node:source_node
+                                        after_anchor_connect_face_count = fix_modifier.GetNumFaces node:source_node
+                                        after_anchor_connect_edge_count = fix_modifier.GetNumEdges node:source_node
+                                        if after_anchor_connect_vertex_count != before_anchor_connect_vertex_count then throw "T-Corner mirror anchor connect changed vertex count"
+                                        if after_anchor_connect_face_count != (before_anchor_connect_face_count + 1) then throw "T-Corner mirror anchor connect did not add exactly one polygon"
+                                        if after_anchor_connect_edge_count != (before_anchor_connect_edge_count + 1) then throw "T-Corner mirror anchor connect did not add exactly one edge"
+                                        if after_anchor_connect_vertex_count != (case_start_vertex_count + 3) then throw "unexpected T-Corner mirror pre-weld vertex count"
+                                        if after_anchor_connect_face_count != (case_start_face_count + 2) then throw "unexpected T-Corner mirror pre-weld polygon count"
+                                        if after_anchor_connect_edge_count != (case_start_edge_count + 5) then throw "unexpected T-Corner mirror pre-weld edge count"
+                                )
+                                else
+                                (
+                                        if connect_vertex_count != (case_start_vertex_count + 3) then throw "direct stacked Connect Edges did not add exactly three vertices"
+                                        if connect_face_count != (case_start_face_count + 2) then throw "direct stacked Connect Edges did not add exactly two polygons"
+                                        if connect_edge_count != (case_start_edge_count + 5) then throw "direct stacked Connect Edges did not add exactly five edges"
+                                        operation_stage = "resolve three new ConnectEdges vertices for case " + (case_index as string)
+                                        fixed_anchor_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_anchor_connect_position tolerance first_new_vertex_id
+                                        top_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_upper_cut_position tolerance first_new_vertex_id
+                                        bottom_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_lower_cut_position tolerance first_new_vertex_id
+                                        if fixed_anchor_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new branch anchor"
+                                        if top_cut_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new upper cut vertex"
+                                        if bottom_cut_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new lower cut vertex"
+                                        fixed_anchor_vertex_id = fixed_anchor_ids[1]
+                                        top_cut_vertex_id = top_cut_ids[1]
+                                        bottom_cut_vertex_id = bottom_cut_ids[1]
+                                        if findWallThicknessTEdgeLiveEdge fix_modifier source_node fixed_anchor_vertex_id top_cut_vertex_id < 1 then throw "direct stacked Connect Edges did not create anchor-to-upper edge"
+                                        if findWallThicknessTEdgeLiveEdge fix_modifier source_node top_cut_vertex_id bottom_cut_vertex_id < 1 then throw "direct stacked Connect Edges did not create upper-to-lower edge"
+                                )
                                 format "FIX T EDGE CORNERS STACK NEW VERTS: anchor V% | upper V% | lower V%\n" fixed_anchor_vertex_id top_cut_vertex_id bottom_cut_vertex_id
                                 fixed_anchor_position = fix_modifier.GetVertex fixed_anchor_vertex_id node:source_node
                                 top_before_move = fix_modifier.GetVertex top_cut_vertex_id node:source_node
                                 bottom_before_move = fix_modifier.GetVertex bottom_cut_vertex_id node:source_node
                                 if fixed_anchor_position == undefined or top_before_move == undefined or bottom_before_move == undefined then throw "direct stacked modifier could not read new T-edge vertices"
+                                operation_stage = "move new T-edge branch anchor to planned intersection for case " + (case_index as string)
+                                if not moveWallThicknessTEdgeVertexToPosition fix_modifier source_node fixed_anchor_vertex_id live_planned_anchor_position tolerance then throw "direct stacked branch anchor move to planned intersection failed"
+                                fixed_anchor_position = fix_modifier.GetVertex fixed_anchor_vertex_id node:source_node
+                                if fixed_anchor_position == undefined or distance fixed_anchor_position live_planned_anchor_position > tolerance then
+                                (
+                                        format "FIX T EDGE CORNERS PLANNED ANCHOR VERIFY FAILED | case:% expected:% actual:% tolerance:%\n" case_index live_planned_anchor_position fixed_anchor_position tolerance
+                                        throw "direct stacked branch anchor did not reach planned intersection"
+                                )
                                 operation_stage = "move new T-edge cut edge onto branch anchor for case " + (case_index as string)
                                 if not moveWallThicknessTEdgeLiveCutEdgeToAnchor fix_modifier source_node top_cut_vertex_id bottom_cut_vertex_id fixed_anchor_vertex_id tolerance then throw "direct stacked cut-edge move failed"
                                 anchor_after_move = fix_modifier.GetVertex fixed_anchor_vertex_id node:source_node
                                 top_after_move = fix_modifier.GetVertex top_cut_vertex_id node:source_node
                                 moved_bottom_position = fix_modifier.GetVertex bottom_cut_vertex_id node:source_node
-                                bottom_target_position = [fixed_anchor_position.x, fixed_anchor_position.y, bottom_before_move.z]
-                                format "FIX T EDGE CORNERS STACK PRE-WELD: anchor % | upper moved % | lower moved %\n" anchor_after_move top_after_move moved_bottom_position
-                                if anchor_after_move == undefined or distance anchor_after_move fixed_anchor_position > tolerance then throw "direct stacked cut-edge move changed branch anchor"
+                                bottom_target_position = live_planned_bottom_position
+                                format "FIX T EDGE CORNERS STACK PRE-WELD: anchor % | planned % | upper moved % | lower moved % | lower target %\n" anchor_after_move live_planned_anchor_position top_after_move moved_bottom_position bottom_target_position
+                                if anchor_after_move == undefined or distance anchor_after_move live_planned_anchor_position > tolerance then throw "direct stacked cut-edge move changed planned branch anchor"
                                 if top_after_move == undefined or distance top_after_move anchor_after_move > tolerance then throw "direct stacked upper cut did not coincide with branch anchor"
-                                if moved_bottom_position == undefined or distance moved_bottom_position bottom_target_position > tolerance then throw "direct stacked lower cut did not align below branch anchor"
+                                if moved_bottom_position == undefined or distance moved_bottom_position bottom_target_position > tolerance then throw "direct stacked lower cut did not align below planned branch anchor"
                                 operation_stage = "weld coincident upper cut into branch anchor for case " + (case_index as string)
                                 before_weld_vertex_count = fix_modifier.GetNumVertices node:source_node
                                 before_weld_face_count = fix_modifier.GetNumFaces node:source_node
@@ -7391,6 +7822,12 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                 surviving_anchor_id = surviving_anchor_ids[1]
                                 surviving_bottom_ids = getWallThicknessLiveVerticesAtPosition fix_modifier source_node bottom_target_position tolerance
                                 if surviving_bottom_ids.count != 1 then throw "direct stacked lower cut vertex was not uniquely preserved"
+                                if case_kind == #t_corner_primary then
+                                (
+                                        t_corner_anchor_ids[case_index] = surviving_anchor_id
+                                        t_corner_bottom_ids[case_index] = surviving_bottom_ids[1]
+                                        format "FIX T EDGE CORNERS T-CORNER PRIMARY CUT: case % | shared upper endpoint V% | shared lower endpoint V%\n" case_index surviving_anchor_id surviving_bottom_ids[1]
+                                )
                                 operation_stage = "generated-side Material ID correction for case " + (case_index as string)
                                 changed_material_faces = fixWallThicknessTEdgeNewWallFaceMaterial fix_modifier source_node generated_anchor_id generated_continuation_id surviving_anchor_id surviving_bottom_ids[1]
                                 material_face_count += changed_material_faces
@@ -7511,15 +7948,24 @@ function fixWallThicknessTEdgeCorners source_node =
                                 if restore_succeeded then setObjectWallThicknessInnerFixEnabled source_node true
                         )
                 )
+                modifier_selected = false
+                if build_succeeded then
+                (
+                        modifier_selected = selectWallThicknessTEdgeFixModifier source_node
+                        if not modifier_selected then
+                        (
+                                format "Wall Thickness FIX T EDGE CORNERS SELECT WARNING: repair succeeded but the T-edge modifier could not be selected in the Modify panel.\n"
+                        )
+                )
                 completeRedraw()
                 if build_succeeded then
                 (
-                        format "Wall Thickness FIX T EDGE CORNERS %: detected/repaired % | welded % | material polygons corrected % | removable Edit Poly:true | base unchanged:true\n" wall_thickness_file_version repaired_case_count welded_vertex_count material_face_count
+                        format "Wall Thickness FIX T EDGE CORNERS %: detected/repaired % | welded % | material polygons corrected % | removable Edit Poly:true | base unchanged:true | modifier selected:%\n" (formattedPrint wall_thickness_file_version format:"1.3f") repaired_case_count welded_vertex_count material_face_count modifier_selected
                 )
                 else
                 (
                         if operation_exception_text != undefined then format "Wall Thickness FIX T EDGE CORNERS MODIFIER ERROR: %\n" operation_exception_text
-                        format "Wall Thickness FIX T EDGE CORNERS %: modifier build failed | stable lower state restored:%\n" wall_thickness_file_version restore_succeeded
+                        format "Wall Thickness FIX T EDGE CORNERS %: modifier build failed | stable lower state restored:%\n" (formattedPrint wall_thickness_file_version format:"1.3f") restore_succeeded
                 )
                 #(build_succeeded, repaired_case_count, welded_vertex_count, material_face_count)
         )
@@ -7697,136 +8143,46 @@ function buildFinishedWallThicknessModifier source_node source_mesh corrected_po
         -- return
 )
 /*
-Returns true when one filename token is a plain numeric version.
-Only digits and one optional decimal point are accepted.
+Restarts Wall Thickness from the canonical shared tool title button action.
+The current dialog bar is unregistered and closed only after a valid reload target is confirmed.
 */
-function isWallThicknessVersionText version_text =
+function restartWallThicknessTool =
 (
-        is_valid = version_text != ""
-        digit_count = 0
-        decimal_count = 0
-        character_value = ""
-        if is_valid then
+        current_script = wall_thickness_source_file_path
+        if current_script == undefined or current_script == "" then return false
+        target_script = ScriptReload.findNewestVersionedScript current_script "Wall-Thickness"
+        if target_script == undefined or target_script == "" or not doesFileExist target_script then
         (
-                for character_index = 1 to version_text.count while is_valid do
+                format "Wall Thickness TITLE RESTART ERROR: no reload target found beside %\n" current_script
+                return false
+        )
+        if wallThicknessRollout != undefined then
+        (
+                try
                 (
-                        character_value = substring version_text character_index 1
-                        if character_value == "." then
+                        if wallThicknessRollout.dialogBar then
                         (
-                                decimal_count += 1
-                                if decimal_count > 1 then is_valid = false
-                        )
-                        else if (findString "0123456789" character_value) != undefined then
-                        (
-                                digit_count += 1
-                        )
-                        else
-                        (
-                                is_valid = false
+                                cui.UnRegisterDialogBar wallThicknessRollout
                         )
                 )
-                if digit_count == 0 then is_valid = false
-        )
-        is_valid
-        -- return
-)
-/*
-Returns #(valid, version, isLatest, isPlain) for one Wall-Thickness_<version>*.ms path.
-Release tags such as -LATEST, -MVP, or -STABLE do not change the numeric version.
-*/
-function getWallThicknessScriptVersionData script_path =
-(
-        result_data = #(false, 0.0, false, false)
-        if script_path != undefined and script_path != "" then
-        (
-                script_stem = getFilenameFile script_path
-                version_prefix = "Wall-Thickness_"
-                if script_stem.count > version_prefix.count and (findString script_stem version_prefix) == 1 then
+                catch
                 (
-                        suffix_text = substring script_stem (version_prefix.count + 1) (script_stem.count - version_prefix.count)
-                        suffix_parts = filterString suffix_text "-"
-                        if suffix_parts.count >= 1 then
-                        (
-                                version_text = suffix_parts[1]
-                                if isWallThicknessVersionText version_text then
-                                (
-                                        is_latest = false
-                                        if suffix_parts.count >= 2 then
-                                        (
-                                                for part_index = 2 to suffix_parts.count while not is_latest do
-                                                (
-                                                        if toUpper suffix_parts[part_index] == "LATEST" then is_latest = true
-                                                )
-                                        )
-                                        result_data = #(true, version_text as float, is_latest, suffix_parts.count == 1)
-                                )
-                        )
+                        exception_text = getCurrentException()
+                        format "Wall Thickness TITLE RESTART ERROR: could not unregister dialog bar | %\n" exception_text
+                        return false
+                )
+                try
+                (
+                        destroyDialog wallThicknessRollout
+                )
+                catch
+                (
+                        exception_text = getCurrentException()
+                        format "Wall Thickness TITLE RESTART ERROR: could not close current dialog | %\n" exception_text
+                        return false
                 )
         )
-        result_data
-        -- return
-)
-/*
-Finds the highest versioned Wall Thickness script in the current script directory.
-When several files share the highest version, -LATEST is preferred, then the plain versioned file; the current script is only a fallback when no versioned candidate exists.
-*/
-function getLatestWallThicknessScriptPath =
-(
-        source_path = wall_thickness_source_file_path
-        source_folder = ""
-        resolved_path = undefined
-        newest_version = -1.0
-        newest_rank = -1
-        if source_path == undefined or source_path == "" then source_path = getSourceFileName()
-        if source_path != undefined and source_path != "" then source_folder = getFilenamePath source_path
-        if source_folder != "" then
-        (
-                candidate_files = getFiles (source_folder + "Wall-Thickness_*.ms")
-                for candidate_file in candidate_files do
-                (
-                        version_data = getWallThicknessScriptVersionData candidate_file
-                        if version_data[1] then
-                        (
-                                candidate_rank = if version_data[3] then 2 else if version_data[4] then 1 else 0
-                                if version_data[2] > newest_version or (version_data[2] == newest_version and candidate_rank > newest_rank) then
-                                (
-                                        newest_version = version_data[2]
-                                        newest_rank = candidate_rank
-                                        resolved_path = candidate_file
-                                )
-                        )
-                )
-        )
-        if resolved_path == undefined and source_path != undefined and source_path != "" and doesFileExist source_path then
-        (
-                resolved_path = source_path
-        )
-        if resolved_path == undefined and source_folder != "" then
-        (
-                canonical_path = source_folder + "Wall-Thickness.ms"
-                if doesFileExist canonical_path then resolved_path = canonical_path
-        )
-        resolved_path
-        -- return
-)
-/*
-Reloads the newest versioned Wall Thickness script found beside the running file.
-When no versioned candidate exists, the current source file is reloaded instead.
-*/
-function loadLatestWallThicknessVersion =
-(
-        latest_script_path = getLatestWallThicknessScriptPath()
-        if latest_script_path == undefined or not doesFileExist latest_script_path then
-        (
-                messageBox "Cannot find the Wall Thickness source script." title:"Wall Thickness"
-                false
-        )
-        else
-        (
-                format "Wall Thickness RESTART TOOL: loading %\n" latest_script_path
-                fileIn latest_script_path
-                true
-        )
+        restartTool current_script "Wall-Thickness"
         -- return
 )
 /*
@@ -8173,13 +8529,13 @@ function setWallThicknessUILog action_name result_value:undefined detail:"" =
 )
 rollout wallThicknessRollout wall_thickness_ui_title width:270
 (
-        button btn_reload_latest "RESTART TOOL" width:230 height:28 align:#center tooltip:"Reload the highest versioned Wall-Thickness script found in this script folder.\n\nWhen versions tie, prefer the -LATEST file."
+        dotNetControl btn_tool_title "System.Windows.Forms.Button" width:246 height:18 align:#center
         checkbutton chk_quiet "QUIET" checked:false width:230 height:24 align:#center tooltip:"LMB: Suppress the routine Listener line written after each UI action.\n\nErrors and diagnostic output remain visible."
         group "LOG"
         (
                 editText edt_log "" text:"READY" readOnly:true width:230 height:58 align:#center
         )
-        button btn_reset "REMOVE MODIFIERS" width:230 height:28 align:#center tooltip:"Remove all Wall Thickness PREP, THICKNESS, CLEANUP, chamfer and STL Check modifiers.\n\nThe base object remains unchanged."
+        button btn_reset "REMOVE MODIFIERS" width:230 height:28 align:#center tooltip:"Remove all Wall Thickness PREP, THICKNESS, CLEANUP, chamfer and STL Check modifiers from every selected object.\n\nThe base objects remain unchanged."
         group "PRE-PROCESS"
         (
                 button btn_preprocess_01 "01  RESET XFORM" width:230 height:28 align:#center tooltip:"LMB: HARD reset every selected object: Reset XForm, collapse the full current stack to bake it, then Reset Pivot.\n\nRuns on every click. Use before WALL THICKNESS when object transform or pivot state is suspect."
@@ -8201,14 +8557,14 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 label lbl_scaled "" width:92 align:#left
                 label lbl_scaled_units "" width:42 align:#left
                 checkbox chk_change_material_ids "CHANGE MATERIAL IDS" checked:false width:230 align:#left tooltip:"When enabled, EXTRUDE / UPDATE sets source/outer faces to Material ID 1, generated inner faces to Material ID 2, and border strip faces to Material ID 3.\n\nWhen disabled, EXTRUDE / UPDATE preserves source Material IDs and inherits them onto generated faces."
-                button btn_create "EXTRUDE / UPDATE" width:230 height:32 align:#center tooltip:"LMB: Create or rebuild WALL THICKNESS, automatically run FIX INNER CORNERS, and create the fix modifier only when correction is required.\n\nCHANGE MATERIAL IDS OFF: preserve/inherit source Material IDs.\n\nCHANGE MATERIAL IDS ON: assign OUTER 1, INNER 2, STRIP 3."
+                button btn_create "EXTRUDE / UPDATE" width:230 height:32 align:#center tooltip:"LMB: Create or rebuild WALL THICKNESS on every selected wall, one object at a time. Automatically runs FIX INNER CORNERS and creates the fix modifier only when correction is required.\n\nCHANGE MATERIAL IDS OFF: preserve/inherit source Material IDs.\n\nCHANGE MATERIAL IDS ON: assign OUTER 1, INNER 2, STRIP 3."
         )
         group "MANUAL-PROCESS"
         (
-                button btn_extrude_only "EXTRUDE ONLY" width:230 height:28 align:#center tooltip:"LMB: Rebuild only the raw WALL THICKNESS extrusion.\n\nNo automatic FIX INNER CORNERS pass is run; later spinner rebuilds remain raw-only until FIX INNER CORNERS is run manually."
-                button btn_fix_inner "FIX INNER CORNERS" width:230 height:28 align:#center tooltip:"LMB: Keep WALL THICKNESS intact and add a deformation-only FIX INNER CORNERS modifier above it.\n\nThe fix changes vertex positions only, never topology. Future thickness updates rebuild both modifiers from the untouched source."
-                button btn_fix_t_edge "FIX T EDGE CORNERS" width:230 height:28 align:#center tooltip:"LMB: Plan from the stable FIX INNER CORNERS result, then repair T-edge topology in one removable Edit Poly directly above WALL THICKNESS. FIX INNER CORNERS is restored above it afterward."
-                button btn_fix_outer "FIX OUTER CORNERS" width:230 height:28 align:#center tooltip:"Resolve convex outer corners by intersecting the offset face planes and removing the generated chamfer.\n\nSource-wall inner angles sharper than 90 degrees are left unchanged to avoid spikes."
+                button btn_extrude_only "EXTRUDE ONLY" width:230 height:28 align:#center tooltip:"LMB: Rebuild only the raw WALL THICKNESS extrusion on every selected wall, one object at a time.\n\nNo automatic FIX INNER CORNERS pass is run; later spinner rebuilds remain raw-only until FIX INNER CORNERS is run manually."
+                button btn_fix_inner "FIX INNER CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX INNER CORNERS on every selected wall, one object at a time. Keeps WALL THICKNESS intact and adds a deformation-only FIX INNER CORNERS modifier above it.\n\nThe fix changes vertex positions only, never topology. Future thickness updates rebuild both modifiers from the untouched source."
+                button btn_fix_t_edge "FIX T EDGE CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX T EDGE CORNERS on every selected wall, one object at a time. Plans from the stable FIX INNER CORNERS result, then repairs T-edge topology in one removable Edit Poly directly above WALL THICKNESS.\n\nAfter a batch, the last successfully fixed wall remains active with its T-edge modifier selected."
+                button btn_fix_outer "FIX OUTER CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX OUTER CORNERS on every selected wall, one object at a time. Resolve convex outer corners by intersecting the offset face planes and removing the generated chamfer.\n\nSource-wall inner angles sharper than 90 degrees are left unchanged to avoid spikes."
                 button btn_cleanup "CLEANUP" width:230 height:32 align:#center tooltip:"Run PolyTools Quadrify on the currently active Edit Poly modifier only.\n\nNo modifier is created."
         )
         group "FINISH"
@@ -8221,11 +8577,13 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
         )
         on wallThicknessRollout open do
         (
+                ToolTitleButton.setupToolTitleButton btn_tool_title "WALL THICKNESS"
+                ToolTitleButton.resizeToolTitleButton btn_tool_title (wallThicknessRollout.width - 24)
                 lbl_units.text = getWallThicknessDisplayUnitsLabel()
                 loadWallThicknessControlValues()
                 syncWallThicknessSpinnerToSelection()
                 updateWallThicknessScaledLabel()
-                setWallThicknessUILog "READY" detail:("WALL THICKNESS " + (wall_thickness_file_version as string))
+                setWallThicknessUILog "READY" detail:("WALL THICKNESS " + (formattedPrint wall_thickness_file_version format:"1.3f"))
         )
         on spn_thickness changed value do
         (
@@ -8255,6 +8613,10 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 saveWallThicknessControlValues()
                 setWallThicknessUILog "QUIET" detail:(if state then "ON | ACTION LISTENER OUTPUT SUPPRESSED" else "OFF | ACTION LISTENER OUTPUT ENABLED")
         )
+        on wallThicknessRollout resized dialog_size do
+        (
+                ToolTitleButton.resizeToolTitleButton btn_tool_title (dialog_size.x - 24)
+        )
         on wallThicknessRollout close do
         (
                 saveWallThicknessControlValues()
@@ -8262,15 +8624,17 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
         )
         on btn_reset pressed do
         (
-                if selection.count == 1 then
+                if selection.count > 0 then
                 (
-                        result_value = resetWallThickness selection[1]
-                        setWallThicknessUILog "REMOVE MODIFIERS" detail:(if result_value then "MODIFIERS REMOVED" else "REMOVE MODIFIERS FAILED")
+                        result_data = resetWallThicknessSelected (selection as array)
+                        status_text = (result_data[2] as string) + " OBJECTS RESET"
+                        if result_data[3] > 0 then status_text += "\r\n" + (result_data[3] as string) + " OBJECTS FAILED"
+                        setWallThicknessUILog "REMOVE MODIFIERS" detail:status_text
                 )
                 else
                 (
-                        setWallThicknessUILog "REMOVE MODIFIERS" detail:"SELECT EXACTLY ONE WALL OBJECT"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        setWallThicknessUILog "REMOVE MODIFIERS" detail:"SELECT AT LEAST ONE WALL OBJECT"
+                        messageBox "Select at least one wall object." title:"Wall Thickness"
                 )
         )
         on btn_preprocess_01 pressed do
@@ -8374,28 +8738,64 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
         )
         on btn_create pressed do
         (
-                if selection.count == 1 then
+                selected_nodes = selection as array
+                if selected_nodes.count > 0 then
                 (
-                        result_value = applyWallThickness selection[1] spn_thickness.value change_material_ids:chk_change_material_ids.checked auto_fix_inner:true
-                        setWallThicknessUILog "EXTRUDE / UPDATE" result_value:result_value
+                        batch_thickness = spn_thickness.value
+                        batch_change_material_ids = chk_change_material_ids.checked
+                        success_count = 0
+                        failed_count = 0
+                        for source_node in selected_nodes do
+                        (
+                                select source_node
+                                result_value = applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:true
+                                if result_value then
+                                (
+                                        success_count += 1
+                                )
+                                else
+                                (
+                                        failed_count += 1
+                                )
+                        )
+                        select selected_nodes
+                        setWallThicknessUILog "EXTRUDE / UPDATE" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED")
                 )
                 else
                 (
-                        setWallThicknessUILog "EXTRUDE / UPDATE" detail:"select exactly one wall object"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        setWallThicknessUILog "EXTRUDE / UPDATE" detail:"select at least one wall object"
+                        messageBox "Select at least one wall object." title:"Wall Thickness"
                 )
         )
         on btn_extrude_only pressed do
         (
-                if selection.count == 1 then
+                selected_nodes = selection as array
+                if selected_nodes.count > 0 then
                 (
-                        result_value = applyWallThickness selection[1] spn_thickness.value change_material_ids:chk_change_material_ids.checked auto_fix_inner:false
-                        setWallThicknessUILog "EXTRUDE ONLY" result_value:result_value
+                        batch_thickness = spn_thickness.value
+                        batch_change_material_ids = chk_change_material_ids.checked
+                        success_count = 0
+                        failed_count = 0
+                        for source_node in selected_nodes do
+                        (
+                                select source_node
+                                result_value = applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:false
+                                if result_value then
+                                (
+                                        success_count += 1
+                                )
+                                else
+                                (
+                                        failed_count += 1
+                                )
+                        )
+                        select selected_nodes
+                        setWallThicknessUILog "EXTRUDE ONLY" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED")
                 )
                 else
                 (
-                        setWallThicknessUILog "EXTRUDE ONLY" detail:"select exactly one wall object"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        setWallThicknessUILog "EXTRUDE ONLY" detail:"select at least one wall object"
+                        messageBox "Select at least one wall object." title:"Wall Thickness"
                 )
         )
         on btn_cleanup pressed do
@@ -8413,48 +8813,107 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
         )
         on btn_fix_inner pressed do
         (
-                if selection.count == 1 then
+                selected_nodes = selection as array
+                if selected_nodes.count > 0 then
                 (
-                        result_value = fixWallThicknessInnerCorners selection[1] change_material_ids:chk_change_material_ids.checked
-                        setWallThicknessUILog "FIX INNER CORNERS" result_value:result_value
+                        batch_change_material_ids = chk_change_material_ids.checked
+                        success_count = 0
+                        failed_count = 0
+                        corrected_vertex_count = 0
+                        for source_node in selected_nodes do
+                        (
+                                select source_node
+                                result_value = fixWallThicknessInnerCorners source_node change_material_ids:batch_change_material_ids
+                                if result_value != undefined and result_value.count >= 3 and result_value[1] then
+                                (
+                                        success_count += 1
+                                        corrected_vertex_count += result_value[3]
+                                )
+                                else
+                                (
+                                        failed_count += 1
+                                )
+                        )
+                        select selected_nodes
+                        setWallThicknessUILog "FIX INNER CORNERS" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (corrected_vertex_count as string) + " VERTICES CORRECTED")
                 )
                 else
                 (
-                        setWallThicknessUILog "FIX INNER CORNERS" detail:"select exactly one wall object"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        setWallThicknessUILog "FIX INNER CORNERS" detail:"select at least one wall object"
+                        messageBox "Select at least one wall object." title:"Wall Thickness"
                 )
         )
         on btn_fix_t_edge pressed do
         (
-                if selection.count == 1 then
+                selected_nodes = selection as array
+                if selected_nodes.count > 0 then
                 (
-                        result_value = fixWallThicknessTEdgeCorners selection[1]
-                        if result_value[1] then
+                        success_count = 0
+                        failed_count = 0
+                        repaired_case_count = 0
+                        material_face_count = 0
+                        last_successful_node = undefined
+                        for source_node in selected_nodes do
                         (
-                                setWallThicknessUILog "FIX T EDGE CORNERS" detail:((result_value[2] as string) + " T EDGE CORNERS FIXED | " + (result_value[4] as string) + " MATERIAL POLYGONS UPDATED")
+                                select source_node
+                                result_value = fixWallThicknessTEdgeCorners source_node
+                                if result_value != undefined and result_value.count >= 4 and result_value[1] then
+                                (
+                                        success_count += 1
+                                        repaired_case_count += result_value[2]
+                                        material_face_count += result_value[4]
+                                        last_successful_node = source_node
+                                )
+                                else
+                                (
+                                        failed_count += 1
+                                )
+                        )
+                        if last_successful_node != undefined then
+                        (
+                                selectWallThicknessTEdgeFixModifier last_successful_node
                         )
                         else
                         (
-                                setWallThicknessUILog "FIX T EDGE CORNERS" detail:"FIX T EDGE CORNERS FAILED"
+                                select selected_nodes
                         )
+                        setWallThicknessUILog "FIX T EDGE CORNERS" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (repaired_case_count as string) + " T EDGE CORNERS FIXED | " + (material_face_count as string) + " MATERIAL POLYGONS UPDATED")
                 )
                 else
                 (
-                        setWallThicknessUILog "FIX T EDGE CORNERS" detail:"select exactly one wall object"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        setWallThicknessUILog "FIX T EDGE CORNERS" detail:"select at least one wall object"
+                        messageBox "Select at least one wall object." title:"Wall Thickness"
                 )
         )
         on btn_fix_outer pressed do
         (
-                if selection.count == 1 then
+                selected_nodes = selection as array
+                if selected_nodes.count > 0 then
                 (
-                        result_value = fixWallThicknessOuterCorners selection[1]
-                        setWallThicknessUILog "FIX OUTER CORNERS" result_value:result_value
+                        success_count = 0
+                        failed_count = 0
+                        corrected_vertex_count = 0
+                        for source_node in selected_nodes do
+                        (
+                                select source_node
+                                result_value = fixWallThicknessOuterCorners source_node
+                                if result_value != undefined and result_value.count >= 3 and result_value[1] then
+                                (
+                                        success_count += 1
+                                        corrected_vertex_count += result_value[3]
+                                )
+                                else
+                                (
+                                        failed_count += 1
+                                )
+                        )
+                        select selected_nodes
+                        setWallThicknessUILog "FIX OUTER CORNERS" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (corrected_vertex_count as string) + " VERTICES CORRECTED")
                 )
                 else
                 (
-                        setWallThicknessUILog "FIX OUTER CORNERS" detail:"select exactly one wall object"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        setWallThicknessUILog "FIX OUTER CORNERS" detail:"select at least one wall object"
+                        messageBox "Select at least one wall object." title:"Wall Thickness"
                 )
         )
         on btn_stl_check pressed do
@@ -8475,10 +8934,9 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 result_value = clearWallSmoothingGroups()
                 setWallThicknessUILog "CLEAR SMOOTHING GROUPS" result_value:result_value
         )
-        on btn_reload_latest pressed do
+        on btn_tool_title Click sender event_args do
         (
-                result_value = loadLatestWallThicknessVersion()
-                setWallThicknessUILog "RESTART TOOL" result_value:result_value
+                restartWallThicknessTool()
         )
 )
 callbacks.removeScripts id:wall_thickness_selection_callback_id

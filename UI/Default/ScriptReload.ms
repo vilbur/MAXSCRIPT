@@ -17,10 +17,33 @@ struct ScriptReload_v
         if matchPattern file_name pattern:(prefix_text + "*") ignoreCase:true then
         (
             local version_text = substring file_name (prefix_text.count + 1) (file_name.count - prefix_text.count)
-            version_value = try (version_text as float) catch (-1.0)
+            local version_parts = filterString version_text "-"
+
+            if version_parts.count > 0 then
+            (
+                local parsed_version = version_parts[1] as float
+
+                if parsed_version != undefined then
+                (
+                    version_value = parsed_version
+                )
+            )
         )
 
         version_value
+        -- return
+    ),
+
+    /*
+    Reports whether a versioned script is the preferred -LATEST alias.
+    */
+    function isLatestVersionAlias file_path =
+    (
+        local file_name = getFilenameFile file_path
+        local is_latest = matchPattern file_name pattern:"*-LATEST" ignoreCase:true
+
+        is_latest
+        -- return
     ),
 
     /*
@@ -29,12 +52,14 @@ struct ScriptReload_v
     function findNewestVersionedScript current_script file_prefix =
     (
         local newest_file = current_script
+        local newest_version = -1.0
 
         if current_script != undefined and current_script != "" then
         (
             local script_dir = getFilenamePath current_script
             local candidate_files = getFiles (script_dir + file_prefix + "_*.ms")
-            local newest_version = getFileVersion current_script file_prefix
+
+            newest_version = getFileVersion current_script file_prefix
 
             for candidate_file in candidate_files do
             (
@@ -45,10 +70,18 @@ struct ScriptReload_v
                     newest_version = candidate_version
                     newest_file = candidate_file
                 )
+                else if candidate_version == newest_version and candidate_version >= 0.0 then
+                (
+                    if isLatestVersionAlias candidate_file and not isLatestVersionAlias newest_file then
+                    (
+                        newest_file = candidate_file
+                    )
+                )
             )
         )
 
         newest_file
+        -- return
     ),
 
     /*
@@ -66,6 +99,7 @@ struct ScriptReload_v
         )
 
         loaded
+        -- return
     ),
 
     on create do

@@ -1,5 +1,13 @@
 # Loop-Cleaner Known Issues
 
+## BROKEN T DIVIDE: later target-edge IDs can become stale after an earlier group splits
+
+Status: open; `1.189` is the semi-stable reference point.
+
+Runtime on `BLOCK-A-MATERIAL001` with `postion preccision = 1mm` shows that the first original target-edge group can complete its full split sequence: 5 vertices were inserted and 5 move pairs were stored. The following group then failed before its first split because stored target edge ID `138` was no longer live (`liveEdgeCount:0`), even though its preserved endpoint vertex IDs were `14` and `86`.
+
+The current failure is therefore not the native `DivideEdge` operation itself. Earlier committed splits can invalidate the original edge ID cached for a later independent target group. Future work must re-resolve each not-yet-started group against the current live Edit Poly topology after previous groups have finished, without losing the proven 1.189 split behavior inside a group.
+
 ## T BORDER can miss a T junction at the end of a degenerate inner border
 
 Status: open.

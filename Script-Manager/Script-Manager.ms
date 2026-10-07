@@ -1,5 +1,5 @@
-/*
-    Script-Manager 1.148
+﻿/*
+    Script-Manager 1.153
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -44,8 +44,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.148,
-    project_version = 1.148,
+    file_version = 1.153,
+    project_version = 1.153,
     registry = undefined,
 
     /*
@@ -571,6 +571,7 @@ global scriptManagerTreeCollapseAllContextHandler
 global scriptManagerTreeLoadContextHandler
 global scriptManagerSourceTreeExpandAllContextHandler
 global scriptManagerSourceTreeCollapseAllContextHandler
+global scriptManagerSourceTreeLoadDialogContextHandler
 
 /*
 Expands the currently selected SCRIPTS tree branch from the .NET context-menu callback.
@@ -629,6 +630,14 @@ Collapses the complete SOURCES tree from the .NET context-menu callback.
 function scriptManagerSourceTreeCollapseAllContextHandler sender_value event_args =
 (
     if script_manager != undefined then script_manager.collapseAllSourceTree()
+)
+
+/*
+Loads or reloads only the batch dialog represented by the selected checked SOURCES item.
+*/
+function scriptManagerSourceTreeLoadDialogContextHandler sender_value event_args =
+(
+    if script_manager != undefined then script_manager.loadSelectedSourceDialog()
 )
 
 SCRIPT_MANAGER_AUTO_OPEN = ScriptManagerIntegration.shouldAutoOpenUI()
@@ -708,8 +717,8 @@ if SCRIPT_MANAGER_AUTO_OPEN then
 
 struct script_manager_v
 (
-    file_version = 1.148,
-    project_version = 1.148,
+    file_version = 1.153,
+    project_version = 1.153,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -766,6 +775,7 @@ struct script_manager_v
     script_tree_expand_all_item = undefined,
     script_tree_collapse_all_item = undefined,
     source_tree_context_menu = undefined,
+    source_tree_load_dialog_item = undefined,
     source_tree_expand_all_item = undefined,
     source_tree_collapse_all_item = undefined,
     script_tree_syncing_checks = false,
@@ -2934,8 +2944,112 @@ function refreshConfiguredDiscovery =
     ),
 
     /*
+    Returns the explicit checked SOURCES path that overrides the default batch dialog for one script.
+    The first checked ancestor is discovery-only; the second checked ancestor is the batch-dialog marker.
+    */
+    function getBatchOverridePathForScript script_path =
+    (
+        if not(this.isSupportedScriptPath script_path) then return ""
+
+        script_directory = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath script_path)
+        matching_checked_count = 0
+        override_host_path = ""
+
+        for source_index = 1 to available_source_directories.count while override_host_path == "" do
+        (
+            source_directory = available_source_directories[source_index]
+            source_selectable = false
+            if source_index <= available_source_selectable.count then source_selectable = available_source_selectable[source_index]
+
+            if source_selectable and this.getSourceEnabled source_directory then
+            (
+                normalized_source = ScriptManagerIntegration.normalizeDirectoryPath source_directory
+                source_contains_script = script_directory == normalized_source or this.isDirectoryBelowDirectory script_directory normalized_source
+
+                if source_contains_script then
+                (
+                    matching_checked_count += 1
+
+                    if matching_checked_count == 2 then
+                    (
+                        source_relative_path = this.getRelativeDirectoryPath normalized_source
+                        if source_relative_path != "" then override_host_path = source_relative_path
+                    )
+                )
+            )
+        )
+
+        override_host_path
+        -- return
+    ),
+
+    /*
+    Resolves the batch-dialog path for one script.
+    An explicit second checked SOURCES ancestor overrides the normal parent-folder dialog.
+    */
+    function getBatchDialogPathForScript script_path =
+    (
+        if not(this.isSupportedScriptPath script_path) then return ""
+
+        script_directory = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath script_path)
+        group_path = this.getRelativeDirectoryPath script_directory
+        default_host_path = this.getHostDialogPathForGroup group_path
+        override_host_path = this.getBatchOverridePathForScript script_path
+
+        if override_host_path != "" then override_host_path else default_host_path
+        -- return
+    ),
+
+    /*
+    Returns a stable palette index for one visible batch-dialog path.
+    Batch paths are sorted before indexing so discovery order does not change their colors.
+    */
+    function getBatchDialogColorIndex host_path =
+    (
+        if host_path == undefined or host_path == "" then return 1
+
+        batch_paths = #()
+
+        for available_script_path in available_script_paths do
+        (
+            batch_path = this.getBatchDialogPathForScript available_script_path
+            if batch_path != "" and (findItem batch_paths batch_path) == 0 then append batch_paths batch_path
+        )
+
+        sort batch_paths
+        batch_index = findItem batch_paths host_path
+        if batch_index == 0 then batch_index = 1
+
+        batch_index
+        -- return
+    ),
+
+    /*
+    Returns the display color for one batch-dialog path.
+    The restrained palette repeats when more batch dialogs exist than palette entries.
+    */
+    function getBatchDialogColor host_path =
+    (
+        color_type = dotNetClass "System.Drawing.Color"
+        color_values = #(
+            #(62, 158, 255),
+            #(110, 190, 130),
+            #(180, 130, 230),
+            #(80, 190, 200),
+            #(220, 130, 160),
+            #(200, 180, 90)
+        )
+        batch_index = this.getBatchDialogColorIndex host_path
+        color_index = mod (batch_index - 1) color_values.count + 1
+        rgb_value = color_values[color_index]
+
+        color_type.FromArgb rgb_value[1] rgb_value[2] rgb_value[3]
+        -- return
+    ),
+
+    /*
     Applies the script-item font color for one TreeView node.
-    Hosted and direct-run script leaves use RGB 62,158,255; skipped files and folders use the standard tree foreground.
+    HOST scripts use their resolved batch-dialog color, DIRECT scripts are orange, and skipped files/folders use the standard foreground.
     */
     function applyScriptTreeNodeColor tree_node =
     (
@@ -2943,21 +3057,22 @@ function refreshConfiguredDiscovery =
 
         color_type = dotNetClass "System.Drawing.Color"
         node_path = tree_node.ToolTipText
-        node_active = false
+        tree_node.ForeColor = color_type.FromArgb 225 225 225
 
         if this.isSupportedScriptPath node_path then
         (
             script_key = this.getScriptKey node_path
-            node_active = (this.getScriptLoadMode script_key) != #skip
-        )
+            load_mode = this.getScriptLoadMode script_key
 
-        if node_active then
-        (
-            tree_node.ForeColor = color_type.FromArgb 62 158 255
-        )
-        else
-        (
-            tree_node.ForeColor = color_type.FromArgb 225 225 225
+            if load_mode == #direct then
+            (
+                tree_node.ForeColor = color_type.FromArgb 255 165 60
+            )
+            else if load_mode == #host then
+            (
+                host_path = this.getBatchDialogPathForScript node_path
+                tree_node.ForeColor = this.getBatchDialogColor host_path
+            )
         )
 
         true
@@ -3051,12 +3166,110 @@ function refreshConfiguredDiscovery =
     ),
 
     /*
+    Returns configured HOST-mode scripts assigned to one resolved batch dialog.
+    DIRECT and skipped scripts are intentionally excluded.
+    */
+    function getConfiguredHostScriptPaths host_path =
+    (
+        script_paths = #()
+        if host_path == undefined or host_path == "" then return script_paths
+
+        for script_path in available_script_paths do
+        (
+            script_key = this.getScriptKey script_path
+            load_mode = this.getScriptLoadMode script_key
+
+            if load_mode == #host and (this.getBatchDialogPathForScript script_path) == host_path then
+            (
+                if (findItem script_paths script_path) == 0 then append script_paths script_path
+            )
+        )
+
+        script_paths
+        -- return
+    ),
+
+    /*
+    Returns whether one checked SOURCES directory is the explicit batch-dialog marker for at least one configured HOST script.
+    The first checked discovery source is never treated as a dialog marker.
+    */
+    function isSourceDirectoryBatchDialog source_directory =
+    (
+        if source_directory == undefined or source_directory == "" then return false
+        if not(this.getSourceEnabled source_directory) then return false
+
+        normalized_source = ScriptManagerIntegration.normalizeDirectoryPath source_directory
+        source_relative_path = this.getRelativeDirectoryPath normalized_source
+        if source_relative_path == "" then return false
+
+        for script_path in available_script_paths do
+        (
+            script_key = this.getScriptKey script_path
+            load_mode = this.getScriptLoadMode script_key
+
+            if load_mode == #host and (this.getBatchOverridePathForScript script_path) == source_relative_path then return true
+        )
+
+        false
+        -- return
+    ),
+
+    /*
+    Returns the batch-dialog path represented by the currently selected checked SOURCES item.
+    Non-dialog source rows return an empty string.
+    */
+    function getSelectedSourceDialogPath =
+    (
+        tree_control = this.getSourceTreeControl()
+        if tree_control == undefined or tree_control.SelectedNode == undefined then return ""
+
+        selected_node = tree_control.SelectedNode
+        if not(this.isSourceTreeNodeSelectable selected_node) then return ""
+
+        source_directory = selected_node.Tag
+        if not(this.isSourceDirectoryBatchDialog source_directory) then return ""
+
+        this.getRelativeDirectoryPath (ScriptManagerIntegration.normalizeDirectoryPath source_directory)
+        -- return
+    ),
+
+    /*
+    Updates whether LOAD \ RELOAD DIALOG is available for the selected SOURCES item.
+    The command is shown only on an explicit checked batch-dialog marker.
+    */
+    function updateSourceTreeContextMenuState =
+    (
+        if source_tree_load_dialog_item == undefined then return false
+
+        dialog_path = this.getSelectedSourceDialogPath()
+        show_dialog_action = dialog_path != ""
+        source_tree_load_dialog_item.Visible = show_dialog_action
+        source_tree_load_dialog_item.Enabled = show_dialog_action
+        true
+        -- return
+    ),
+
+    /*
     Removes .NET handlers and disposes the SOURCES context menu before the loader rollout is rebuilt.
     Cleanup failures are intentionally harmless because the old UI is being destroyed.
     */
     function clearSourceTreeContextMenu =
     (
         cleanup_ok = true
+
+        if source_tree_load_dialog_item != undefined then
+        (
+            try
+            (
+                dotNet.removeEventHandler source_tree_load_dialog_item "Click" scriptManagerSourceTreeLoadDialogContextHandler
+            )
+            catch
+            (
+                exception_text = getCurrentException()
+                cleanup_ok = false
+                format "[Script-Manager] Source tree LOAD \\ RELOAD DIALOG handler cleanup failed: %\n" exception_text
+            )
+        )
 
         if source_tree_expand_all_item != undefined then
         (
@@ -3101,6 +3314,7 @@ function refreshConfiguredDiscovery =
         )
 
         source_tree_context_menu = undefined
+        source_tree_load_dialog_item = undefined
         source_tree_expand_all_item = undefined
         source_tree_collapse_all_item = undefined
         cleanup_ok
@@ -3123,13 +3337,19 @@ function refreshConfiguredDiscovery =
         source_tree_context_menu.BackColor = color_type.FromArgb 45 45 48
         source_tree_context_menu.ForeColor = color_type.FromArgb 225 225 225
 
+        source_tree_load_dialog_item = source_tree_context_menu.Items.Add "LOAD \\ RELOAD DIALOG"
         source_tree_expand_all_item = source_tree_context_menu.Items.Add "EXPAND ALL"
         source_tree_collapse_all_item = source_tree_context_menu.Items.Add "COLLAPSE ALL"
+        source_tree_load_dialog_item.BackColor = source_tree_context_menu.BackColor
+        source_tree_load_dialog_item.ForeColor = source_tree_context_menu.ForeColor
+        source_tree_load_dialog_item.ToolTipText = "Load or hard reload only the HOST scripts assigned to this batch dialog."
+        source_tree_load_dialog_item.Visible = false
         source_tree_expand_all_item.BackColor = source_tree_context_menu.BackColor
         source_tree_expand_all_item.ForeColor = source_tree_context_menu.ForeColor
         source_tree_collapse_all_item.BackColor = source_tree_context_menu.BackColor
         source_tree_collapse_all_item.ForeColor = source_tree_context_menu.ForeColor
 
+        dotNet.addEventHandler source_tree_load_dialog_item "Click" scriptManagerSourceTreeLoadDialogContextHandler
         dotNet.addEventHandler source_tree_expand_all_item "Click" scriptManagerSourceTreeExpandAllContextHandler
         dotNet.addEventHandler source_tree_collapse_all_item "Click" scriptManagerSourceTreeCollapseAllContextHandler
         true
@@ -3151,7 +3371,11 @@ function refreshConfiguredDiscovery =
         if click_args.Button == mouse_buttons.Right then
         (
             tree_control.SelectedNode = click_args.Node
-            if source_tree_context_menu != undefined then source_tree_context_menu.Show tree_control click_args.Location
+            if source_tree_context_menu != undefined then
+            (
+                this.updateSourceTreeContextMenuState()
+                source_tree_context_menu.Show tree_control click_args.Location
+            )
             return true
         )
 
@@ -5664,7 +5888,104 @@ function clearHostDialogRollouts host_path =
 ),
 
 /*
+Loads or hard reloads only the currently configured HOST scripts assigned to one batch dialog.
+An existing host dialog is fully destroyed first so docked dialog-bar state cannot interfere with recreation.
+Other HOST dialogs and DIRECT scripts are untouched.
+*/
+function loadConfiguredHostDialogScripts host_path =
+(
+    if is_reloading then return false
+    if host_path == undefined or host_path == "" then return false
+
+    script_paths = this.getConfiguredHostScriptPaths host_path
+    if script_paths.count == 0 then
+    (
+        format "[Script-Manager] No configured HOST scripts found for dialog: %\n" host_path
+        return false
+    )
+
+    is_reloading = true
+    load_ok = true
+
+    try
+    (
+        host_dialog = this.getHostDialog host_path
+
+        if host_dialog != undefined then
+        (
+            if not(this.destroyHostDialog host_path clear_rollouts:true) then throw "destroyHostDialog returned false"
+        )
+        else
+        (
+            if not(this.clearHostScriptTracking host_path) then throw "clearHostScriptTracking returned false"
+        )
+
+        for script_path in script_paths do
+        (
+            if doesFileExist script_path then
+            (
+                script_name = getFilenameFile script_path
+                script_key = this.getScriptKey script_path
+                script_directory = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath script_path)
+                group_path = this.getRelativeDirectoryPath script_directory
+
+                result_data = this.loadManagedScript \
+                    script_path \
+                    script_name:script_name \
+                    script_key:script_key \
+                    group_path:group_path \
+                    embed_rollouts:true
+
+                if not result_data[1] then load_ok = false
+            )
+            else
+            (
+                load_ok = false
+                format "[Script-Manager] Dialog load skipped missing script: %\n" script_path
+            )
+        )
+
+        if not(this.pruneEmptyHostDialogs()) then load_ok = false
+        if not(this.syncScriptTreeChecks()) then load_ok = false
+
+        refreshed_host = this.getHostDialog host_path
+        if refreshed_host != undefined then
+        (
+            if not(this.layoutHostDialog host_path [refreshed_host.width, refreshed_host.height]) then load_ok = false
+        )
+    )
+    catch
+    (
+        exception_text = getCurrentException()
+        load_ok = false
+        format "[Script-Manager] Batch dialog load failed for %: %\n" host_path exception_text
+    )
+
+    is_reloading = false
+    load_ok
+    -- return
+),
+
+/*
+Loads or reloads the batch dialog represented by the selected checked SOURCES item.
+*/
+function loadSelectedSourceDialog =
+(
+    host_path = this.getSelectedSourceDialogPath()
+
+    if host_path == "" then
+    (
+        format "[Script-Manager] Selected SOURCES item does not define a batch dialog.\n"
+        return false
+    )
+
+    this.loadConfiguredHostDialogScripts host_path
+    -- return
+),
+
+/*
 Reloads only the HOST-mode scripts currently represented by one organizational host dialog.
+The old host dialog is fully destroyed before scripts are reloaded so docked dialog-bar state is reset safely.
 This is the LMB action of the dialog's .NET title button and never touches other dialogs or DIRECT scripts.
 */
 function reloadHostDialogScripts host_path =
@@ -5683,7 +6004,7 @@ function reloadHostDialogScripts host_path =
 
     try
     (
-        if not(this.clearHostDialogRollouts host_path) then throw "clearHostDialogRollouts returned false"
+        if not(this.destroyHostDialog host_path clear_rollouts:true) then throw "destroyHostDialog returned false"
 
         for script_path in script_paths do
         (
@@ -5827,6 +6148,57 @@ function clearLoadedRollouts =
     ),
 
     /*
+    Closes already-existing standalone rollout instances for one script before an embedded reload redefines their globals.
+    Both source-declared rollouts and registry-owned rollouts are checked so stale standalone windows cannot survive beside the new hosted rollout.
+    */
+    function closeExistingStandaloneRolloutsForSources source_paths rollout_names =
+    (
+        rollout_values = #()
+        close_ok = true
+
+        for rollout_name in rollout_names do
+        (
+            rollout_result = this.getRolloutValue rollout_name
+
+            if rollout_result[1] then
+            (
+                rollout_value = rollout_result[2]
+
+                if rollout_value != undefined and (findItem rollout_values rollout_value) == 0 then
+                (
+                    append rollout_values rollout_value
+                )
+            )
+        )
+
+        registered_pairs = this.getRegisteredRolloutPairsForSources source_paths
+
+        for registered_pair in registered_pairs do
+        (
+            if registered_pair.count >= 1 then
+            (
+                rollout_value = registered_pair[1]
+
+                if rollout_value != undefined and (findItem rollout_values rollout_value) == 0 then
+                (
+                    append rollout_values rollout_value
+                )
+            )
+        )
+
+        for rollout_value in rollout_values do
+        (
+            if this.isStandaloneRolloutOpen rollout_value then
+            (
+                if not(this.closeStandaloneRollout rollout_value) then close_ok = false
+            )
+        )
+
+        close_ok
+        -- return
+    ),
+
+    /*
     Closes a tool rollout's standalone dialog so it can be embedded safely.
     Registered dialog bars are unregistered first, and a failed close is reported as failure.
     */
@@ -5964,6 +6336,16 @@ function loadManagedScript script_path script_name:"" script_key:"" group_path:"
         )
     )
 
+    loaded_source_paths = #(script_path)
+    if companion_ui_exists then append loaded_source_paths companion_ui_path
+
+    if not(this.closeExistingStandaloneRolloutsForSources loaded_source_paths rollout_names) then
+    (
+        error_text = "Could not close an existing standalone rollout before embedded load: " + script_path
+        format "[Script-Manager] EMBED FAILED: % | %\n" script_path error_text
+        return #(false, 0, error_text)
+    )
+
     integration_result = ScriptManagerIntegration.loadScript script_path runtime_mode:#embedded quiet:true
 
     if not integration_result[1] then
@@ -6010,9 +6392,6 @@ function loadManagedScript script_path script_name:"" script_key:"" group_path:"
         )
     )
 
-    loaded_source_paths = #(script_path)
-    if companion_ui_exists then append loaded_source_paths companion_ui_path
-
     registered_rollout_pairs = this.getRegisteredRolloutPairsForSources loaded_source_paths
 
     for registered_pair in registered_rollout_pairs do
@@ -6050,7 +6429,7 @@ function loadManagedScript script_path script_name:"" script_key:"" group_path:"
         return #(false, 0, error_text)
     )
 
-    host_path = this.getHostDialogPathForGroup group_path
+    host_path = this.getBatchDialogPathForScript script_path
 
     if not(this.ensureHostDialog host_path) then
     (

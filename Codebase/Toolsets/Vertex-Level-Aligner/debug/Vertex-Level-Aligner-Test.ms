@@ -1,5 +1,5 @@
 /*
-Vertex Level Aligner Test 0.251
+Vertex Level Aligner Test 0.254
 Package architecture regression for main / UI / FN separation.
 */
 
@@ -10,7 +10,7 @@ global vertex_level_aligner_rollout
 global vertex_level_aligner_main_version
 global vertex_level_aligner_test_project_version
 
-vertex_level_aligner_test_project_version = 1.119
+vertex_level_aligner_test_project_version = 1.122
 
 /*
 Loads the package through the main entry in library mode.
@@ -158,10 +158,10 @@ function partOfTest2 =
     if (findString ui_text "function setWorldAxisControls") == undefined then throw "VLevelA Test: mandatory one-of-three axis controller is missing."
     if (findString ui_text "on cb_axis_x changed state do") == undefined or (findString ui_text "on cb_axis_y changed state do") == undefined or (findString ui_text "on cb_axis_z changed state do") == undefined or (findString ui_text "scanCurrentThreshold()") == undefined then throw "VLevelA Test: world-axis checkbutton change does not trigger a rescan."
     if (findString ui_text "\"WorldAxis\"") == undefined then throw "VLevelA Test: selected world axis is not persisted."
-    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.119\" width:320 height:576") == undefined then throw "VLevelA Test: rollout width is not fixed at 320 px."
-    if (findString ui_text "spinner spn_threshold \"Threshold:\" pos:[8,41] width:96 height:20") == undefined or (findString ui_text "fieldWidth:42 align:#left") == undefined then throw "VLevelA Test: Threshold control is not in the first 96 px row-2 column."
+    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.122\" width:320 height:576") == undefined then throw "VLevelA Test: rollout width is not fixed at 320 px."
+    if (findString ui_text "spinner spn_threshold \"Threshold:\" pos:[8,41] offset:[96,0] width:96 height:20") == undefined or (findString ui_text "fieldWidth:42 align:#left") == undefined or (findString ui_text "spn_threshold.pos = [104, 41 + title_offset]") == undefined then throw "VLevelA Test: Threshold control does not keep its 96 px X offset inside row 2."
     if (findString ui_text "Threshold groups levels only; it does not move vertices.") == undefined or (findString ui_text "Units: millimeters.") == undefined then throw "VLevelA Test: Threshold tooltip does not clearly explain grouping and physical units."
-    if (findString ui_text "dropdownlist ddl_round_precision \"\" pos:[112,41] width:96") == undefined then throw "VLevelA Test: Round Precision control is not in the middle 96 px row-2 column."
+    if (findString ui_text "dropdownlist ddl_round_precision \"\" pos:[136,41] width:72") == undefined or (findString ui_text "ddl_round_precision.pos = [136, 41 + title_offset]") == undefined then throw "VLevelA Test: Round Precision control does not leave space for the Threshold X offset."
     if (findString ui_text "label lbl_display_trim \"Remove:\" pos:[216,44] width:40") == undefined or (findString ui_text "dropdownlist ddl_display_trim \"\" pos:[264,41] width:48") == undefined then throw "VLevelA Test: Remove controls are not in the final 96 px row-2 column."
     if (findString ui_text "radiobuttons rb_view_mode") == undefined or (findString ui_text "pos:[8,69] width:184 height:28 align:#left") == undefined then throw "VLevelA Test: view-mode radios do not leave room for the Expand/Collapse button."
     if (findString ui_text "button btn_expand_collapse") == undefined then throw "VLevelA Test: Expand/Collapse button is missing."
@@ -196,7 +196,7 @@ function partOfTest2 =
     if (findString ui_text "roundContextTarget #up") == undefined or (findString ui_text "roundContextTarget #down") == undefined then throw "VLevelA Test: Round UP/DOWN menu callbacks are not wired."
     if (findString ui_text "Collapse All") == undefined or (findString ui_text "Expand All") == undefined then throw "VLevelA Test: TreeView Collapse/Expand All context actions are missing."
     if (findString fn_text "copy exact_levels") != undefined then throw "VLevelA Test: mapped copy() regression returned to group data."
-    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.119\"") == undefined then throw "VLevelA Test: literal static rollout title is missing."
+    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.122\"") == undefined then throw "VLevelA Test: literal static rollout title is missing."
     if (findString fn_text "rollout ") != undefined then throw "VLevelA Test: FN must not define rollouts."
     if (findString fn_text "createDialog") != undefined then throw "VLevelA Test: FN must not create dialogs."
     if (findString fn_text "global vertexLevelAlignerWriteLog") == undefined then throw "VLevelA Test: FN logger must be explicitly global."
@@ -261,7 +261,7 @@ function partOfTest3 =
 (
     vertex_level_aligner_ui.showUI()
 
-    if vertex_level_aligner_rollout.title != "Vertex Level Aligner 1.119" then throw ("VLevelA Test: unexpected rollout title: " + vertex_level_aligner_rollout.title)
+    if vertex_level_aligner_rollout.title != "Vertex Level Aligner 1.122" then throw ("VLevelA Test: unexpected rollout title: " + vertex_level_aligner_rollout.title)
     if getTestPropertyValue vertex_level_aligner_rollout #cb_axis_x == undefined or getTestPropertyValue vertex_level_aligner_rollout #cb_axis_y == undefined or getTestPropertyValue vertex_level_aligner_rollout #cb_axis_z == undefined then throw "VLevelA Test: XYZ world-axis checkbuttons missing."
     if getTestPropertyValue vertex_level_aligner_rollout #spn_threshold == undefined then throw "VLevelA Test: threshold spinner missing."
     if getTestPropertyValue vertex_level_aligner_rollout #btn_scan == undefined then throw "VLevelA Test: SCAN OBJECT button missing."
@@ -985,12 +985,12 @@ These checks are non-destructive and target the 0.819/0.820 safety fixes directl
 */
 function partOfTest19 =
 (
-    if vertex_level_aligner_test_project_version != 1.119 then throw "VLevelA Test 19: unexpected test project version."
-    if vertex_level_aligner_main_version != 0.389 then throw "VLevelA Test 19: unexpected main file version."
+    if vertex_level_aligner_test_project_version != 1.122 then throw "VLevelA Test 19: unexpected test project version."
+    if vertex_level_aligner_main_version != 0.392 then throw "VLevelA Test 19: unexpected main file version."
     if vertex_level_aligner.file_version != 0.142 then throw "VLevelA Test 19: unexpected backend file version."
     if vertex_level_aligner.project_version != 1.117 then throw "VLevelA Test 19: backend project version is not 1.117."
-    if vertex_level_aligner_ui.file_version != 0.498 then throw "VLevelA Test 19: unexpected UI file version."
-    if vertex_level_aligner_ui.project_version != 1.119 then throw "VLevelA Test 19: UI project version is not 1.119."
+    if vertex_level_aligner_ui.file_version != 0.501 then throw "VLevelA Test 19: unexpected UI file version."
+    if vertex_level_aligner_ui.project_version != 1.122 then throw "VLevelA Test 19: UI project version is not 1.122."
 
     failed_vertex_count = vertex_level_aligner.getContextVertexCount #(#editable_poly, undefined, undefined)
     if failed_vertex_count != -1 then throw "VLevelA Test 19: failed vertex-count read did not return -1."

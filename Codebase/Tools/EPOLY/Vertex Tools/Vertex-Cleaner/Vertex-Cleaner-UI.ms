@@ -1,5 +1,5 @@
-﻿/*
-    Vertex Cleaner UI 0.79
+/*
+    Vertex Cleaner UI 0.851
     Frontend only. Defines the rollout and callbacks; package loading and standalone execution belong to Vertex-Cleaner.ms.
 */
 
@@ -15,21 +15,20 @@ global two_edge_verts_ui_ini_path
 global two_edge_verts_ui_source_path
 
 
-if epoly_tools_project_version == undefined or epoly_tools_project_version < 0.839 then
+if epoly_tools_project_version == undefined or epoly_tools_project_version < 0.851 then
 (
-    epoly_tools_project_version = 0.839
+    epoly_tools_project_version = 0.851
 )
 
 
-two_edge_verts_ui_title = "Vertex Cleaner | v" + (epoly_tools_project_version as string)
 two_edge_verts_ui_ini_path = (getDir #plugcfg) + "\\Vertex-Cleaner.ini"
 two_edge_verts_ui_source_path = getSourceFileName()
 
 
 struct TwoEdgeVertsUI_v
 (
-    file_version = 0.79,
-    project_version = 0.839,
+    file_version = 0.851,
+    project_version = 0.851,
 
 
     /*
@@ -347,6 +346,12 @@ struct TwoEdgeVertsUI_v
 
 TwoEdgeVertsUI = TwoEdgeVertsUI_v()
 
+/*
+The visible rollout title is derived from this Tool's own project version.
+It must never depend on a higher version published by another EPolyTools component.
+*/
+two_edge_verts_ui_title = "Vertex Cleaner | v" + (TwoEdgeVertsUI.project_version as string)
+
 
 rollout TwoEdgeVerts_UI two_edge_verts_ui_title width:286 height:456
 (
@@ -354,9 +359,9 @@ rollout TwoEdgeVerts_UI two_edge_verts_ui_title width:286 height:456
     label lbl_info "VERTS - - SEL - \\ UNSEL -" pos:[12,40] width:262 height:18 align:#left
     timer tmr_vertex_info interval:250 active:true
     button btn_fix_selected "FIX SELECTED VERT" pos:[12,64] width:262 height:48 tooltip:"LMB: Fix exactly one currently selected true 2-edge vertex immediately. Target-welds it into the closest visible neighbor so the opposite edge path stays connected. No SEARCH/manual queue is required."
-    button btn_select "SEARCH 2-EDGE VERTS" pos:[12,118] width:262 height:30 tooltip:"LMB: FORCE selects vertices with exactly two visible edges that deviate no more than 15 degrees from a straight continuation.\n\nRMB: Select the existing filtered redundant 2-edge set and store it for SELECT \\ REMOVE."
-    button btn_remove "REMOVE" pos:[12,154] width:262 height:30 tooltip:"LMB: Repeatedly search the filtered redundant 2-edge set and remove one current vertex until none remain."
-    button btn_remove_vert "SELECT \\ REMOVE" pos:[12,190] width:262 height:30 tooltip:"LMB: Select the next stored true 2-edge candidate.\n\nRMB: Remove that candidate through the stored queue path; if that path cannot run, try the one currently selected true 2-edge vertex directly."
+    button btn_select "2-EDGE VERTS \\ FIX" pos:[12,118] width:262 height:30 tooltip:"LMB: FORCE selects on the evaluated top of the stack. If the stack top is not Edit Poly, Vertex Cleaner adds its own Edit Poly there.\n\nRMB: Repeats the stable batched FORCE cleanup on that top-stack topology until no candidates remain; the loop stops if the next pass starts with the same candidate count."
+    button btn_remove "REMOVE" pos:[12,190] width:262 height:30 tooltip:"LMB: Repeatedly search the filtered redundant 2-edge set and remove one current vertex until none remain."
+    button btn_remove_vert "SELECT \\ REMOVE" pos:[12,154] width:262 height:30 tooltip:"LMB: Run a fresh filtered search, select the highest current candidate, and arm it.\n\nRMB: Remove that exact armed candidate through the stable manual path."
     button btn_duplicate_select "SELECT DUPLICATE VERTS" pos:[12,226] width:262 height:30 tooltip:"LMB: Select all vertices that share one exact Point3 position with another live vertex. No tolerance is used."
     button btn_duplicate_collapse "COLLAPSE DUPLICATE VERTS" pos:[12,262] width:262 height:30 tooltip:"LMB: Collapse every exact-position duplicate group to one surviving vertex. No distance threshold is used."
     button btn_t_junction "SELECT T-JUNCTION VERTS" pos:[12,298] width:262 height:30 tooltip:"LMB: Select topology T-junction vertices with exactly three live edges and a straight-through edge pair."
@@ -376,7 +381,7 @@ rollout TwoEdgeVerts_UI two_edge_verts_ui_title width:286 height:456
 
         if selection.count != 1 then
         (
-            messageBox "Select exactly one Editable Poly / Edit Poly object." title:"Vertex Cleaner"
+            messageBox "Select exactly one object." title:"Vertex Cleaner"
         )
         else
         (
@@ -389,25 +394,12 @@ rollout TwoEdgeVerts_UI two_edge_verts_ui_title width:286 height:456
         if selection.count != 1 then
         (
             TwoEdgeVerts.resetManualRemoveState()
-            messageBox "Select exactly one Editable Poly / Edit Poly object." title:"Vertex Cleaner"
+            messageBox "Select exactly one object." title:"Vertex Cleaner"
         )
         else
         (
-            select_ok = TwoEdgeVerts.selectTwoEdgeVerts force_mode:false
-
-            if select_ok then
-            (
-                stored_ok = TwoEdgeVerts.storeManualRemoveStateFromCurrentSelection()
-
-                if not(stored_ok) then
-                (
-                    format "Vertex Cleaner | SEARCH RMB found no valid stored manual candidates.\n"
-                )
-            )
-            else
-            (
-                TwoEdgeVerts.resetManualRemoveState()
-            )
+            TwoEdgeVerts.removeTwoEdgeVertsUsingManualWorkflow()
+            TwoEdgeVertsUI.refreshVertexInfo()
         )
     )
 
@@ -424,13 +416,7 @@ rollout TwoEdgeVerts_UI two_edge_verts_ui_title width:286 height:456
 
     on btn_remove_vert rightclick do
     (
-        fixed_ok = TwoEdgeVerts.fixManualRemoveCandidate()
-
-        if not(fixed_ok) then
-        (
-            TwoEdgeVerts.fixSelectedVertex()
-        )
-
+        TwoEdgeVerts.fixManualRemoveCandidate()
         TwoEdgeVertsUI.refreshVertexInfo()
     )
 

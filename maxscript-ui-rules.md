@@ -38,6 +38,7 @@ These defaults are required from the **first runnable UI version** of every new 
 \- Do not first create a stripped-down, unpersisted, or differently styled prototype with the intention of adding the shared UI defaults later.  
 \- Every standalone tool dialog or owning rollout must use the canonical `.NET tool title button` from its first version. LMB on it performs the shared restart action.  
 \- Every standalone tool dialog or owning rollout must use INI-backed UI state persistence from its first version. Persist relevant control values, selected modes/options, dialog position, and the supported dialog size state.  
+\- If any tool action uses position-based matching, comparison, identity, lookup, duplicate detection, or position verification, include the shared `postion preccision` dropdown from the first UI version and pass its selected value explicitly to every relevant backend operation.  
 \- By default, store that INI file in the **same directory as the owning/main MaxScript `.ms` file**. Derive the directory from the actual source-script path; do not default to `#userScripts`, AppData, temp, the current working directory, or another global settings folder.  
 \- Use a stable, unversioned INI filename for the tool so all versioned entry scripts share the same settings file, for example `ToolName.ini` or `ToolName-UI.ini`. Do not append the project/file version to the INI filename.  
 \- Use the canonical `IniSettings.ms`, `RolloutState.ms`, `DialogHost.ms`, `ScriptReload.ms`, and `ToolTitleButton.ms` helpers where their responsibility applies; do not duplicate those helper implementations inside each tool.  
@@ -402,6 +403,29 @@ button_control.FlatAppearance.MouseDownBackColor = button_control.BackColor
 \- When selection changes update the UI, guard against invalid or deleted scene nodes.  
 \- Avoid unnecessary polling when an event-driven update is available.
 
+
+
+
+\#\# Position precision dropdown
+
+
+
+Use this control whenever one or more tool operations depend on Point3/position matching, comparison, identity, grouping, lookup, duplicate detection, or expected-versus-actual position verification.
+
+
+
+\- Visible label: **`postion preccision`**.  
+\- Control type: dropdown/dropdownlist; do not use free-form text entry by default.  
+\- Choices, in this order: **`1mm`**, **`0.1mm`**, **`0.01mm`**.  
+\- Default selection: **`0.01mm`**.  
+\- Persist the selected value in the owning tool INI and restore it on reopen.  
+\- Validate a restored value against the allowed choices; if it is missing or invalid, use `0.01mm`.  
+\- Use one shared tool-level position-precision control for all relevant actions unless the feature explicitly requires independent precision settings.  
+\- Pass the selected precision explicitly into the backend operation. Do not make the operation reach into the rollout or read a hidden global to discover it.  
+\- Treat the value as computational position precision, not merely display precision.  
+\- Convert the millimeter choice to the current 3ds Max system-unit value before rounding/comparing backend positions.  
+\- The control changes temporary position normalization used for matching/comparison. It must not silently snap or rewrite actual geometry positions.  
+\- Position-based fatal diagnostics should include the selected precision in addition to raw and rounded expected/actual values.
 
 
 

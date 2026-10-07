@@ -54,6 +54,41 @@ Do not:
 - Do not use an empty `catch()` for topology reads, selection reads, geometry edits, modifier operations, transform reads, attach/weld operations, or other correctness-critical work.
 - Quiet catches are allowed only for intentionally harmless best-effort cleanup or capability probes where failure is expected and cannot corrupt the result.
 
+## Fatal-condition diagnostics
+
+Any condition that represents a required precondition, postcondition, invariant, or verification and whose failure stops or invalidates the operation must be diagnosable at the exact failure site.
+
+Required behavior:
+
+- Before `return false`, `return undefined`, setting a failure flag, breaking a required workflow, or skipping a required commit because a critical condition failed, emit a diagnostic with the values that caused the failure.
+- For `actual != expected`, range checks, count checks, topology checks, transform checks, and selection checks, print the actual value and the expected/required value whenever both are available.
+- Include the relevant object/node, exact modifier instance or name, component ID(s), operation/stage name, and input/delta values when they materially help reproduce the failure.
+- Preserve raw backend values in diagnostics. Do not round or format them to UI display precision.
+- Do not hide the decisive state behind a generic `"failed"` message.
+- If DUMP is active, use the shared logger so the diagnostic reaches both Listener and dump file. If DUMP is not active, use `format` or the tool's normal logger.
+- Logging is diagnostic only: the operation must still return/propagate its real failure state.
+- Never respond to a failing exact verification by silently adding epsilon/tolerance, rounding, clamping, or removing the check.
+
+Bad:
+
+```maxscript
+if moved_position != expected_position then
+(
+    return false
+)
+```
+
+Good:
+
+```maxscript
+if moved_position != expected_position then
+(
+    format "MOVE FAILED | vertex:% expected:% actual:% delta:%\n" \
+        vertex_id expected_position moved_position (moved_position - expected_position)
+    return false
+)
+```
+
 ## Topology and selection reads
 
 Do not convert a failed native topology or selection query into a legitimate-looking empty result and then continue as if the scene contained no data.
@@ -112,6 +147,7 @@ Before delivering changed MaxScript code, perform a focused static check of the 
 - every real catch obtains `getCurrentException()`;
 - no obvious mixed return contracts;
 - no fake-success paths introduced by the change.
+- no silent fatal verification branches that discard the actual/expected values needed to diagnose the failure;
 - no hidden rounding, numeric truncation, Float-to-Integer coercion, or unapproved epsilon/tolerance introduced by the change.
 
 Static validation does not replace actual 3ds Max runtime testing. Never claim runtime verification unless the code was actually executed in 3ds Max.

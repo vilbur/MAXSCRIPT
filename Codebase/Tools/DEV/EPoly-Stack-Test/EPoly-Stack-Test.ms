@@ -2,8 +2,8 @@
 /*
 ===============================================================================
 Module:         EPoly-Stack-Test
-File version:   1.21
-Project version: 1.21
+File version:   1.25
+Project version: 1.25
 Description:    Diagnostic script proving multi-modifier Edit_Poly stack integrity.
                 Keeps plane parametric. Never collapses stack. No hardcoded IDs.
 ===============================================================================
@@ -12,8 +12,8 @@ Description:    Diagnostic script proving multi-modifier Edit_Poly stack integri
 try (destroyDialog EPolyStackTestRollout) catch ()
 
 global epoly_stack_test_project_version
-global epoly_stack_test_file_version = 1.21
-global epoly_stack_test_file_project_version = 1.21
+global epoly_stack_test_file_version = 1.25
+global epoly_stack_test_file_project_version = 1.25
 global epoly_stack_test_source_path = getSourceFileName()
 global epoly_stack_test_module_root = getFilenamePath epoly_stack_test_source_path
 global epoly_stack_test_dump_module_path = pathConfig.appendPath epoly_stack_test_module_root @"..\DUMP\DUMP.ms"
@@ -37,7 +37,7 @@ else
     format "EPoly-Stack-Test | LOGGER FAILED | Missing DUMP module: %\n" epoly_stack_test_dump_module_path
 )
 
-rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_version as string)) width:220 height:460
+rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_version as string)) width:220 height:492
 (
     -- -------------------------------------------------------------------------
     -- UI COMPONENTS (Check Line 23 for missing parameters or unexpected text)
@@ -46,11 +46,12 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
     button btn_stg01 "01 CREATE CROSS"     width:180 height:26 align:#center
     button btn_stg02 "02 MAKE OPEN BOX"    width:180 height:26 align:#center
     button btn_stg03 "03 WELD RESULT"        width:180 height:26 align:#center
-    button btn_stg04 "04 ADD LOOPS"       width:180 height:26 align:#center
-    button btn_stg05 "05 CONNECT SIDES VERTICALLY" width:180 height:26 align:#center
+    button btn_stg04 "04 ADD LOOPS HORIZONTAL"       width:180 height:26 align:#center
+    button btn_stg05 "05 ADD LOOPS VERTICAL" width:180 height:26 align:#center
     button btn_stg06 "06 INSERT VERTICES" width:180 height:26 align:#center tooltip:"LMB: Add one vertex on each horizontal edge.\n\nRMB: Add two vertices on each horizontal edge."
     button btn_stg07 "07 CONNECT 2 EDGE VERTS" width:180 height:26 align:#center
     button btn_stg08 "08 REMOVE UP FACE" width:180 height:26 align:#center
+    button btn_move_selected_out "MOVE SELECTED VERTS OUT" width:180 height:26 align:#center tooltip:"Moves selected vertices away from the bounding-box center by 25% of the current bounding-box maximum dimension."
     
     button btn_all   "RUN ALL"             width:180 height:32 align:#center
     button btn_rst   "RESTART"             width:180 height:26 align:#center
@@ -1889,6 +1890,183 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
     )
 
     -- -------------------------------------------------------------------------
+    -- MANUAL VERTEX MOVE DIAGNOSTIC
+    -- -------------------------------------------------------------------------
+    /*
+    Moves a supplied Edit Poly vertex selection radially away from the live bounding-box center.
+    The move distance is a caller-supplied fraction of the current bounding-box maximum dimension.
+    */
+    function moveEditPolyVerticesOutwardByBBoxFraction edit_poly_mod obj selected_vertices bbox_fraction =
+    (
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then return false
+        if obj == undefined or not isValidNode obj then return false
+        if selected_vertices == undefined or classOf selected_vertices != BitArray or selected_vertices.numberSet == 0 then return false
+        if bbox_fraction <= 0.0 then return false
+
+        edit_poly_mod.SetPrimaryNode obj
+
+        local vertex_count = edit_poly_mod.GetNumVertices node:obj
+
+        if vertex_count < 1 then return false
+
+        local first_position = edit_poly_mod.GetVertex 1 node:obj
+        local bbox_minimum = first_position
+        local bbox_maximum = first_position
+
+        for vertex_id = 2 to vertex_count do
+        (
+            local vertex_position = edit_poly_mod.GetVertex vertex_id node:obj
+
+            if vertex_position.x < bbox_minimum.x then bbox_minimum.x = vertex_position.x
+            if vertex_position.y < bbox_minimum.y then bbox_minimum.y = vertex_position.y
+            if vertex_position.z < bbox_minimum.z then bbox_minimum.z = vertex_position.z
+
+            if vertex_position.x > bbox_maximum.x then bbox_maximum.x = vertex_position.x
+            if vertex_position.y > bbox_maximum.y then bbox_maximum.y = vertex_position.y
+            if vertex_position.z > bbox_maximum.z then bbox_maximum.z = vertex_position.z
+        )
+
+        local bbox_size = bbox_maximum - bbox_minimum
+        local bbox_reference_size = bbox_size.x
+
+        if bbox_size.y > bbox_reference_size then bbox_reference_size = bbox_size.y
+        if bbox_size.z > bbox_reference_size then bbox_reference_size = bbox_size.z
+        if bbox_reference_size <= 0.0 then return false
+
+        local bbox_center = (bbox_minimum + bbox_maximum) / 2.0
+        local move_distance = bbox_reference_size * bbox_fraction
+        local move_records = #()
+
+        for vertex_id in selected_vertices do
+        (
+            if vertex_id < 1 or vertex_id > vertex_count then return false
+
+            local vertex_position = edit_poly_mod.GetVertex vertex_id node:obj
+            local outward_vector = vertex_position - bbox_center
+            local outward_length = length outward_vector
+
+            if outward_length == 0.0 then return false
+
+            local move_delta = (outward_vector / outward_length) * move_distance
+            append move_records #(vertex_id, vertex_position, move_delta)
+        )
+
+        local move_ok = true
+
+        undo "Move Selected Vertices Out" on
+        (
+            local current_selection = edit_poly_mod.GetSelection #Vertex node:obj
+
+            if current_selection.numberSet > 0 then
+            (
+                edit_poly_mod.Select #Vertex current_selection select:false node:obj
+            )
+
+            for move_record in move_records while move_ok do
+            (
+                local vertex_id = move_record[1]
+                local original_position = move_record[2]
+                local move_delta = move_record[3]
+                local vertex_bits = #{}
+                vertex_bits[vertex_id] = true
+
+                edit_poly_mod.Select #Vertex vertex_bits node:obj
+
+                if edit_poly_mod.GetSelection #Vertex node:obj != vertex_bits then
+                (
+                    move_ok = false
+                )
+                else
+                (
+                    edit_poly_mod.MoveSelection move_delta
+                    edit_poly_mod.Commit()
+
+                    local moved_position = edit_poly_mod.GetVertex vertex_id node:obj
+                    local expected_position = original_position + move_delta
+
+                    if moved_position != expected_position then
+                    (
+                        move_ok = false
+                    )
+                )
+
+                local isolated_selection = edit_poly_mod.GetSelection #Vertex node:obj
+                if isolated_selection.numberSet > 0 then
+                (
+                    edit_poly_mod.Select #Vertex isolated_selection select:false node:obj
+                )
+            )
+
+            edit_poly_mod.Select #Vertex selected_vertices select:true node:obj
+            edit_poly_mod.RefreshScreen()
+            completeRedraw()
+        )
+
+        move_ok
+        -- return
+    )
+
+    /*
+    Resolves the current test-object Edit Poly vertex selection and moves it outward by 25% of bbox size.
+    Keeps UI/context validation separate from the reusable vertex-move method.
+    */
+    function moveSelectedVerticesOutward =
+    (
+        local obj = getTestObject()
+
+        if obj == undefined then
+        (
+            logMsg "MOVE SELECTED VERTS OUT FAILED | Missing target object."
+            return false
+        )
+
+        local edit_poly_mod = modPanel.getCurrentObject()
+
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then
+        (
+            logMsg "MOVE SELECTED VERTS OUT FAILED | Make an Edit Poly modifier current in the Modify panel."
+            return false
+        )
+
+        local belongs_to_test_object = false
+
+        for stack_mod in obj.modifiers while not belongs_to_test_object do
+        (
+            if stack_mod == edit_poly_mod then belongs_to_test_object = true
+        )
+
+        if not belongs_to_test_object then
+        (
+            logMsg "MOVE SELECTED VERTS OUT FAILED | The current Edit Poly does not belong to EPOLY_STACK_TEST."
+            return false
+        )
+
+        edit_poly_mod.SetPrimaryNode obj
+        local selected_vertices = edit_poly_mod.GetSelection #Vertex node:obj
+
+        if selected_vertices == undefined or selected_vertices.numberSet == 0 then
+        (
+            logMsg "MOVE SELECTED VERTS OUT FAILED | Select one or more vertices in the current Edit Poly modifier."
+            return false
+        )
+
+        local bbox_fraction = 0.25
+        local move_ok = moveEditPolyVerticesOutwardByBBoxFraction edit_poly_mod obj selected_vertices bbox_fraction
+
+        if move_ok then
+        (
+            logMsg ("MOVE SELECTED VERTS OUT SUCCESS | modifier:" + edit_poly_mod.name + " bboxFraction:" + (bbox_fraction as string) + " moved:" + (selected_vertices.numberSet as string))
+        )
+        else
+        (
+            logMsg "MOVE SELECTED VERTS OUT FAILED | Reusable bbox-relative move operation did not complete."
+        )
+
+        move_ok
+        -- return
+    )
+
+    -- -------------------------------------------------------------------------
     -- UI CONTROLLERS & ENGINE COUPLING
     -- -------------------------------------------------------------------------
     on btn_stg00 pressed do runStage00()
@@ -1902,6 +2080,7 @@ on btn_stg06 pressed do runStage06 1
 on btn_stg06 rightclick do runStage06 2
 on btn_stg07 pressed do runStage07()
 on btn_stg08 pressed do runStage08()
+on btn_move_selected_out pressed do moveSelectedVerticesOutward()
 on btn_all pressed do
 (
 -- Complete clean run sequence with conditional pipeline enforcement

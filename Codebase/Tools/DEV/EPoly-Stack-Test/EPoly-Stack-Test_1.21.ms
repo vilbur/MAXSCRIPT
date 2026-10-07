@@ -2,8 +2,8 @@
 /*
 ===============================================================================
 Module:         EPoly-Stack-Test
-File version:   1.17
-Project version: 0.201
+File version:   1.21
+Project version: 1.21
 Description:    Diagnostic script proving multi-modifier Edit_Poly stack integrity.
                 Keeps plane parametric. Never collapses stack. No hardcoded IDs.
 ===============================================================================
@@ -12,8 +12,8 @@ Description:    Diagnostic script proving multi-modifier Edit_Poly stack integri
 try (destroyDialog EPolyStackTestRollout) catch ()
 
 global epoly_stack_test_project_version
-global epoly_stack_test_file_version = 1.17
-global epoly_stack_test_file_project_version = 0.201
+global epoly_stack_test_file_version = 1.21
+global epoly_stack_test_file_project_version = 1.21
 global epoly_stack_test_source_path = getSourceFileName()
 global epoly_stack_test_module_root = getFilenamePath epoly_stack_test_source_path
 global epoly_stack_test_dump_module_path = pathConfig.appendPath epoly_stack_test_module_root @"..\DUMP\DUMP.ms"
@@ -37,7 +37,7 @@ else
     format "EPoly-Stack-Test | LOGGER FAILED | Missing DUMP module: %\n" epoly_stack_test_dump_module_path
 )
 
-rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_version as string)) width:220 height:390
+rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_version as string)) width:220 height:460
 (
     -- -------------------------------------------------------------------------
     -- UI COMPONENTS (Check Line 23 for missing parameters or unexpected text)
@@ -48,7 +48,9 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
     button btn_stg03 "03 WELD RESULT"        width:180 height:26 align:#center
     button btn_stg04 "04 ADD LOOPS"       width:180 height:26 align:#center
     button btn_stg05 "05 CONNECT SIDES VERTICALLY" width:180 height:26 align:#center
-    button btn_stg06 "06 REMOVE UP FACE" width:180 height:26 align:#center
+    button btn_stg06 "06 INSERT VERTICES" width:180 height:26 align:#center tooltip:"LMB: Add one vertex on each horizontal edge.\n\nRMB: Add two vertices on each horizontal edge."
+    button btn_stg07 "07 CONNECT 2 EDGE VERTS" width:180 height:26 align:#center
+    button btn_stg08 "08 REMOVE UP FACE" width:180 height:26 align:#center
     
     button btn_all   "RUN ALL"             width:180 height:32 align:#center
     button btn_rst   "RESTART"             width:180 height:26 align:#center
@@ -198,31 +200,31 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
                 )
                 else
                 (
-                    local base_vertex_positions = #()
+                    local base_vertex_ids = #()
                     local base_center = [0.0, 0.0, 0.0]
                     local base_degree = edit_poly_mod.GetFaceDegree base_face_id node:obj
 
                     for corner_id = 1 to base_degree do
                     (
                         local vertex_id = edit_poly_mod.GetFaceVertex base_face_id corner_id node:obj
-                        local vertex_position = edit_poly_mod.GetVertex vertex_id node:obj
-                        append base_vertex_positions vertex_position
-                        base_center += vertex_position
+                        append base_vertex_ids vertex_id
+                        base_center += edit_poly_mod.GetVertex vertex_id node:obj
                     )
 
                     base_center /= base_degree
 
                     local build_ok = true
-                    local created_face_count = 0
+                    local created_face_ids = #()
 
                     for corner_id = 1 to base_degree while build_ok do
                     (
                         local next_corner_id = corner_id + 1
                         if next_corner_id > base_degree then next_corner_id = 1
 
-                        -- Preserve geometric identity only. Do not keep vertex IDs across topology creation.
-                        local position_a = base_vertex_positions[corner_id]
-                        local position_b = base_vertex_positions[next_corner_id]
+                        local shared_vertex_a = base_vertex_ids[corner_id]
+                        local shared_vertex_b = base_vertex_ids[next_corner_id]
+                        local position_a = edit_poly_mod.GetVertex shared_vertex_a node:obj
+                        local position_b = edit_poly_mod.GetVertex shared_vertex_b node:obj
                         local edge_center = (position_a + position_b) / 2.0
                         local outward_vector = edge_center - base_center
                         local outward_length = length outward_vector
@@ -240,78 +242,28 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
                             local new_position_a = position_a + arm_offset
                             local new_position_b = position_b + arm_offset
 
-                            if edit_poly_mod.CreateVertex new_position_a node:obj <= 0 then
+                            local new_vertex_a = edit_poly_mod.CreateVertex new_position_a node:obj
+                            local new_vertex_b = edit_poly_mod.CreateVertex new_position_b node:obj
+
+                            if new_vertex_a <= 0 or new_vertex_b <= 0 then
                             (
-                                logMsg ("01 FAILED | CreateVertex A failed on side " + (corner_id as string))
-                                build_ok = false
-                            )
-                            else if edit_poly_mod.CreateVertex new_position_b node:obj <= 0 then
-                            (
-                                logMsg ("01 FAILED | CreateVertex B failed on side " + (corner_id as string))
+                                logMsg ("01 FAILED | CreateVertex failed on side " + (corner_id as string))
                                 build_ok = false
                             )
                             else
                             (
-                                -- Vertex creation changed topology. Resolve every ID fresh before CreateFace.
-                                local current_vertex_count = edit_poly_mod.GetNumVertices node:obj
-                                local shared_vertex_a = 0
-                                local shared_vertex_b = 0
-                                local new_vertex_a = 0
-                                local new_vertex_b = 0
-                                local shared_vertex_a_matches = 0
-                                local shared_vertex_b_matches = 0
-                                local new_vertex_a_matches = 0
-                                local new_vertex_b_matches = 0
+                                -- Reverse the shared edge winding so the new quad matches the base face orientation.
+                                local new_face_id = edit_poly_mod.CreateFace #(shared_vertex_b, shared_vertex_a, new_vertex_a, new_vertex_b) node:obj
 
-                                for current_vertex_id = 1 to current_vertex_count do
+                                if new_face_id <= 0 then
                                 (
-                                    local current_position = edit_poly_mod.GetVertex current_vertex_id node:obj
-
-                                    if current_position == position_a then
-                                    (
-                                        shared_vertex_a = current_vertex_id
-                                        shared_vertex_a_matches += 1
-                                    )
-
-                                    if current_position == position_b then
-                                    (
-                                        shared_vertex_b = current_vertex_id
-                                        shared_vertex_b_matches += 1
-                                    )
-
-                                    if current_position == new_position_a then
-                                    (
-                                        new_vertex_a = current_vertex_id
-                                        new_vertex_a_matches += 1
-                                    )
-
-                                    if current_position == new_position_b then
-                                    (
-                                        new_vertex_b = current_vertex_id
-                                        new_vertex_b_matches += 1
-                                    )
-                                )
-
-                                if shared_vertex_a_matches != 1 or shared_vertex_b_matches != 1 or new_vertex_a_matches != 1 or new_vertex_b_matches != 1 then
-                                (
-                                    logMsg ("01 FAILED | Could not uniquely re-resolve current vertex IDs after topology creation | side:" + (corner_id as string))
+                                    logMsg ("01 FAILED | CreateFace failed on side " + (corner_id as string))
                                     build_ok = false
                                 )
                                 else
                                 (
-                                    -- Reverse the shared edge winding so the new quad matches the base face orientation.
-                                    local new_face_id = edit_poly_mod.CreateFace #(shared_vertex_b, shared_vertex_a, new_vertex_a, new_vertex_b) node:obj
-
-                                    if new_face_id <= 0 then
-                                    (
-                                        logMsg ("01 FAILED | CreateFace failed on side " + (corner_id as string))
-                                        build_ok = false
-                                    )
-                                    else
-                                    (
-                                        created_face_count += 1
-                                        logMsg ("01 ARM | side:" + (corner_id as string) + " face:" + (new_face_id as string))
-                                    )
+                                    append created_face_ids new_face_id
+                                    logMsg ("01 ARM | side:" + (corner_id as string) + " face:" + (new_face_id as string) + " newVerts:#(" + (new_vertex_a as string) + "," + (new_vertex_b as string) + ")")
                                 )
                             )
                         )
@@ -331,14 +283,14 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
 
                     logMsg ("01 RESULT | verts:" + (final_vertex_count as string) + " edges:" + (final_edge_count as string) + " faces:" + (final_face_count as string))
 
-                    if build_ok and created_face_count == 4 and final_vertex_count == 12 and final_edge_count == 16 and final_face_count == 5 then
+                    if build_ok and created_face_ids.count == 4 and final_vertex_count == 12 and final_edge_count == 16 and final_face_count == 5 then
                     (
                         logMsg "Stage 01 SUCCESS | exact five-quad cross created."
                         result_value = true
                     )
                     else
                     (
-                        logMsg ("01 FAILED | expected verts:12 edges:16 faces:5 | createdFaces:" + (created_face_count as string))
+                        logMsg ("01 FAILED | expected verts:12 edges:16 faces:5 | createdFaces:" + (created_face_ids.count as string))
                     )
                 )
             )
@@ -1264,17 +1216,46 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
         -- return
     )
 
-
     -- -------------------------------------------------------------------------
-    -- STAGE 06: REMOVE UP FACE
+    -- STAGE 06: INSERT VERTICES
     -- -------------------------------------------------------------------------
     /*
-    Removes the single face whose geometric normal points upward in local Z.
-    Computes each polygon normal from its current ordered vertices so collinear
-    inserted edge vertices do not invalidate the normal test.
+    LMB inserts one centered vertex on every current horizontal edge.
+    RMB inserts two evenly spaced vertices on every current horizontal edge.
+    Horizontal edges are detected directly from the current Edit Poly topology by exact endpoint Z.
     */
-    function runStage06 =
+    function findEdgeByEndpointPositions edit_poly_mod obj endpoint_a endpoint_b =
     (
+        local current_edge_count = edit_poly_mod.GetNumEdges node:obj
+        local found_edge_id = 0
+
+        for edge_id = 1 to current_edge_count while found_edge_id == 0 do
+        (
+            local vertex_a = edit_poly_mod.GetEdgeVertex edge_id 1 node:obj
+            local vertex_b = edit_poly_mod.GetEdgeVertex edge_id 2 node:obj
+            local position_a = edit_poly_mod.GetVertex vertex_a node:obj
+            local position_b = edit_poly_mod.GetVertex vertex_b node:obj
+            local forward_match = position_a == endpoint_a and position_b == endpoint_b
+            local reverse_match = position_a == endpoint_b and position_b == endpoint_a
+
+            if forward_match or reverse_match then
+            (
+                found_edge_id = edge_id
+            )
+        )
+
+        found_edge_id
+        -- return
+    )
+
+    function runStage06 vertices_per_edge =
+    (
+        if vertices_per_edge != 1 and vertices_per_edge != 2 then
+        (
+            logMsg "06 FAILED | vertices_per_edge must be 1 or 2."
+            return false
+        )
+
         local obj = getTestObject()
         if obj == undefined then
         (
@@ -1284,7 +1265,7 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
 
         for stack_mod in obj.modifiers do
         (
-            if stack_mod.name == "06 REMOVE UP FACE" then
+            if stack_mod.name == "06 INSERT VERTICES" then
             (
                 logMsg "06 FAILED | Modifier already exists. Run the earlier stages from a clean setup."
                 return false
@@ -1293,12 +1274,515 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
 
         local result_value = false
 
-        undo "06 Remove Up Face" on
+        undo "06 Insert Vertices" on
         (
-            logMsg "Executing Stage 06: REMOVE UP FACE..."
+            logMsg ("Executing Stage 06: INSERT VERTICES | verticesPerEdge:" + (vertices_per_edge as string))
 
             local edit_poly_mod = Edit_Poly()
-            edit_poly_mod.name = "06 REMOVE UP FACE"
+            edit_poly_mod.name = "06 INSERT VERTICES"
+            edit_poly_mod.showCage = off
+            edit_poly_mod.useStackSelection = false
+            edit_poly_mod.selectMode = 0
+            addModifier obj edit_poly_mod
+
+            select obj
+            max modify mode
+            edit_poly_mod.SetPrimaryNode obj
+            modPanel.setCurrentObject edit_poly_mod node:obj
+            edit_poly_mod.SetEPolySelLevel #Edge
+            subObjectLevel = 2
+
+            local vertex_count_before = edit_poly_mod.GetNumVertices node:obj
+            local edge_count_before = edit_poly_mod.GetNumEdges node:obj
+            local face_count_before = edit_poly_mod.GetNumFaces node:obj
+            local horizontal_edge_positions = #()
+
+            -- Store geometric identity only. Edge IDs are deliberately not cached across DivideEdge commits.
+            for edge_id = 1 to edge_count_before do
+            (
+                local vertex_a = edit_poly_mod.GetEdgeVertex edge_id 1 node:obj
+                local vertex_b = edit_poly_mod.GetEdgeVertex edge_id 2 node:obj
+                local position_a = edit_poly_mod.GetVertex vertex_a node:obj
+                local position_b = edit_poly_mod.GetVertex vertex_b node:obj
+
+                if position_a != position_b and position_a.z == position_b.z then
+                (
+                    append horizontal_edge_positions #(position_a, position_b)
+                )
+            )
+
+            logMsg ("06 INPUT | verts:" + (vertex_count_before as string) + " edges:" + (edge_count_before as string) + " faces:" + (face_count_before as string) + " horizontalEdges:" + (horizontal_edge_positions.count as string) + " verticesPerEdge:" + (vertices_per_edge as string))
+
+            if horizontal_edge_positions.count == 0 then
+            (
+                logMsg "06 FAILED | No horizontal edges were found."
+            )
+            else
+            (
+                local insert_ok = true
+                local inserted_vertex_count = 0
+
+                for edge_positions in horizontal_edge_positions while insert_ok do
+                (
+                    local endpoint_a = edge_positions[1]
+                    local endpoint_b = edge_positions[2]
+                    local current_edge_id = findEdgeByEndpointPositions edit_poly_mod obj endpoint_a endpoint_b
+
+                    if current_edge_id == 0 then
+                    (
+                        logMsg ("06 FAILED | Could not re-resolve current horizontal edge | endpoints:" + (edge_positions as string))
+                        insert_ok = false
+                    )
+                    else if vertices_per_edge == 1 then
+                    (
+                        local vertex_count_pre_insert = edit_poly_mod.GetNumVertices node:obj
+
+                        edit_poly_mod.DivideEdge current_edge_id 0.5 node:obj
+                        edit_poly_mod.Commit()
+
+                        local vertex_count_post_insert = edit_poly_mod.GetNumVertices node:obj
+
+                        if vertex_count_post_insert != (vertex_count_pre_insert + 1) then
+                        (
+                            logMsg ("06 FAILED | DivideEdge did not add exactly one vertex | edge:" + (current_edge_id as string) + " verts:" + (vertex_count_pre_insert as string) + "->" + (vertex_count_post_insert as string))
+                            insert_ok = false
+                        )
+                        else
+                        (
+                            inserted_vertex_count += 1
+                        )
+                    )
+                    else
+                    (
+                        local current_vertex_a = edit_poly_mod.GetEdgeVertex current_edge_id 1 node:obj
+                        local current_vertex_b = edit_poly_mod.GetEdgeVertex current_edge_id 2 node:obj
+                        local current_position_a = edit_poly_mod.GetVertex current_vertex_a node:obj
+                        local current_position_b = edit_poly_mod.GetVertex current_vertex_b node:obj
+                        local first_fraction = 1.0 / 3.0
+                        local first_position = current_position_a + ((current_position_b - current_position_a) * first_fraction)
+                        local vertex_count_pre_first_insert = edit_poly_mod.GetNumVertices node:obj
+
+                        edit_poly_mod.DivideEdge current_edge_id first_fraction node:obj
+                        edit_poly_mod.Commit()
+
+                        local vertex_count_post_first_insert = edit_poly_mod.GetNumVertices node:obj
+
+                        if vertex_count_post_first_insert != (vertex_count_pre_first_insert + 1) then
+                        (
+                            logMsg ("06 FAILED | First DivideEdge did not add exactly one vertex | edge:" + (current_edge_id as string) + " verts:" + (vertex_count_pre_first_insert as string) + "->" + (vertex_count_post_first_insert as string))
+                            insert_ok = false
+                        )
+                        else
+                        (
+                            inserted_vertex_count += 1
+
+                            -- The first split changed topology. Re-resolve the remaining segment geometrically.
+                            local remaining_edge_id = findEdgeByEndpointPositions edit_poly_mod obj first_position current_position_b
+
+                            if remaining_edge_id == 0 then
+                            (
+                                logMsg ("06 FAILED | Could not re-resolve second segment after first insertion | endpoints:#(" + (first_position as string) + "," + (current_position_b as string) + ")")
+                                insert_ok = false
+                            )
+                            else
+                            (
+                                local vertex_count_pre_second_insert = edit_poly_mod.GetNumVertices node:obj
+
+                                edit_poly_mod.DivideEdge remaining_edge_id 0.5 node:obj
+                                edit_poly_mod.Commit()
+
+                                local vertex_count_post_second_insert = edit_poly_mod.GetNumVertices node:obj
+
+                                if vertex_count_post_second_insert != (vertex_count_pre_second_insert + 1) then
+                                (
+                                    logMsg ("06 FAILED | Second DivideEdge did not add exactly one vertex | edge:" + (remaining_edge_id as string) + " verts:" + (vertex_count_pre_second_insert as string) + "->" + (vertex_count_post_second_insert as string))
+                                    insert_ok = false
+                                )
+                                else
+                                (
+                                    inserted_vertex_count += 1
+                                )
+                            )
+                        )
+                    )
+                )
+
+                edit_poly_mod.RefreshScreen()
+                completeRedraw()
+
+                local vertex_count_after = edit_poly_mod.GetNumVertices node:obj
+                local edge_count_after = edit_poly_mod.GetNumEdges node:obj
+                local face_count_after = edit_poly_mod.GetNumFaces node:obj
+                local expected_insert_count = horizontal_edge_positions.count * vertices_per_edge
+
+                logMsg ("06 RESULT | inserted:" + (inserted_vertex_count as string) + "/" + (expected_insert_count as string) + " verts:" + (vertex_count_before as string) + "->" + (vertex_count_after as string) + " edges:" + (edge_count_before as string) + "->" + (edge_count_after as string) + " faces:" + (face_count_before as string) + "->" + (face_count_after as string))
+
+                if insert_ok and inserted_vertex_count == expected_insert_count and vertex_count_after == (vertex_count_before + expected_insert_count) and edge_count_after == (edge_count_before + expected_insert_count) and face_count_after == face_count_before then
+                (
+                    logMsg ("Stage 06 SUCCESS | Inserted " + (vertices_per_edge as string) + " vertex/vertices on every horizontal edge.")
+                    result_value = true
+                )
+                else if insert_ok then
+                (
+                    logMsg "06 FAILED | Final topology did not match the expected inserted-vertex count."
+                )
+            )
+        )
+
+        result_value
+        -- return
+    )
+
+
+
+    -- -------------------------------------------------------------------------
+    -- STAGE 07: CONNECT 2 EDGE VERTS
+    -- -------------------------------------------------------------------------
+    /*
+    Connects inserted vertices across each vertical wall face.
+    Stage 06 LMB produces one pair per face; RMB produces two corresponding pairs.
+    Geometric positions are cached, then current vertex IDs are re-resolved before each connect.
+    */
+    function getInteriorRowPositions row_positions =
+    (
+        local interior_positions = #()
+
+        if row_positions.count < 3 then
+        (
+            return interior_positions
+        )
+
+        local endpoint_index_a = 1
+        local endpoint_index_b = 2
+        local maximum_distance = distance row_positions[1] row_positions[2]
+
+        for position_index_a = 1 to (row_positions.count - 1) do
+        (
+            for position_index_b = (position_index_a + 1) to row_positions.count do
+            (
+                local pair_distance = distance row_positions[position_index_a] row_positions[position_index_b]
+
+                if pair_distance > maximum_distance then
+                (
+                    maximum_distance = pair_distance
+                    endpoint_index_a = position_index_a
+                    endpoint_index_b = position_index_b
+                )
+            )
+        )
+
+        for position_index = 1 to row_positions.count do
+        (
+            if position_index != endpoint_index_a and position_index != endpoint_index_b then
+            (
+                append interior_positions row_positions[position_index]
+            )
+        )
+
+        interior_positions
+        -- return
+    )
+
+    function findVertexByPosition edit_poly_mod obj target_position =
+    (
+        local current_vertex_count = edit_poly_mod.GetNumVertices node:obj
+        local found_vertex_id = 0
+        local match_count = 0
+
+        for vertex_id = 1 to current_vertex_count do
+        (
+            if edit_poly_mod.GetVertex vertex_id node:obj == target_position then
+            (
+                found_vertex_id = vertex_id
+                match_count += 1
+            )
+        )
+
+        if match_count == 1 then found_vertex_id else 0
+        -- return
+    )
+
+    function runStage07 =
+    (
+        local obj = getTestObject()
+        if obj == undefined then
+        (
+            logMsg "07 FAILED | Missing target object."
+            return false
+        )
+
+        for stack_mod in obj.modifiers do
+        (
+            if stack_mod.name == "07 CONNECT 2 EDGE VERTS" then
+            (
+                logMsg "07 FAILED | Modifier already exists. Run the earlier stages from a clean setup."
+                return false
+            )
+        )
+
+        local result_value = false
+
+        undo "07 Connect 2 Edge Verts" on
+        (
+            logMsg "Executing Stage 07: CONNECT 2 EDGE VERTS..."
+
+            local edit_poly_mod = Edit_Poly()
+            edit_poly_mod.name = "07 CONNECT 2 EDGE VERTS"
+            edit_poly_mod.showCage = off
+            edit_poly_mod.useStackSelection = false
+            edit_poly_mod.selectMode = 0
+            addModifier obj edit_poly_mod
+
+            select obj
+            max modify mode
+            edit_poly_mod.SetPrimaryNode obj
+            modPanel.setCurrentObject edit_poly_mod node:obj
+            edit_poly_mod.SetEPolySelLevel #Vertex
+            subObjectLevel = 1
+
+            local vertex_count_before = edit_poly_mod.GetNumVertices node:obj
+            local edge_count_before = edit_poly_mod.GetNumEdges node:obj
+            local face_count_before = edit_poly_mod.GetNumFaces node:obj
+            local connection_position_pairs = #()
+            local topology_ok = true
+
+            -- Collect only geometry identities before any topology-changing connect operation.
+            for face_id = 1 to face_count_before while topology_ok do
+            (
+                local face_degree = edit_poly_mod.GetFaceDegree face_id node:obj
+
+                if face_degree < 3 then
+                (
+                    logMsg ("07 FAILED | Face has fewer than three vertices | face:" + (face_id as string))
+                    topology_ok = false
+                )
+                else
+                (
+                    local face_positions = #()
+                    local face_minimum_z = undefined
+                    local face_maximum_z = undefined
+
+                    for corner_id = 1 to face_degree do
+                    (
+                        local vertex_id = edit_poly_mod.GetFaceVertex face_id corner_id node:obj
+                        local vertex_position = edit_poly_mod.GetVertex vertex_id node:obj
+                        append face_positions vertex_position
+
+                        if face_minimum_z == undefined or vertex_position.z < face_minimum_z then
+                        (
+                            face_minimum_z = vertex_position.z
+                        )
+
+                        if face_maximum_z == undefined or vertex_position.z > face_maximum_z then
+                        (
+                            face_maximum_z = vertex_position.z
+                        )
+                    )
+
+                    -- Skip horizontal faces. Wall faces span two Z levels.
+                    if face_minimum_z != face_maximum_z then
+                    (
+                        local bottom_row_positions = #()
+                        local top_row_positions = #()
+
+                        for vertex_position in face_positions do
+                        (
+                            if vertex_position.z == face_minimum_z then
+                            (
+                                append bottom_row_positions vertex_position
+                            )
+                            else if vertex_position.z == face_maximum_z then
+                            (
+                                append top_row_positions vertex_position
+                            )
+                        )
+
+                        local bottom_interior_positions = getInteriorRowPositions bottom_row_positions
+                        local top_interior_positions = getInteriorRowPositions top_row_positions
+
+                        if bottom_interior_positions.count != top_interior_positions.count then
+                        (
+                            logMsg ("07 FAILED | Opposite horizontal rows contain different inserted-vertex counts | face:" + (face_id as string))
+                            topology_ok = false
+                        )
+                        else
+                        (
+                            for bottom_position in bottom_interior_positions while topology_ok do
+                            (
+                                local matching_top_position = undefined
+                                local matching_top_count = 0
+
+                                for top_position in top_interior_positions do
+                                (
+                                    if top_position.x == bottom_position.x and top_position.y == bottom_position.y then
+                                    (
+                                        matching_top_position = top_position
+                                        matching_top_count += 1
+                                    )
+                                )
+
+                                if matching_top_count != 1 then
+                                (
+                                    logMsg ("07 FAILED | Could not resolve exactly one vertically aligned inserted vertex | face:" + (face_id as string) + " bottom:" + (bottom_position as string))
+                                    topology_ok = false
+                                )
+                                else
+                                (
+                                    local pair_already_stored = false
+
+                                    for stored_pair in connection_position_pairs while not pair_already_stored do
+                                    (
+                                        if (stored_pair[1] == bottom_position and stored_pair[2] == matching_top_position) or
+                                           (stored_pair[1] == matching_top_position and stored_pair[2] == bottom_position) then
+                                        (
+                                            pair_already_stored = true
+                                        )
+                                    )
+
+                                    if not pair_already_stored then
+                                    (
+                                        append connection_position_pairs #(bottom_position, matching_top_position)
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+
+            logMsg ("07 INPUT | verts:" + (vertex_count_before as string) + " edges:" + (edge_count_before as string) + " faces:" + (face_count_before as string) + " connectionPairs:" + (connection_position_pairs.count as string))
+
+            if topology_ok and connection_position_pairs.count == 0 then
+            (
+                logMsg "07 FAILED | No inserted edge-vertex pairs were found to connect."
+            )
+            else if topology_ok then
+            (
+                local connect_ok = true
+                local connected_pair_count = 0
+
+                for position_pair in connection_position_pairs while connect_ok do
+                (
+                    -- Previous connects changed topology. Resolve both current IDs fresh by position.
+                    local vertex_id_a = findVertexByPosition edit_poly_mod obj position_pair[1]
+                    local vertex_id_b = findVertexByPosition edit_poly_mod obj position_pair[2]
+
+                    if vertex_id_a == 0 or vertex_id_b == 0 or vertex_id_a == vertex_id_b then
+                    (
+                        logMsg ("07 FAILED | Could not re-resolve both current vertex IDs | pair:" + (position_pair as string))
+                        connect_ok = false
+                    )
+                    else
+                    (
+                        local vertex_bits = #{}
+                        vertex_bits[vertex_id_a] = true
+                        vertex_bits[vertex_id_b] = true
+
+                        local old_selection = edit_poly_mod.GetSelection #Vertex node:obj
+                        if old_selection.numberSet > 0 then
+                        (
+                            edit_poly_mod.Select #Vertex old_selection select:false node:obj
+                        )
+
+                        edit_poly_mod.Select #Vertex vertex_bits node:obj
+                        local stored_selection = edit_poly_mod.GetSelection #Vertex node:obj
+
+                        if stored_selection != vertex_bits then
+                        (
+                            logMsg ("07 FAILED | Vertex pair selection was not stored | pair:" + (position_pair as string))
+                            connect_ok = false
+                        )
+                        else
+                        (
+                            local vertex_count_pre_connect = edit_poly_mod.GetNumVertices node:obj
+                            local edge_count_pre_connect = edit_poly_mod.GetNumEdges node:obj
+                            local face_count_pre_connect = edit_poly_mod.GetNumFaces node:obj
+
+                            edit_poly_mod.SetOperation #ConnectVertices
+                            edit_poly_mod.Commit()
+
+                            local vertex_count_post_connect = edit_poly_mod.GetNumVertices node:obj
+                            local edge_count_post_connect = edit_poly_mod.GetNumEdges node:obj
+                            local face_count_post_connect = edit_poly_mod.GetNumFaces node:obj
+
+                            if vertex_count_post_connect != vertex_count_pre_connect or
+                               edge_count_post_connect != (edge_count_pre_connect + 1) or
+                               face_count_post_connect != (face_count_pre_connect + 1) then
+                            (
+                                logMsg ("07 FAILED | ConnectVertices did not create exactly one edge and one face | pair:" + (position_pair as string) + " verts:" + (vertex_count_pre_connect as string) + "->" + (vertex_count_post_connect as string) + " edges:" + (edge_count_pre_connect as string) + "->" + (edge_count_post_connect as string) + " faces:" + (face_count_pre_connect as string) + "->" + (face_count_post_connect as string))
+                                connect_ok = false
+                            )
+                            else
+                            (
+                                connected_pair_count += 1
+                            )
+                        )
+                    )
+                )
+
+                edit_poly_mod.RefreshScreen()
+                completeRedraw()
+
+                local vertex_count_after = edit_poly_mod.GetNumVertices node:obj
+                local edge_count_after = edit_poly_mod.GetNumEdges node:obj
+                local face_count_after = edit_poly_mod.GetNumFaces node:obj
+
+                logMsg ("07 RESULT | connected:" + (connected_pair_count as string) + "/" + (connection_position_pairs.count as string) + " verts:" + (vertex_count_before as string) + "->" + (vertex_count_after as string) + " edges:" + (edge_count_before as string) + "->" + (edge_count_after as string) + " faces:" + (face_count_before as string) + "->" + (face_count_after as string))
+
+                if connect_ok and connected_pair_count == connection_position_pairs.count and
+                   vertex_count_after == vertex_count_before and
+                   edge_count_after == (edge_count_before + connection_position_pairs.count) and
+                   face_count_after == (face_count_before + connection_position_pairs.count) then
+                (
+                    logMsg "Stage 07 SUCCESS | Inserted edge vertices connected across the wall faces."
+                    result_value = true
+                )
+                else if connect_ok then
+                (
+                    logMsg "07 FAILED | Final topology did not match the expected connected-pair count."
+                )
+            )
+        )
+
+        result_value
+        -- return
+    )
+
+
+    -- -------------------------------------------------------------------------
+    -- STAGE 08: REMOVE UP FACE
+    -- -------------------------------------------------------------------------
+    /*
+    Removes the single face whose geometric normal points upward in local Z.
+    Computes each polygon normal from its current ordered vertices so collinear
+    inserted edge vertices do not invalidate the normal test.
+    */
+    function runStage08 =
+    (
+        local obj = getTestObject()
+        if obj == undefined then
+        (
+            logMsg "08 FAILED | Missing target object."
+            return false
+        )
+
+        for stack_mod in obj.modifiers do
+        (
+            if stack_mod.name == "08 REMOVE UP FACE" then
+            (
+                logMsg "08 FAILED | Modifier already exists. Run the earlier stages from a clean setup."
+                return false
+            )
+        )
+
+        local result_value = false
+
+        undo "08 Remove Up Face" on
+        (
+            logMsg "Executing Stage 08: REMOVE UP FACE..."
+
+            local edit_poly_mod = Edit_Poly()
+            edit_poly_mod.name = "08 REMOVE UP FACE"
             edit_poly_mod.showCage = off
             edit_poly_mod.useStackSelection = false
             edit_poly_mod.selectMode = 0
@@ -1323,7 +1807,7 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
 
                 if face_degree < 3 then
                 (
-                    logMsg ("06 FAILED | Face has fewer than three vertices | face:" + (face_id as string))
+                    logMsg ("08 FAILED | Face has fewer than three vertices | face:" + (face_id as string))
                     topology_ok = false
                 )
                 else
@@ -1345,24 +1829,24 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
 
                     if length face_normal_sum == 0.0 then
                     (
-                        logMsg ("06 FAILED | Degenerate face normal | face:" + (face_id as string))
+                        logMsg ("08 FAILED | Degenerate face normal | face:" + (face_id as string))
                         topology_ok = false
                     )
                     else if face_normal_sum.z > 0.0 then
                     (
                         upward_faces[face_id] = true
-                        logMsg ("06 UP FACE | face:" + (face_id as string) + " normalSum:" + (face_normal_sum as string))
+                        logMsg ("08 UP FACE | face:" + (face_id as string) + " normalSum:" + (face_normal_sum as string))
                     )
                 )
             )
 
-            logMsg ("06 INPUT | verts:" + (vertex_count_before as string) + " edges:" + (edge_count_before as string) + " faces:" + (face_count_before as string) + " upwardFaces:" + (upward_faces.numberSet as string))
+            logMsg ("08 INPUT | verts:" + (vertex_count_before as string) + " edges:" + (edge_count_before as string) + " faces:" + (face_count_before as string) + " upwardFaces:" + (upward_faces.numberSet as string))
 
             if topology_ok then
             (
                 if upward_faces.numberSet != 1 then
                 (
-                    logMsg ("06 FAILED | Expected exactly one upward-facing face, found:" + (upward_faces.numberSet as string))
+                    logMsg ("08 FAILED | Expected exactly one upward-facing face, found:" + (upward_faces.numberSet as string))
                 )
                 else
                 (
@@ -1371,7 +1855,7 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
 
                     if stored_selection != upward_faces then
                     (
-                        logMsg "06 FAILED | Upward face selection was not stored in Edit Poly."
+                        logMsg "08 FAILED | Upward face selection was not stored in Edit Poly."
                     )
                     else
                     (
@@ -1384,16 +1868,16 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
                         local edge_count_after = edit_poly_mod.GetNumEdges node:obj
                         local face_count_after = edit_poly_mod.GetNumFaces node:obj
 
-                        logMsg ("06 RESULT | verts:" + (vertex_count_before as string) + "->" + (vertex_count_after as string) + " edges:" + (edge_count_before as string) + "->" + (edge_count_after as string) + " faces:" + (face_count_before as string) + "->" + (face_count_after as string))
+                        logMsg ("08 RESULT | verts:" + (vertex_count_before as string) + "->" + (vertex_count_after as string) + " edges:" + (edge_count_before as string) + "->" + (edge_count_after as string) + " faces:" + (face_count_before as string) + "->" + (face_count_after as string))
 
-                        if vertex_count_after == 20 and edge_count_after == 35 and face_count_after == 15 then
+                        if vertex_count_after == vertex_count_before and edge_count_after == edge_count_before and face_count_after == (face_count_before - 1) then
                         (
-                            logMsg "Stage 06 SUCCESS | Upward-facing face removed."
+                            logMsg "Stage 08 SUCCESS | Upward-facing face removed."
                             result_value = true
                         )
                         else
                         (
-                            logMsg "06 FAILED | Expected topology after deleting one upward face: verts:20 edges:35 faces:15."
+                            logMsg "08 FAILED | Expected only the upward face count to decrease by one."
                         )
                     )
                 )
@@ -1414,7 +1898,10 @@ rollout EPolyStackTestRollout ("EPoly-Stack-Test v" + (epoly_stack_test_project_
 
 on btn_stg04 pressed do runStage04()
 on btn_stg05 pressed do runStage05()
-on btn_stg06 pressed do runStage06()
+on btn_stg06 pressed do runStage06 1
+on btn_stg06 rightclick do runStage06 2
+on btn_stg07 pressed do runStage07()
+on btn_stg08 pressed do runStage08()
 on btn_all pressed do
 (
 -- Complete clean run sequence with conditional pipeline enforcement
@@ -1424,7 +1911,9 @@ if runStage02() then
 if runStage03() then
 if runStage04() then
 if runStage05() then
-if runStage06() then
+if runStage06 1 then
+if runStage07() then
+if runStage08() then
 logMsg ">>> PIPELINE COMPLETE: All tests passed cleanly without stack collapse! <<<"
 )
 on btn_rst pressed do

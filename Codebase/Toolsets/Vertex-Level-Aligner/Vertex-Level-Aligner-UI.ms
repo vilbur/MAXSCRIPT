@@ -1,5 +1,5 @@
 /*
-Vertex Level Aligner UI 0.498
+Vertex Level Aligner UI 0.501
 Frontend-only module. Uses a .NET TreeView for level selection and a native RMB alignment menu while keeping the rollout title literal and static.
 */
 
@@ -17,9 +17,9 @@ global ToolTitleButton
 
 vertex_level_aligner_default_threshold = 0.0
 
-if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.119 then
+if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.122 then
 (
-    epoly_tools_project_version = 1.119
+    epoly_tools_project_version = 1.122
 )
 
 vertexLevelAlignerWriteLog "100 UI file execution started"
@@ -29,8 +29,8 @@ vertexLevelAlignerWriteLog "105 UI frontend module loading"
 
 struct vertex_level_aligner_ui_v
 (
-    file_version = 0.498,
-    project_version = 1.119,
+    file_version = 0.501,
+    project_version = 1.122,
     source_path = vertex_level_aligner_ui_source_path,
     ini_path = (getDir #plugcfg + "\\Vertex-Level-Aligner.ini"),
     ini_section = "MainUI",
@@ -313,7 +313,7 @@ rcmenu vertex_level_aligner_context_menu
     )
 )
 
-rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.119" width:320 height:576
+rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 height:576
 (
     local context_target_tag = ""
     local selected_tree_tags = #()
@@ -328,8 +328,8 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.119" width:320 heig
     checkbutton cb_axis_x "X" pos:[164,3] width:48 height:32 checked:false tooltip:"LMB: Use world X for level detection, threshold grouping, selection, offset display, and alignment."
     checkbutton cb_axis_y "Y" pos:[214,3] width:48 height:32 checked:false tooltip:"LMB: Use world Y for level detection, threshold grouping, selection, offset display, and alignment."
     checkbutton cb_axis_z "Z" pos:[264,3] width:48 height:32 checked:true tooltip:"LMB: Use world Z for level detection, threshold grouping, selection, offset display, and alignment."
-    spinner spn_threshold "Threshold:" pos:[8,41] width:96 height:20 range:[0.0, 1000000.0, 0.0] type:#float scale:0.1 fieldWidth:42 align:#left tooltip:"0.0 mm: List every detected level separately.\n\nAbove 0.0 mm: Group nearby detected levels when each gap to the next level is within Threshold.\n\nBROKEN: A group containing more than one detected level.\n\nThreshold groups levels only; it does not move vertices.\n\nUnits: millimeters."
-    dropdownlist ddl_round_precision "" pos:[112,41] width:96 height:20 items:#("EXACT", "BUILDING", "MODEL", "PRINT") selection:2 tooltip:"EXACT: Round on a 0.001 mm step.\n\nBUILDING: Round on a 1 mm step.\n\nMODEL: Round on a 0.1 mm step.\n\nPRINT: Round on a 0.05 mm step.\n\nUsed by TreeView RMB rounding."
+    spinner spn_threshold "Threshold:" pos:[8,41] offset:[96,0] width:96 height:20 range:[0.0, 1000000.0, 0.0] type:#float scale:0.1 fieldWidth:42 align:#left tooltip:"0.0 mm: List every detected level separately.\n\nAbove 0.0 mm: Group nearby detected levels when each gap to the next level is within Threshold.\n\nBROKEN: A group containing more than one detected level.\n\nThreshold groups levels only; it does not move vertices.\n\nUnits: millimeters."
+    dropdownlist ddl_round_precision "" pos:[136,41] width:72 height:20 items:#("EXACT", "BUILDING", "MODEL", "PRINT") selection:2 tooltip:"EXACT: Round on a 0.001 mm step.\n\nBUILDING: Round on a 1 mm step.\n\nMODEL: Round on a 0.1 mm step.\n\nPRINT: Round on a 0.05 mm step.\n\nUsed by TreeView RMB rounding."
     label lbl_display_trim "Remove:" pos:[216,44] width:40 height:18 align:#left
     dropdownlist ddl_display_trim "" pos:[264,41] width:48 height:20 items:#("", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10") selection:1 tooltip:"Display only: hide this many leading integer digits from TreeView position values on the current X/Y/Z axis. Blank shows the full coordinate. Real position data is never changed."
     radiobuttons rb_view_mode labels:#("ALL LEVELS", "BROKEN ONLY") columns:2 default:1 pos:[8,69] width:184 height:28 align:#left tooltip:"ALL LEVELS: Show every level group on the selected world axis.\n\nBROKEN ONLY: Show only groups containing multiple exact axis levels connected by threshold-sized neighboring gaps."
@@ -1759,8 +1759,8 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.119" width:320 heig
         cb_axis_x.pos = [164, 3 + title_offset]
         cb_axis_y.pos = [214, 3 + title_offset]
         cb_axis_z.pos = [264, 3 + title_offset]
-        spn_threshold.pos = [8, 41 + title_offset]
-        ddl_round_precision.pos = [112, 41 + title_offset]
+        spn_threshold.pos = [104, 41 + title_offset]
+        ddl_round_precision.pos = [136, 41 + title_offset]
         lbl_display_trim.pos = [216, 44 + title_offset]
         ddl_display_trim.pos = [264, 41 + title_offset]
         rb_view_mode.pos = [8, 69 + title_offset]

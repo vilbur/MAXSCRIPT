@@ -82,6 +82,28 @@ For simple edits such as changing a string, label, tooltip text, color value, nu
 Treat both paths as referring to the same Google Drive content.
 
 
+\\\#\\\# Tool folder and canonical entry filename
+
+
+For every MaxScript tool stored in its own folder, the canonical main/entry script must have exactly the same base name as its parent folder.
+
+
+Required pattern:
+
+
+\\\`<Tool-Name>\\<Tool-Name>.ms\\\`
+
+
+Rules:
+
+
+\\- Treat the matching-name `.ms` file as the stable canonical launch/entry file for the tool.    
+\\- Keep the parent-folder name and canonical entry-file name synchronized when a tool is created or renamed.    
+\\- Versioned development or history copies may coexist when required by the project's versioning workflow, but they must not replace the canonical matching-name entry file.    
+\\- The canonical entry file remains unversioned in its filename; its internal file/project version values continue to follow the project's versioning rules.    
+\\- Do not use generic canonical entry filenames such as `main.ms`, `tool.ms`, `launcher.ms`, or a version-suffixed main filename unless the current project explicitly overrides this rule.
+
+
 \\\#\\\# Versioning
 
 

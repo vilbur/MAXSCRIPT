@@ -2,7 +2,7 @@
 
 ## Clean rewrite status
 
-- `Loop-Cleaner.ms` is the canonical clean rewrite development file and currently carries version `1.167`.
+- `Loop-Cleaner.ms` is the canonical clean rewrite development file and currently carries version `1.202`.
 - The canonical Drive file keeps its existing file ID and filename; version identity is stored inside the script rather than by creating duplicate release copies.
 - File version, stored project version, and visible title version are one identical version number.
 - Regression edge/vertex IDs belong only in the separate test harness. Production detection must never depend on fixed scene IDs.
@@ -67,28 +67,30 @@
 - Tracing starts from the T stem. At another exact T junction, arrival through its stem terminates the trace; arrival on its straight-through pair continues across the other through edge.
 - At every ordinary non-T vertex, continuation is topology-only: the next edge must be the single current candidate edge that shares no polygon face with the incoming edge. If there is no such edge or more than one, tracing stops.
 - T-junction tracing must never resolve an ambiguous ordinary-vertex continuation by edge ID, iteration order, geometric score, or a permissive fallback threshold. Equivalent topology must produce the same path classification independent of component numbering.
-- `T BORDER` first detects the complete broken inner-border components with the existing explicit `0.1 mm` seam detector, then finds exact T-junction vertices associated with those broken border runs. It selects only each qualifying vertex's T-stem edge, never the parallel continuation along the border or traced loop.
+- `T BORDER` first detects the complete broken inner-border components with the selected `postion preccision` value, then finds exact T-junction vertices associated with those broken border runs. It selects only each qualifying vertex's T-stem edge, never the parallel continuation along the border or traced loop.
 - The intended contract includes T junctions on the first or last edge of a broken inner-border run, but this endpoint case is still not reliable in the current build and is tracked in `known-issues.md`.
 - The T-stem is the existing exact T-junction third edge: the non-border edge left after the one perfectly collinear through pair is identified. No new angle tolerance, epsilon, edge-ID rule, or scene-specific component ID is introduced.
 - `T MESH` keeps complete traced T-junction loops only when the traced loop contains no `T BORDER` stem edge.
 - All three modes share one dedicated Edit Poly named `SELECT T JUNCTIONS`; switching modes replaces only that selector's Edge BitArray and does not overwrite `SELECT BORDERS` or `SELECT REDUNDANT LOOPS`.
 
-## Broken inner-border T-junction fix contract
+## Broken inner-border T-junction staged repair contract
 
-- `BROKEN T JUCTIONS SELECT \ FIX` is a dedicated LMB/RMB repair control for degenerate inner-hole borders.
-- LMB classifies inner borders with the existing per-shell border logic, then finds any inner-border vertex lying within an explicit `0.1 mm` world-space tolerance of the strict interior of another non-incident inner-border edge, with at least one of the source vertex’s own inner-border edges lying on that same target line within the same tolerance.
-- The valid rectangular inner hole remains unselected when it contains no such vertex-on-edge seam.
-- LMB expands every local broken-T hit to the complete connected inner-border component(s) involved and stores the visible/selectable result in a dedicated reusable `SELECT BROKEN T JUNCTIONS` Edit Poly.
-- RMB uses that dedicated selector as the working Edit Poly and re-reads live polygon topology before every repair.
-- For each broken-T source the fixer first resolves an already-existing non-neighbor inner-border vertex within the explicit `0.1 mm` positional tolerance and on the detected opposite target-edge line.
-- When one unique existing opposite-side vertex exists, it remains the weld target. The disposable T source is moved onto that target and welded into it with `WeldVertices target source`.
-- When a current broken-T case has no existing opposite-side vertex, the fixer uses the verified `EPoly-Stack-Test_1.20.ms` pattern: call `Edit_Poly.DivideEdge` directly on the current target edge, immediately `Commit()`, and verify exactly `+1` live vertex, `+1` live edge, and unchanged face count.
-- Only one missing opposite vertex is inserted per topology-changing pass. After `Commit()`, every cached vertex/edge/face ID is considered invalid; live Edit Poly topology and broken-T cases are rebuilt before another split or weld. This also handles multiple T sources on one long edge without reusing a stale split-edge ID.
-- The raw `DivideEdge` return value is not used as a vertex ID. Inserted targets are resolved only from the freshly rebuilt topology and the stored pre-insert T-source world position.
-- Vertices created by the insert phase are tracked by their pre-insert T-source world positions. During the weld phase the newly inserted opposite vertex is moved onto the original T source and welded into that preserved source. Pre-existing opposite vertices keep the existing behavior: the T source is moved onto the preserved opposite vertex and welded into it.
-- Each completed weld must remove exactly one live vertex and reduce the currently detected broken-T case count before another weld is attempted.
-- On complete success the working modifier is renamed `FIXED BROKEN T JUNCTIONS`. A failed partial repair is reported as failure and remains undoable; success is never reported unless no broken-T cases remain.
-- The repair does not modify the Editable Poly base directly and does not use TriMesh edge IDs.
+- `BROKEN T SELECT` is the non-destructive detector. It classifies broken inner-border components with the selected `postion preccision` value and stores the visible/selectable result in the dedicated reusable `SELECT BROKEN T JUNCTIONS` Edit Poly.
+- `DIVIDE EDGE` is stage 1 of the split repair workflow. If the selector does not exist yet, it runs the same Broken-T selection first.
+- Stage 1 captures missing opposite targets before topology changes and preserves each source's original target edge ID plus the two endpoint vertex IDs. Sources are grouped by that exact original target edge ID, never by rounded/precision-quantized endpoint positions.
+- For each group, the first split uses the exact target edge ID captured by the detector and confirms its preserved endpoint vertex IDs. The stage performs exactly `N` committed `DivideEdge` operations for `N` required inserted vertices. After every split, the old edge ID is discarded and the remaining child segment is resolved from the exact pair `(newly appended vertex ID, untouched far endpoint vertex ID)`.
+- Every split must add exactly one live vertex. The `DivideEdge` return value is never treated as a vertex ID. Source vertices and appended vertices are ordered along the same preserved original edge direction, producing transient `#(sourceVertexID, insertedVertexID)` move pairs.
+- `DIVIDE EDGE` stops there: it does not call `MoveSelection` and it does not weld. If a later independent target group fails after one or more earlier groups already completed, every successfully produced source/inserted pair remains stored as the pending move handoff even though the Divide action itself still reports failure.
+- `MOVE VERTICES` consumes the pending `#(sourceVertexID, insertedVertexID)` pairs. For each pair it activates the working `Edit_Poly` in Vertex context, isolates only the inserted vertex, reads both live positions, runs `MoveSelection (sourcePosition - insertedPosition) -> Commit`, and verifies the inserted vertex reaches the source at the explicit `postion preccision`.
+- `MOVE VERTICES` performs no `DivideEdge` and no weld. The batch path preserves the pending pairs for the following weld stage.
+- `WELD VERTICES` consumes the same pending pairs after movement, preserves the source vertex, welds the inserted disposable vertex into it in descending disposable-ID order, and requires one live vertex to disappear per pair.
+- `BATCH BROKEN T FIX` runs `DIVIDE EDGE -> MOVE VERTICES -> WELD VERTICES` without modal stage dialogs. When Divide returns partial failure but has produced a non-empty valid handoff, the batch deliberately continues through Move and Weld, then starts a fresh Divide cycle against the now-updated live topology. It finishes only when a fresh Divide cycle finds zero remaining cases/pairs.
+- A batch Divide failure with no pending handoff, any Move failure, or any Weld failure is a real batch failure and stops the chain with Listener diagnostics.
+- `TEST WELD SELECTED VERTICES` remains a debug-only weld proof. It requires exactly two vertices selected in the current `Edit_Poly`, keeps the lower ID as the weld target, welds the higher ID into it with `WeldVertices -> Commit`, and reports success only when the live vertex count decreases by exactly one. The test does not move the vertices or use a weld threshold.
+- The split stage handoff is runtime state. Reloading Loop-Cleaner preserves it when the previous live tool instance still references the same valid node/Edit Poly and a non-empty move-pair Array; restarting 3ds Max still clears it.
+- Position-based Broken-T detection and comparison use only the explicit `postion preccision` setting. Divide-stage topology identity uses preserved edge/vertex IDs instead, so coarse precision cannot merge distinct target edges. Actual scene geometry is not rounded or snapped by the comparison helpers.
+- The current split diagnostic workflow intentionally stops after vertex movement; the previous weld/final-clean verification path is not exposed by these two stage buttons.
+- The staged repair modifies only the working `Edit_Poly` modifier and never modifies the Editable Poly base directly or uses TriMesh edge IDs.
 
 ## Selection / modifier contract
 
@@ -102,28 +104,19 @@
 ## RMB removal contract
 
 - RMB operates only on the exact Edge BitArray stored in `SELECT REDUNDANT LOOPS`.
-- If no selector exists, run the same new detector first.
+- If no selector exists, run the same detector first.
 - Use `SetOperation #RemoveEdgeRemoveVertices` followed by `Commit()`.
 - Verify topology decreases before reporting success or renaming the selector to `DELETED REDUNDANT LOOPS`.
 
 ## UI layout
 
-- Standalone dialog width is `336 px` and follows the shared 12 px layout grid.
-- A canonical `.NET` `tool title button` sits at the top with the project-specific requested height of `32 px`, 12 px side margins, and tool-name-only label `Loop-Cleaner`.
-- The title button uses shared `ScriptReload.ms` and `ToolTitleButton.ms`; LMB calls `restartTool` and replaces the old bottom restart button.
-- From the canonical `Codebase/Tools/EPOLY/Loop Tools/Loop-Cleaner/` package path, shared UI helpers resolve from the `Maxscript/UI/Default/` folder by walking five parent directories to the `Maxscript` root.
-- The native dialog title remains versioned from the current global project version.
-- Primary action: 32 px `USELESS LOOPS SELECT \ REMOVE` button.
-- One 32 px border-selection row follows it: `BORDER ALL`, `OUTER`, and `INNER`.
-- One 32 px T-junction row follows it: `T JUNCTIONS`, `T BORDER`, and `T MESH`.
-- One full-width 32 px `BROKEN T JUCTIONS SELECT \\ FIX` button follows the T-junction row; LMB selects degenerate inner-border components and RMB repairs their vertex-on-edge seams.
-- Debug buttons 1–4 are also 32 px high.
-- `GET ANGLE` is also 32 px high; all button controls use actual 32 px control height rather than simulated padding.
-- `QUIET` follows the debug controls.
-- Final row keeps `ANGLE`, units, and `GET ANGLE`; disabled controls remain visible.
-- The title button resizes horizontally with the owning rollout width.
-- The standalone dialog is registered as a CUI dialog bar with `#cui_dock_vert`, `#cui_floatable`, and `#cui_handles`, allowing left/right docking while keeping top/bottom docking disabled.
-- `RESTART` is not duplicated at the bottom while the title button provides restart.
+- Standalone dialog width is `288 px`; the canonical `.NET` `tool title button` remains `32 px` high with 12 px side margins and tool-name-only label `Loop-Cleaner`.
+- The title button uses shared `ScriptReload.ms` and `ToolTitleButton.ms`; LMB calls `restartTool`.
+- Production controls are `USELESS LOOPS SELECT \ REMOVE`, `BORDER ALL`, `OUTER`, `INNER`, `T JUNCTIONS`, `T BORDER`, `T MESH`, `BROKEN T SELECT`, and `BATCH BROKEN T FIX`.
+- `BATCH BROKEN T FIX` is the production one-button staged repair. The underlying Divide, Move, and Weld functions remain independently callable for diagnostics/tests.
+- `TEST MOVE VERTEX`, `TEST MOVE SELECTED VERTEX`, and `TEST WELD SELECTED VERTICES` are debug-only controls below the Broken-T stage row. Existing debug selectors remain below them. `QUIET`, `postion preccision`, disabled `ANGLE`, and disabled `GET ANGLE` remain below the debug controls.
+- One `postion preccision` dropdown provides `1mm`, `0.1mm`, and `0.01mm`, default `0.01mm`; the selected label persists in `Loop-Cleaner.ini` and is converted explicitly from millimeters to current system units before backend position operations.
+- The title button resizes horizontally with the owning rollout width. The standalone dialog remains a left/right-dockable CUI dialog bar and does not duplicate a bottom restart button.
 
 ## Object019 regression contract
 

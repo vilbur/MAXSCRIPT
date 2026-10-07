@@ -22,7 +22,7 @@
 305 UI before initial selected-object scan
 400 SCAN selection entered
 401 SCAN selected node count = 1
-409 SCAN complete = true | Axis Z | 71 groups | 0 broken | 1875 grouped verts | all exact levels retained
+409 SCAN complete = true | Axis X | 16 groups | 0 broken | 124 grouped verts | all exact levels retained
 306 UI initial selected-object scan complete
 310 UI rollout open complete
 203 UI createDialog returned

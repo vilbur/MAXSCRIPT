@@ -1,5 +1,5 @@
-﻿/*
-    Vertex Cleaner Main 0.10
+/*
+    Vertex Cleaner Main 0.851
     Standalone/embedded package entry. Loads the backend and frontend, then opens the standalone dialog when appropriate.
 */
 
@@ -16,8 +16,8 @@ two_edge_verts_main_source_path = getSourceFileName()
 
 struct TwoEdgeVertsMain_v
 (
-    file_version = 0.10,
-    project_version = 0.840,
+    file_version = 0.851,
+    project_version = 0.851,
     source_path = two_edge_verts_main_source_path,
     startup_error = "",
     backend_file_name = "Vertex-Cleaner-FN.ms",

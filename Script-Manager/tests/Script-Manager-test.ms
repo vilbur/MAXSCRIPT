@@ -1,10 +1,10 @@
-/*
-    Script-Manager regression test 1.147.
+﻿/*
+    Script-Manager regression test 1.152.
     Tests production version identity, source selection, filters, persistent tri-state load modes, marked-item color, tree menus, and dedicated script-load behavior.
 */
 
-global script_manager_test_file_version = 1.147
-global script_manager_test_project_version = 1.148
+global script_manager_test_file_version = 1.152
+global script_manager_test_project_version = 1.153
 global script_manager_test_root = getFilenamePath (getSourceFileName())
 global script_manager_test_passed = true
 global script_manager_test_original_root
@@ -14,6 +14,8 @@ global script_manager_test_marker_a
 global script_manager_test_marker_b
 global script_manager_test_marker_c
 global script_manager_test_marker_d
+global script_manager_test_marker_e
+global script_manager_test_host_reload_rollout
 global script_manager_test_forced_rollout
 global script_manager_test_forced_mode
 
@@ -51,13 +53,13 @@ function partOfTest1 =
     script_manager_test_original_root = script_manager.root_directory
     script_manager_test_original_ini = script_manager.ini_path
 
-    version_ok = script_manager.file_version == 1.148 and script_manager.project_version == 1.148 and ScriptManagerIntegration.file_version == 1.148 and ScriptManagerIntegration.project_version == 1.148
-    global_version_ok = script_manager_project_version == 1.148
-    title_ok = script_manager_ui.title == "Script-Manager 1.148"
+    version_ok = script_manager.file_version == 1.153 and script_manager.project_version == 1.153 and ScriptManagerIntegration.file_version == 1.153 and ScriptManagerIntegration.project_version == 1.153
+    global_version_ok = script_manager_project_version == 1.153
+    title_ok = script_manager_ui.title == "Script-Manager 1.153"
     main_action_ok = isProperty script_manager_ui #btn_refresh_restart
     source_rollout_ok = script_manager_sources_ui != undefined and script_manager_sources_ui.title == "SOURCES" and isProperty script_manager_sources_ui #edt_source_ignore and isProperty script_manager_sources_ui #tv_sources and not(isProperty script_manager_sources_ui #btn_reload)
     script_rollout_ok = script_manager_scripts_ui != undefined and script_manager_scripts_ui.title == "SCRIPTS" and isProperty script_manager_scripts_ui #btn_load_scripts
-    soft_hard_api_ok = isProperty script_manager #updateScripts and isProperty script_manager #loadScripts and isProperty script_manager #isManagedScriptRunning and isProperty script_manager #loadSingleScriptForcedDirect
+    soft_hard_api_ok = isProperty script_manager #updateScripts and isProperty script_manager #loadScripts and isProperty script_manager #isManagedScriptRunning and isProperty script_manager #loadSingleScriptForcedDirect and isProperty script_manager #closeExistingStandaloneRolloutsForSources
     source_tree_ok = script_manager.getSourceTreeControl() != undefined and script_manager.getSourceIgnoreMaskControl() != undefined and isProperty script_manager #saveSourceIgnoreMask and isProperty script_manager #loadSourceIgnoreMask and isProperty script_manager #isSourceDirectoryIgnored
     script_tree_ok = script_manager.getScriptTreeControl() != undefined
     source_height_ok = source_tree_ok and script_manager_sources_ui.tv_sources.height >= 512
@@ -70,12 +72,13 @@ function partOfTest1 =
     preset_neutral_ok = preset_ui_ok and script_manager_scripts_ui.ddl_presets.items.count >= 1 and script_manager_scripts_ui.ddl_presets.items[1] == "<Preset>" and script_manager_scripts_ui.ddl_presets.selection == 1
     preset_api_ok = isProperty script_manager #savePreset and isProperty script_manager #loadPreset and isProperty script_manager #removePreset and isProperty script_manager #getPresetNames and isProperty script_manager #refreshPresetDropdown
     rollout_state_ok = isProperty script_manager #source_rollout_open and isProperty script_manager #script_rollout_open
-    context_menu_ok = script_manager.source_tree_context_menu != undefined and script_manager.script_tree_load_item != undefined and script_manager.script_tree_expand_all_item != undefined and script_manager.script_tree_collapse_all_item != undefined
+    context_menu_ok = script_manager.source_tree_context_menu != undefined and script_manager.source_tree_load_dialog_item != undefined and script_manager.script_tree_load_item != undefined and script_manager.script_tree_expand_all_item != undefined and script_manager.script_tree_collapse_all_item != undefined
+    source_dialog_api_ok = isProperty script_manager #getBatchOverridePathForScript and isProperty script_manager #getConfiguredHostScriptPaths and isProperty script_manager #isSourceDirectoryBatchDialog and isProperty script_manager #getSelectedSourceDialogPath and isProperty script_manager #loadConfiguredHostDialogScripts and isProperty script_manager #loadSelectedSourceDialog
 
-    test_ok = version_ok and global_version_ok and title_ok and main_action_ok and source_rollout_ok and script_rollout_ok and soft_hard_api_ok and source_tree_ok and script_tree_ok and source_height_ok and source_mixed_ui_ok and tristate_ui_ok and loader_only_ok and host_model_ok and clean_filter_ok and preset_ui_ok and preset_neutral_ok and preset_api_ok and rollout_state_ok and context_menu_ok
+    test_ok = version_ok and global_version_ok and title_ok and main_action_ok and source_rollout_ok and script_rollout_ok and soft_hard_api_ok and source_tree_ok and script_tree_ok and source_height_ok and source_mixed_ui_ok and tristate_ui_ok and loader_only_ok and host_model_ok and clean_filter_ok and preset_ui_ok and preset_neutral_ok and preset_api_ok and rollout_state_ok and context_menu_ok and source_dialog_api_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 1 | version:% | global:% | title:% | main-action:% | source-rollout:% | script-rollout:% | soft-hard:% | sources:% | scripts:% | source-512:% | source-mixed-ui:% | tristate-ui:% | loader-only:% | host-model:% | clean-filter:% | preset-ui:% | preset-neutral:% | preset-api:% | rollout-state:% | tree-menu:% | PASS:%\n" version_ok global_version_ok title_ok main_action_ok source_rollout_ok script_rollout_ok soft_hard_api_ok source_tree_ok script_tree_ok source_height_ok source_mixed_ui_ok tristate_ui_ok loader_only_ok host_model_ok clean_filter_ok preset_ui_ok preset_neutral_ok preset_api_ok rollout_state_ok context_menu_ok test_ok
+    format "PART 1 | version:% | global:% | title:% | main-action:% | source-rollout:% | script-rollout:% | soft-hard:% | sources:% | scripts:% | source-512:% | source-mixed-ui:% | tristate-ui:% | loader-only:% | host-model:% | clean-filter:% | preset-ui:% | preset-neutral:% | preset-api:% | rollout-state:% | tree-menu:% | source-dialog-api:% | PASS:%\n" version_ok global_version_ok title_ok main_action_ok source_rollout_ok script_rollout_ok soft_hard_api_ok source_tree_ok script_tree_ok source_height_ok source_mixed_ui_ok tristate_ui_ok loader_only_ok host_model_ok clean_filter_ok preset_ui_ok preset_neutral_ok preset_api_ok rollout_state_ok context_menu_ok source_dialog_api_ok test_ok
     test_ok
     -- return
 )
@@ -349,7 +352,14 @@ function partOfTest6 =
     color_node = dotNetObject "System.Windows.Forms.TreeNode" "RunC.ms"
     color_node.ToolTipText = run_c_path
     color_apply_ok = script_manager.applyScriptTreeNodeColor color_node
-    marked_color_ok = color_apply_ok and color_node.ForeColor.R == 62 and color_node.ForeColor.G == 158 and color_node.ForeColor.B == 255
+    marked_color_ok = color_apply_ok and color_node.ForeColor.R == 255 and color_node.ForeColor.G == 165 and color_node.ForeColor.B == 60
+
+    host_color_node = dotNetObject "System.Windows.Forms.TreeNode" "RunA.ms"
+    host_color_node.ToolTipText = run_a_path
+    host_color_apply_ok = script_manager.applyScriptTreeNodeColor host_color_node
+    host_path = script_manager.getBatchDialogPathForScript run_a_path
+    expected_host_color = script_manager.getBatchDialogColor host_path
+    host_color_ok = host_color_apply_ok and host_color_node.ForeColor.ToArgb() == expected_host_color.ToArgb()
 
     visual_node = dotNetObject "System.Windows.Forms.TreeNode" "Visual.ms"
     visual_host_ok = script_manager.applyScriptTreeNodeMode visual_node #host and visual_node.StateImageIndex == 1 and visual_node.ImageIndex == 1
@@ -357,10 +367,10 @@ function partOfTest6 =
     visual_skip_ok = script_manager.applyScriptTreeNodeMode visual_node #skip and visual_node.StateImageIndex == 0 and visual_node.ImageIndex == 0
     visible_tristate_ok = visual_host_ok and visual_direct_ok and visual_skip_ok
 
-    test_ok = save_a_ok and save_b_ok and save_c_ok and save_d_ok and persisted_ok and marked_color_ok and visible_tristate_ok
+    test_ok = save_a_ok and save_b_ok and save_c_ok and save_d_ok and persisted_ok and marked_color_ok and host_color_ok and visible_tristate_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 6 | host:% | skip:% | direct:% | runtime-host:% | marked-color:% | visible-tristate:% | PASS:%\n" (script_manager.getScriptLoadMode key_a) (script_manager.getScriptLoadMode key_b) (script_manager.getScriptLoadMode key_c) (script_manager.getScriptLoadMode key_d) marked_color_ok visible_tristate_ok test_ok
+    format "PART 6 | host:% | skip:% | direct:% | runtime-host:% | direct-orange:% | host-batch-color:% | visible-tristate:% | PASS:%\n" (script_manager.getScriptLoadMode key_a) (script_manager.getScriptLoadMode key_b) (script_manager.getScriptLoadMode key_c) (script_manager.getScriptLoadMode key_d) marked_color_ok host_color_ok visible_tristate_ok test_ok
     test_ok
     -- return
 )
@@ -480,10 +490,32 @@ function partOfTest9 =
     destroy_ok = script_manager.destroyHostDialog host_path_a clear_rollouts:false
     removed_ok = script_manager.getHostDialog host_path_a == undefined
 
-    test_ok = mapping_ok and title_ok and create_ok and slot_ok and host_caption_ok and title_button_ok and title_button_style_ok and save_ok and persisted_ok and destroy_ok and removed_ok
+    reload_tool_directory = script_manager_test_temp_root + "SourceA\\Bundle\\ReloadTool\\"
+    reload_script_path = reload_tool_directory + "ReloadTool.ms"
+    makeDir (script_manager_test_temp_root + "SourceA\\Bundle")
+    makeDir reload_tool_directory
+    script_manager_test_marker_e = 0
+    reload_script_body = "global script_manager_test_marker_e; global script_manager_test_host_reload_rollout; if script_manager_test_marker_e == undefined then script_manager_test_marker_e = 0; script_manager_test_marker_e += 1; rollout script_manager_test_host_reload_rollout \"Host Reload Test\" (); if ScriptManagerIntegration.shouldAutoOpenUI() then createDialog script_manager_test_host_reload_rollout"
+    reload_write_ok = writeScriptManagerTestScript reload_script_path reload_script_body
+
+    direct_load_result = script_manager.loadManagedScript reload_script_path script_name:"ReloadTool" script_key:(script_manager.getScriptKey reload_script_path) group_path:"SourceA\\Bundle\\ReloadTool" embed_rollouts:false
+    stale_standalone_rollout = script_manager_test_host_reload_rollout
+    stale_standalone_open_ok = direct_load_result[1] and stale_standalone_rollout != undefined and stale_standalone_rollout.inDialog and script_manager_test_marker_e == 1
+
+    reload_load_result = script_manager.loadManagedScript reload_script_path script_name:"ReloadTool" script_key:(script_manager.getScriptKey reload_script_path) group_path:"SourceA\\Bundle\\ReloadTool" embed_rollouts:true
+    stale_standalone_closed_ok = stale_standalone_rollout != undefined and not(stale_standalone_rollout.inDialog)
+    first_reload_host = script_manager.getHostDialog host_path_a
+    first_reload_host_ok = reload_load_result[1] and stale_standalone_closed_ok and first_reload_host != undefined and first_reload_host.inDialog and script_manager_test_marker_e == 2
+    dialog_reload_ok = script_manager.reloadHostDialogScripts host_path_a
+    second_reload_host = script_manager.getHostDialog host_path_a
+    recreated_host_ok = dialog_reload_ok and second_reload_host != undefined and second_reload_host.inDialog and first_reload_host != second_reload_host and script_manager_test_marker_e == 3
+    reload_cleanup_ok = script_manager.destroyHostDialog host_path_a clear_rollouts:true
+    if doesFileExist reload_script_path then deleteFile reload_script_path
+
+    test_ok = mapping_ok and title_ok and create_ok and slot_ok and host_caption_ok and title_button_ok and title_button_style_ok and save_ok and persisted_ok and destroy_ok and removed_ok and reload_write_ok and stale_standalone_open_ok and stale_standalone_closed_ok and first_reload_host_ok and recreated_host_ok and reload_cleanup_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 9 | mapping:% | title:% | create:% | slot:% | host-caption:% | title-button:% | title-style:% | persisted:% | destroy:% | removed:% | PASS:%\n" mapping_ok title_ok create_ok slot_ok host_caption_ok title_button_ok title_button_style_ok persisted_ok destroy_ok removed_ok test_ok
+    format "PART 9 | mapping:% | title:% | create:% | slot:% | host-caption:% | title-button:% | title-style:% | persisted:% | destroy:% | removed:% | stale-open:% | stale-closed:% | reload-recreates:% | PASS:%\n" mapping_ok title_ok create_ok slot_ok host_caption_ok title_button_ok title_button_style_ok persisted_ok destroy_ok removed_ok stale_standalone_open_ok stale_standalone_closed_ok recreated_host_ok test_ok
     test_ok
     -- return
 )
@@ -595,9 +627,152 @@ function partOfTest11 =
 )
 
 /*
-Restores production manager paths/settings and removes isolated test files.
+Verifies one checked batch ancestor groups scripts from different parent folders into one dialog.
+The first checked discovery root is ignored, and deeper checked descendants do not split the selected batch subtree.
 */
 function partOfTest12 =
+(
+    source_root = script_manager_test_temp_root + "SourceA\\"
+    batch_root = source_root + "Edit Poly Tools\\"
+    parent_a = batch_root + "ParentA\\"
+    parent_b = batch_root + "ParentB\\"
+    tool_a = parent_a + "ToolA\\"
+    tool_b = parent_b + "ToolB\\"
+    script_a = tool_a + "ToolA.ms"
+    script_b = tool_b + "ToolB.ms"
+
+    original_source_names = script_manager.available_source_names
+    original_source_directories = script_manager.available_source_directories
+    original_source_selectable = script_manager.available_source_selectable
+
+    script_manager.available_source_names = #("SourceA", "Edit Poly Tools", "ParentA", "ParentB")
+    script_manager.available_source_directories = #(source_root, batch_root, parent_a, parent_b)
+    script_manager.available_source_selectable = #(true, true, true, true)
+
+    source_ok = script_manager.saveSourceEnabled source_root true
+    batch_ok = script_manager.saveSourceEnabled batch_root true
+    parent_a_ok = script_manager.saveSourceEnabled parent_a true
+    parent_b_ok = script_manager.saveSourceEnabled parent_b true
+
+    host_a = script_manager.getBatchDialogPathForScript script_a
+    host_b = script_manager.getBatchDialogPathForScript script_b
+    shared_batch_ok = host_a == "SourceA\\Edit Poly Tools" and host_b == host_a
+
+    clear_batch_ok = script_manager.saveSourceEnabled batch_root false
+    clear_parent_a_ok = script_manager.saveSourceEnabled parent_a false
+    clear_parent_b_ok = script_manager.saveSourceEnabled parent_b false
+    default_a = script_manager.getBatchDialogPathForScript script_a
+    default_b = script_manager.getBatchDialogPathForScript script_b
+    first_checked_ignored_ok = default_a == "SourceA\\Edit Poly Tools\\ParentA" and default_b == "SourceA\\Edit Poly Tools\\ParentB"
+
+    script_manager.saveSourceEnabled batch_root false
+    script_manager.saveSourceEnabled parent_a false
+    script_manager.saveSourceEnabled parent_b false
+
+    script_manager.available_source_names = original_source_names
+    script_manager.available_source_directories = original_source_directories
+    script_manager.available_source_selectable = original_source_selectable
+
+    test_ok = source_ok and batch_ok and parent_a_ok and parent_b_ok and shared_batch_ok and clear_batch_ok and clear_parent_a_ok and clear_parent_b_ok and first_checked_ignored_ok
+    if not test_ok then script_manager_test_passed = false
+
+    format "PART 12 | shared-cross-parent-batch:% | first-checked-ignored:% | PASS:%\n" shared_batch_ok first_checked_ignored_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies the SOURCES batch-dialog context command targets only an explicit checked dialog marker.
+Configured HOST scripts from different parent folders share the action; DIRECT and other-dialog scripts are excluded.
+*/
+function partOfTest13 =
+(
+    source_root = script_manager_test_temp_root + "SourceA\\"
+    batch_root = source_root + "Edit Poly Tools\\"
+    parent_a = batch_root + "ParentA\\"
+    parent_b = batch_root + "ParentB\\"
+    direct_parent = batch_root + "ParentDirect\\"
+    other_parent = source_root + "Other Batch\\ParentC\\"
+    script_a = parent_a + "ToolA\\ToolA.ms"
+    script_b = parent_b + "ToolB\\ToolB.ms"
+    script_direct = direct_parent + "ToolDirect\\ToolDirect.ms"
+    script_other = other_parent + "ToolC\\ToolC.ms"
+
+    original_source_names = script_manager.available_source_names
+    original_source_directories = script_manager.available_source_directories
+    original_source_selectable = script_manager.available_source_selectable
+    original_script_paths = script_manager.available_script_paths
+
+    script_manager.available_source_names = #("SourceA", "Edit Poly Tools", "ParentA", "ParentB", "ParentDirect", "Other Batch")
+    script_manager.available_source_directories = #(source_root, batch_root, parent_a, parent_b, direct_parent, source_root + "Other Batch\\")
+    script_manager.available_source_selectable = #(true, true, true, true, true, true)
+    script_manager.available_script_paths = #(script_a, script_b, script_direct, script_other)
+
+    source_ok = script_manager.saveSourceEnabled source_root true
+    batch_ok = script_manager.saveSourceEnabled batch_root true
+    script_manager.saveSourceEnabled parent_a false
+    script_manager.saveSourceEnabled parent_b false
+    script_manager.saveSourceEnabled direct_parent false
+    script_manager.saveSourceEnabled (source_root + "Other Batch\\") false
+
+    key_a = script_manager.getScriptKey script_a
+    key_b = script_manager.getScriptKey script_b
+    key_direct = script_manager.getScriptKey script_direct
+    key_other = script_manager.getScriptKey script_other
+    script_manager.saveScriptLoadMode key_a #host
+    script_manager.saveScriptLoadMode key_b #host
+    script_manager.saveScriptLoadMode key_direct #direct
+    script_manager.saveScriptLoadMode key_other #host
+
+    batch_path = script_manager.getRelativeDirectoryPath batch_root
+    override_a_ok = script_manager.getBatchOverridePathForScript script_a == batch_path
+    override_b_ok = script_manager.getBatchOverridePathForScript script_b == batch_path
+    batch_marker_ok = script_manager.isSourceDirectoryBatchDialog batch_root and not(script_manager.isSourceDirectoryBatchDialog source_root)
+
+    configured_paths = script_manager.getConfiguredHostScriptPaths batch_path
+    configured_set_ok = configured_paths.count == 2 and (findItem configured_paths script_a) > 0 and (findItem configured_paths script_b) > 0 and (findItem configured_paths script_direct) == 0 and (findItem configured_paths script_other) == 0
+
+    tree_control = script_manager.getSourceTreeControl()
+    tree_control.Nodes.Clear()
+    source_node = tree_control.Nodes.Add "SourceA"
+    source_node.Name = "SOURCE_SELECTABLE"
+    source_node.Tag = source_root
+    batch_node = source_node.Nodes.Add "Edit Poly Tools"
+    batch_node.Name = "SOURCE_SELECTABLE"
+    batch_node.Tag = batch_root
+
+    tree_control.SelectedNode = batch_node
+    selected_batch_ok = script_manager.getSelectedSourceDialogPath() == batch_path
+    menu_batch_ok = script_manager.updateSourceTreeContextMenuState() and script_manager.source_tree_load_dialog_item.Visible and script_manager.source_tree_load_dialog_item.Enabled and script_manager.source_tree_load_dialog_item.Text == "LOAD \\ RELOAD DIALOG"
+
+    tree_control.SelectedNode = source_node
+    selected_root_ok = script_manager.getSelectedSourceDialogPath() == ""
+    menu_root_ok = script_manager.updateSourceTreeContextMenuState() and not(script_manager.source_tree_load_dialog_item.Visible)
+
+    script_manager.saveScriptLoadMode key_a #skip
+    script_manager.saveScriptLoadMode key_b #skip
+    script_manager.saveScriptLoadMode key_direct #skip
+    script_manager.saveScriptLoadMode key_other #skip
+    script_manager.saveSourceEnabled batch_root false
+
+    script_manager.available_source_names = original_source_names
+    script_manager.available_source_directories = original_source_directories
+    script_manager.available_source_selectable = original_source_selectable
+    script_manager.available_script_paths = original_script_paths
+    restore_tree_ok = script_manager.populateSourceTree() and script_manager.populateScriptTree()
+
+    test_ok = source_ok and batch_ok and override_a_ok and override_b_ok and batch_marker_ok and configured_set_ok and selected_batch_ok and menu_batch_ok and selected_root_ok and menu_root_ok and restore_tree_ok
+    if not test_ok then script_manager_test_passed = false
+
+    format "PART 13 | batch-marker:% | configured-set:% | selected-batch:% | menu-batch:% | root-hidden:% | restore:% | PASS:%\n" batch_marker_ok configured_set_ok selected_batch_ok menu_batch_ok (selected_root_ok and menu_root_ok) restore_tree_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Restores production manager paths/settings and removes isolated test files.
+*/
+function partOfTest14 =
 (
     cleanup_ok = script_manager.clearLoadedRollouts()
     if HasDictValue SCRIPT_MANAGER_REGISTRY "script_manager_test_runtime" then RemoveDictValue SCRIPT_MANAGER_REGISTRY "script_manager_test_runtime"
@@ -645,7 +820,7 @@ function partOfTest12 =
     test_ok = restore_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 12 | restore:% | PASS:%\n" restore_ok test_ok
+    format "PART 14 | restore:% | PASS:%\n" restore_ok test_ok
     test_ok
     -- return
 )
@@ -662,6 +837,8 @@ partOfTest9()
 partOfTest10()
 partOfTest11()
 partOfTest12()
+partOfTest13()
+partOfTest14()
 
 format "============================================================\n"
 format "SCRIPT-MANAGER TEST RESULT | PASS:%\n" script_manager_test_passed

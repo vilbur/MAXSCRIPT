@@ -3,8 +3,8 @@ Geometry Diagnostics main entry file.
 Loads shared UI helpers, backend, frontend, then opens the Tool.
 */
 
-global geometry_diagnostics_main_version = "0.04"
-global geometry_diagnostics_main_project_version = "0.07"
+global geometry_diagnostics_main_version = "0.05"
+global geometry_diagnostics_main_project_version = "0.09"
 global geometry_diagnostics_project_version
 global geometry_diagnostics_source_file = getSourceFileName()
 global geometry_diagnostics_directory
@@ -17,6 +17,7 @@ global geometry_diagnostics_vertex_color_painter_path
 global geometry_diagnostics_fn_path
 global geometry_diagnostics_ui_path
 global geometry_diagnostics_ini_path
+global geometryDiagnosticsRollout
 
 if geometry_diagnostics_project_version == undefined then
 (
@@ -93,6 +94,16 @@ if not doesFileExist geometry_diagnostics_ui_path then
 
 fileIn geometry_diagnostics_ini_helper_path
 fileIn geometry_diagnostics_dialog_helper_path
+
+if geometryDiagnosticsRollout != undefined then
+(
+    DialogHost.saveDialogState geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:216
+    DialogHost.unregisterDockableDialog geometryDiagnosticsRollout
+    try (destroyDialog geometryDiagnosticsRollout) catch ()
+)
+
+DialogHost.destroyToolDialogs "Geometry-Diagnostics"
+
 fileIn geometry_diagnostics_reload_helper_path
 fileIn geometry_diagnostics_title_helper_path
 fileIn geometry_diagnostics_vertex_color_painter_path

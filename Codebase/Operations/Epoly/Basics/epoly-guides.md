@@ -678,6 +678,62 @@ function selectEditPolyVertices node modifier vertex_bits =
 )
 ```
 
+
+## Stable Edit Poly vertex movement
+
+For moving existing vertices through an `Edit_Poly` modifier, use the shared stable operation under:
+
+`Codebase/Operations/Epoly/Basics/Transform/MoveVertices_0.01.ms`
+
+The proven native sequence is:
+
+```maxscript
+local vertex_bits = #{1, 4, 7}
+
+edit_poly_mod.Select #Vertex vertex_bits node:obj
+edit_poly_mod.MoveSelection [10.0, 0.0, 0.0]
+edit_poly_mod.Commit()
+edit_poly_mod.RefreshScreen()
+```
+
+The stable helper adds validation, exact selection isolation, selection/state restoration, and post-move verification around that sequence.
+
+For several vertices using the same delta, batch them into one BitArray and move them once:
+
+```maxscript
+moveEditPolyVertices obj edit_poly_mod #{1, 4, 7} [10.0, 0.0, 0.0]
+```
+
+Do not select/move those vertices one by one when one shared `MoveSelection` produces the same result.
+
+When vertices genuinely need different deltas, use the per-record operation:
+
+```maxscript
+local move_records = #(
+    #(1, [10.0, 0.0, 0.0]),
+    #(4, [0.0, 5.0, 0.0]),
+    #(7, [0.0, 0.0, 2.0])
+)
+
+moveEditPolyVerticesByRecords obj edit_poly_mod move_records
+```
+
+That path intentionally isolates one vertex at a time because `MoveSelection` applies one delta to the complete current selection.
+
+Required rules:
+
+1. Operate on the exact `Edit_Poly` modifier instance and pass `node:` for node-specific reads/selections.
+2. Never move the underlying base `Editable_Poly` as a substitute for moving vertices in the modifier.
+3. Clear the modifier's previous vertex selection before establishing the exact move selection; `.Select` adds by default.
+4. Do not start the helper while another uncommitted Edit Poly operation is active.
+5. Verify the selection with `GetSelection` before moving.
+6. Call `Commit()` after each logical `MoveSelection` operation.
+7. Restore the caller's original vertex selection after the move operation.
+8. For a shared delta, select the complete BitArray once and move once.
+9. For distinct deltas, isolate and commit each vertex move, then refresh once at the end.
+10. Vertex movement does not change topology. Do not insert `collapseDeadStructs` into this operation.
+11. Keep backend Point3 values exact; do not round, snap, quantize, or invent a tolerance.
+
 ## Modify panel optimization
 
 Minimize use of the Modify panel and Command Panel UI state as much as possible.
