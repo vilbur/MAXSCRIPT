@@ -3,8 +3,8 @@ Geometry Diagnostics frontend.
 Defines the standalone test UI and delegates all processing to the backend.
 */
 
-global geometry_diagnostics_ui_version = "0.10"
-global geometry_diagnostics_ui_project_version = "0.23"
+global geometry_diagnostics_ui_version = "0.17"
+global geometry_diagnostics_ui_project_version = "0.30"
 global geometry_diagnostics_project_version
 global geometry_diagnostics_source_file
 global geometry_diagnostics_directory
@@ -76,33 +76,34 @@ function geometryDiagnosticsGetDotNetMouseButton event_args =
 )
 
 
-rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagnostics_project_version) width:336 height:468
+rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagnostics_project_version) width:336 height:516
 (
     local direction_button_tooltip
 
     dotNetControl btn_tool_title "System.Windows.Forms.Button" width:312 height:24 align:#center
 
-    dotNetControl btn_check_planar "System.Windows.Forms.Button" width:288 height:38 align:#center
-
-    button btn_create_test_box "CREATE TEST BOX" width:288 height:24 tooltip:"LMB: Create an Editable Poly box with split channel-0 face-corner colors and the canonical Tessellate modifier."
-
-    button btn_paint_face_colors "PAINT FACE COLORS" width:288 height:24 tooltip:"LMB: Paint faces on the currently selected Editable Poly or supported modifier stack level with the diagnostic color palette."
-
-    button btn_restore_colors "RESTORE COLORS" width:288 height:24 tooltip:"LMB: Restore the exact channel-0 colors and display state captured before painting."
-
-    button btn_dump_channel "DUMP CHANNEL 0" width:288 height:24 tooltip:"LMB: Print Editable Poly geometry and channel-0 map topology to the Listener."
-
     label lbl_status "Ready." width:288 height:36 align:#left
 
-    group "DEBUG"
+    group "TESTS"
     (
-        dropdownList ddl_position_precision "postion preccision" items:#("1mm", "0.1mm", "0.01mm") selection:3 width:288
-        dropdownList ddl_ortho_tolerance "ortho tolerance" items:#("1.00mm", "2.00mm", "5.00mm", "10.00mm") selection:1 width:288
+        dropdownList ddl_position_precision "postion preccision" items:#("1mm", "0.1mm", "0.01mm") selection:3 width:132 across:2
+        dropdownList ddl_ortho_tolerance "ortho tolerance" items:#("1.00mm", "2.00mm", "5.00mm", "10.00mm") selection:1 width:132
 
         dotNetControl btn_check_vertical "System.Windows.Forms.Button" width:132 height:38 across:2
         dotNetControl btn_check_horizontal "System.Windows.Forms.Button" width:132 height:38
 
-        button btn_check_ortho_edges "CHECK ORTHO EDGES" width:288 height:24 tooltip:"LMB: Paint visible edges by distance severity: white valid ortho, green-to-blue valid skew/sloped through ortho tolerance, yellow-to-red invalid above tolerance."
+        dotNetControl btn_check_ortho_edges "System.Windows.Forms.Button" width:288 height:38 align:#center
+
+        dotNetControl btn_check_planar "System.Windows.Forms.Button" width:288 height:38 align:#center
+    )
+
+    group "DEBUG"
+    (
+        button btn_create_test_box "CREATE TEST BOX" width:288 height:24 tooltip:"LMB: Create an Editable Poly box with split channel-0 face-corner colors and the canonical Tessellate modifier."
+        button btn_paint_face_colors "PAINT FACE COLORS" width:288 height:24 tooltip:"LMB: Paint faces on the currently selected Editable Poly or supported modifier stack level with the diagnostic color palette."
+        button btn_restore_colors "RESTORE COLORS" width:288 height:24 tooltip:"LMB: Restore the exact channel-0 colors and display state captured before painting."
+        button btn_dump_channel "DUMP CHANNEL 0" width:288 height:24 tooltip:"LMB: Print Editable Poly geometry and channel-0 map topology to the Listener."
+        dotNetControl btn_clear_object "System.Windows.Forms.Button" width:288 height:30 align:#center
     )
 
     /*
@@ -150,6 +151,8 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
         setupGeometryDiagnosticsDarkButton btn_check_planar
         setupGeometryDiagnosticsDarkButton btn_check_vertical
         setupGeometryDiagnosticsDarkButton btn_check_horizontal
+        setupGeometryDiagnosticsDarkButton btn_check_ortho_edges
+        setupGeometryDiagnosticsDarkButton btn_clear_object
 
         btn_check_planar.Text = "1. CHECK AND MAKE WALLS PLANAR"
         direction_button_tooltip.SetToolTip btn_check_planar "LMB: split evaluated faces into wall clusters at sharp corners of 45 degrees or more, then check each wall plane independently. Connected multi-wall objects such as boxes are supported. An existing top Edit Poly is reused; a NON PLANAR VERTS marker is added only when required.\n\nRMB: move only detected outlier vertices onto their owning wall-cluster planes. Shared corner vertices are solved against every touching wall plane. Script selection markers are removed first, and the object is collapsed to Editable Poly only when the real stack requires repair."
@@ -157,11 +160,18 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
         local direction_orange = (dotNetClass "System.Drawing.Color").Orange
         btn_check_vertical.Text = "VERTICAL\\SKEWED"
         btn_check_vertical.ForeColor = direction_orange
-        direction_button_tooltip.SetToolTip btn_check_vertical "LMB: select Z-direction edges whose XY drift is within postion preccision.\n\nRMB: select Z-direction edges whose XY drift is greater than postion preccision."
+        direction_button_tooltip.SetToolTip btn_check_vertical "LMB: select Z-direction edges whose XY drift is within postion preccision.\n\nRMB: select Z-direction edges whose XY drift is greater than postion preccision.\n\nCTRL+RMB: detect the current skewed vertical-direction edges, then fix their XY constraints using postion preccision."
 
         btn_check_horizontal.Text = "HORIZONTAL SLOPED"
         btn_check_horizontal.ForeColor = direction_orange
-        direction_button_tooltip.SetToolTip btn_check_horizontal "LMB: select horizontal X/Y-direction edges within postion preccision. X uses YZ drift; Y uses XZ drift.\n\nRMB: select matching horizontal edges whose off-axis drift is greater than postion preccision."
+        direction_button_tooltip.SetToolTip btn_check_horizontal "LMB: select horizontal X/Y-direction edges within postion preccision. X uses YZ drift; Y uses XZ drift.\n\nRMB: select matching horizontal edges whose off-axis drift is greater than postion preccision.\n\nCTRL+RMB: detect the current sloped/skewed horizontal edges, then fix X/Y-axis lateral plus Z constraints using postion preccision."
+
+        btn_check_ortho_edges.Text = "CHECK ORTHO EDGES"
+        direction_button_tooltip.SetToolTip btn_check_ortho_edges "LMB: paint visible edges by distance severity.\n\nRMB: batch-fix ortho edges by running VERTICAL\\SKEWED LMB + CTRL+RMB, then HORIZONTAL SLOPED LMB + CTRL+RMB."
+
+        btn_clear_object.Text = "CLEAR OBJECT"
+        btn_clear_object.ForeColor = (dotNetClass "System.Drawing.Color").OrangeRed
+        direction_button_tooltip.SetToolTip btn_clear_object "LMB: Remove ALL modifiers and channel-0 vertex paint from the selected geometry objects. User modifiers are removed too."
 
         setGeometryDiagnosticsStatus "Ready."
     )
@@ -177,13 +187,13 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
     (
         ToolTitleButton.resizeToolTitleButton btn_tool_title (dialog_size.x - 24)
 
-        DialogHost.saveDialogHeight geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:468
+        DialogHost.saveDialogHeight geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:516
     )
 
 
     on geometryDiagnosticsRollout close do
     (
-        DialogHost.saveDialogState geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:468
+        DialogHost.saveDialogState geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:516
     )
 
 
@@ -298,6 +308,29 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
     )
 
 
+    on btn_clear_object Click sender event_args do
+    (
+        local clear_result = clearGeometryDiagnosticsSelectedObjects()
+
+        if clear_result[2] == 0 then
+        (
+            setGeometryDiagnosticsStatus "Select at least one geometry object."
+        )
+        else if clear_result[3] > 0 then
+        (
+            setGeometryDiagnosticsStatus \
+                ("Clear failed on " + (clear_result[3] as string) + " object(s). See Listener.")
+        )
+        else
+        (
+            setGeometryDiagnosticsStatus \
+                ("Cleared " + (clear_result[2] as string) + " object(s): " + \
+                (clear_result[4] as string) + " modifier(s), " + \
+                (clear_result[5] as string) + " vertex-paint channel(s).")
+        )
+    )
+
+
     on ddl_position_precision selected precision_index do
     (
         if precision_index >= 1 and precision_index <= ddl_position_precision.items.count then
@@ -362,6 +395,45 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
 
 
 
+    /*
+    Runs one self-initializing CTRL+RMB direction repair.
+    The backend detects skewed edges first, preserves that detected selection, and leaves the final direction Edit Poly active at Edge level.
+    */
+    function runGeometryDiagnosticsDirectionFixButton direction_type =
+    (
+        local selected_nodes = selection as array
+
+        if selected_nodes.count == 0 then
+        (
+            setGeometryDiagnosticsStatus "Select at least one geometry object."
+            return false
+        )
+
+        local fix_result = fixGeometryDiagnosticsSelectedDirectionEdges direction_type ddl_position_precision.selected
+        local fixed_edge_count = fix_result[1]
+        local processed_count = fix_result[2]
+        local failed_count = fix_result[3]
+
+        if processed_count == 0 then
+        (
+            setGeometryDiagnosticsStatus "No supported geometry object selected."
+            return false
+        )
+
+        if failed_count > 0 then
+        (
+            setGeometryDiagnosticsStatus "Direction edge fix failed. See Listener."
+            return false
+        )
+
+        setGeometryDiagnosticsStatus \
+            ((direction_type as string) + " fixed: " + (fixed_edge_count as string) + " selected edge(s)")
+
+        true
+        -- return
+    )
+
+
     on btn_check_horizontal MouseUp sender event_args do
     (
         local mouse_button = geometryDiagnosticsGetDotNetMouseButton event_args
@@ -372,7 +444,14 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
         )
         else if mouse_button == "Right" then
         (
-            runGeometryDiagnosticsDirectionButton #horizontal #skewed
+            if keyboard.controlPressed then
+            (
+                runGeometryDiagnosticsDirectionFixButton #horizontal
+            )
+            else
+            (
+                runGeometryDiagnosticsDirectionButton #horizontal #skewed
+            )
         )
     )
 
@@ -387,36 +466,67 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
         )
         else if mouse_button == "Right" then
         (
-            runGeometryDiagnosticsDirectionButton #vertical #skewed
+            if keyboard.controlPressed then
+            (
+                runGeometryDiagnosticsDirectionFixButton #vertical
+            )
+            else
+            (
+                runGeometryDiagnosticsDirectionButton #vertical #skewed
+            )
         )
     )
 
 
-    on btn_check_ortho_edges pressed do
+    on btn_check_ortho_edges MouseUp sender event_args do
     (
-        local source_node = getGeometryDiagnosticsTargetNode()
+        local mouse_button = geometryDiagnosticsGetDotNetMouseButton event_args
 
-        if source_node == undefined then
+        if mouse_button == "Left" then
         (
-            setGeometryDiagnosticsStatus "No Editable Poly target available."
-        )
-        else
-        (
-            local ortho_result = checkGeometryDiagnosticsOrthoEdges source_node ddl_position_precision.selected ddl_ortho_tolerance.selected
+            local source_node = getGeometryDiagnosticsTargetNode()
 
-            if ortho_result == undefined then
+            if source_node == undefined then
             (
-                setGeometryDiagnosticsStatus "Ortho edge check failed. See Listener."
+                setGeometryDiagnosticsStatus "No Editable Poly target available."
+            )
+            else
+            (
+                local ortho_result = checkGeometryDiagnosticsOrthoEdges source_node ddl_position_precision.selected ddl_ortho_tolerance.selected
+
+                if ortho_result == undefined then
+                (
+                    setGeometryDiagnosticsStatus "Ortho edge check failed. See Listener."
+                )
+                else
+                (
+                    setGeometryDiagnosticsStatus \
+                        ("Ortho valid:" + (ortho_result.orthogonal_edges.numberSet as string) + \
+                        " tolerated:" + (ortho_result.valid_skewed_edges.numberSet as string) + \
+                        " invalid:" + (ortho_result.invalid_edges.numberSet as string))
+                )
+            )
+        )
+        else if mouse_button == "Right" then
+        (
+            local fix_result = fixGeometryDiagnosticsSelectedOrthoBatch ddl_position_precision.selected
+
+            if fix_result[2] == 0 then
+            (
+                setGeometryDiagnosticsStatus "Select at least one geometry object."
+            )
+            else if fix_result[3] > 0 then
+            (
+                setGeometryDiagnosticsStatus "Ortho batch fix failed. See Listener."
             )
             else
             (
                 setGeometryDiagnosticsStatus \
-                    ("Ortho valid:" + (ortho_result.orthogonal_edges.numberSet as string) + \
-                    " tolerated:" + (ortho_result.valid_skewed_edges.numberSet as string) + \
-                    " invalid:" + (ortho_result.invalid_edges.numberSet as string))
+                    ("Ortho batch fixed: " + (fix_result[1] as string) + " selected edge(s)")
             )
         )
     )
+
 )
 
 
@@ -438,7 +548,7 @@ function openGeometryDiagnostics =
         return false
     )
 
-    local dialog_created = DialogHost.createManagedDialog geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" tool_key:"Geometry-Diagnostics" default_width:336 default_height:468 min_height:468
+    local dialog_created = DialogHost.createManagedDialog geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" tool_key:"Geometry-Diagnostics" default_width:336 default_height:516 min_height:516
 
     if dialog_created then
     (

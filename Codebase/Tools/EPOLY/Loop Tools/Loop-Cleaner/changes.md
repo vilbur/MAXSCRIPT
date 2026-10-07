@@ -1,5 +1,75 @@
 # Loop-Cleaner Changes
 
+## 2026-10-07 — restore required Broken-T topology rebind boundaries 1.210
+
+- Updated `Loop-Cleaner` to `1.210`.
+- Runtime on `BLOCK-A-MATERIAL002` proved the 1.207 activation-lock optimisation was too aggressive: after a partial Divide produced five valid move pairs, the following MOVE stage read `GetNumVertices == 0` when it only synchronized Edge/Vertex state and did not force a fresh binding of the same Edit Poly.
+- Added one explicit same-modifier rebind helper for topology-change synchronization boundaries. It reselects the same node/Edit Poly and calls `modPanel.setCurrentObject` on the same `SELECT BROKEN T JUNCTIONS` instance before live ID-dependent reads continue.
+- Batch MOVE now performs that full same-modifier rebind once after the Divide stage, before its first live vertex-count read. This restores the previously stable post-Divide behavior without reactivating the modifier before every stage.
+- WELD keeps the same modifier current during a pair, but after each `WeldVertices -> Commit` it performs the same full rebind once before verifying the new live vertex count and continuing to the next pair.
+- No extra rebind is added between MOVE and WELD because MoveSelection does not change topology. The next Divide cycle only switches the existing modifier back to Edge context after the final post-weld rebind.
+- DivideEdge, MoveSelection, WeldVertices, pair ordering, topology-ID handling, position precision, and both Broken-T production button event paths are otherwise unchanged.
+- Static delimiter, version, prohibited-syntax, and protected-identifier checks passed. Runtime verification in 3ds Max is still required.
+
+## 2026-10-07 — restore FIX T BORDER HOLES batch button 1.209
+
+- Updated `Loop-Cleaner` to `1.209`.
+- Added the production button `FIX T BORDER HOLES` below the merged `BROKEN T JUNCTIONS SELECT \ FIX` control.
+- LMB on `FIX T BORDER HOLES` calls the existing `fixTBorderHoles()` wrapper, which runs Broken-T selection first and then the complete batch `DIVIDE EDGE -> MOVE VERTICES -> WELD VERTICES` repair with no modal stage dialogs.
+- The merged Broken-T LMB/RMB control remains unchanged.
+- Shifted only the controls below the Broken-T production section down by one 44 px row and increased rollout height accordingly.
+- No Broken-T detection, Divide, Move, Weld, modifier-lock, topology-ID, or position-precision logic changed.
+- Runtime verification in 3ds Max is still required for the restored batch button wiring.
+
+## 2026-10-07 — merge Broken-T select/fix UI and remove step debug buttons 1.208
+
+- Updated `Loop-Cleaner` to `1.208`.
+- Replaced the separate `BROKEN T SELECT`, `BATCH BROKEN T FIX`, and `FIX T BORDER HOLES` production buttons with one `BROKEN T JUNCTIONS SELECT \ FIX` button.
+- LMB runs the existing non-destructive Broken-T selector and stores the result in `SELECT BROKEN T JUNCTIONS`.
+- RMB runs the existing `fixTBorderHoles()` wrapper, so it refreshes the Broken-T selection first and then runs the stable batch `DIVIDE EDGE -> MOVE VERTICES -> WELD VERTICES` repair with no modal stage dialogs.
+- Removed the temporary step-by-step UI controls `TEST MOVE VERTEX`, `TEST MOVE SELECTED VERTEX`, and `TEST WELD SELECTED VERTICES`. Their backend diagnostic functions remain available in code but are no longer exposed in the production rollout.
+- Compacted the rollout by moving the remaining legacy debug selectors and settings upward; no Broken-T topology, move, weld, modifier-lock, or position-precision logic changed.
+- Runtime verification in 3ds Max is still required for the merged LMB/RMB UI wiring.
+
+## 2026-10-07 — Broken-T modifier activation locked for batch 1.207
+
+- Updated `Loop-Cleaner` to `1.207`.
+- `BATCH BROKEN T FIX` now activates `SELECT BROKEN T JUNCTIONS` at most once. After that exact modifier becomes current, every later Divide/Move/Weld stage and every later batch cycle reuses the same modifier instance without calling `modPanel.setCurrentObject` again.
+- Split Broken-T context handling into one stack-activation helper and one Edge/Vertex synchronization helper. The synchronization path never selects the node, enters Modify mode, or changes the current modifier.
+- Preserved the 1.204 safety requirement after topology-changing commits: `SetPrimaryNode`, `useStackSelection = false`, `selectMode = 0`, `showCage = off`, `SetEPolySelLevel`, and matching `subObjectLevel` are still reasserted where live Edit Poly topology must be read reliably.
+- Removed the redundant pre-weld context reset before every weld pair. After each `WeldVertices -> Commit`, the Vertex context is still synchronized once before verifying the new live vertex count.
+- `FIX T BORDER HOLES` keeps its 1.206 `BROKEN T SELECT -> BATCH BROKEN T FIX` behavior; when selection already leaves `SELECT BROKEN T JUNCTIONS` current, the repair batch performs no additional modifier-stack activation.
+- DivideEdge, MoveSelection, WeldVertices, pair ordering, topology-ID handling, and position precision are unchanged.
+- Runtime verification in 3ds Max is required before this activation-lock optimisation can be called stable.
+
+## 2026-10-07 — FIX T BORDER HOLES select + batch repair 1.206
+
+- Updated `Loop-Cleaner` to `1.206`.
+- Added the production button `FIX T BORDER HOLES`.
+- The new action runs `BROKEN T SELECT` first with modal dialogs disabled, then immediately runs the existing stable `BATCH BROKEN T FIX` chain on the same selected object.
+- If the selection stage finds no Broken-T holes and no selector exists, the action reports a clean no-op success instead of entering the repair chain.
+- The existing `BROKEN T SELECT`, `BATCH BROKEN T FIX`, Divide/Move/Weld implementation, modifier-context optimisation, topology-ID handling, and position precision remain unchanged.
+- Increased the rollout height by one 44 px control row and shifted only the controls below the Broken-T production section.
+- Runtime verification in 3ds Max is required for the new wrapper button.
+
+## 2026-10-07 — Broken-T optimisation step 1: keep one stack modifier active 1.205
+
+- Updated `Loop-Cleaner` to `1.205`.
+- This optimisation changes only modifier-stack activation in the Broken-T batch path. The exact `SELECT BROKEN T JUNCTIONS` Edit Poly remains the working modifier across `DIVIDE -> MOVE -> WELD`.
+- `modPanel.setCurrentObject` now runs only when that exact Edit Poly is not already the current Modify-panel object.
+- The 1.204 safety reset is otherwise preserved: every destructive stage still explicitly calls `SetPrimaryNode`, disables stack selection, resets `selectMode`, keeps `showCage = off`, forces the required Edit Poly Edge/Vertex selection level, and writes the matching `subObjectLevel`.
+- This intentionally isolates modifier-stack switching from sub-object-level switching so runtime testing can show whether the stack reselection itself is unnecessary.
+- No DivideEdge, move, weld, pair ordering, topology-ID, or position-precision logic changed.
+- Runtime verification in 3ds Max is required before this optimisation can be called stable.
+
+## 2026-10-07 — rollback unsafe Edit Poly context caching 1.204
+
+- Updated `Loop-Cleaner` to `1.204`.
+- Reverted the 1.203 Broken-T context-reuse optimisation back to the user-verified 1.202 activation sequence at the destructive stage boundaries.
+- Runtime on `BLOCK-A-MATERIAL002` showed that after a partial Divide, skipping the explicit Modify-panel/Edit Poly rebind caused `GetNumVertices` to return `0` at the start of MOVE VERTICES even though five valid move pairs existed.
+- `BATCH BROKEN T FIX` again performs the full known-good Edit Poly activation before MOVE and the known-good reactivation sequence around WELD commits. Divide/Move/Weld geometry logic itself is unchanged from stable 1.202.
+- This establishes Edit Poly activation after committed topology changes as a required synchronization boundary; future optimisation must avoid removing that boundary.
+
 ## 2026-10-07 — batch Broken-T staged chain 1.202
 
 - Updated `Loop-Cleaner` to `1.202`.

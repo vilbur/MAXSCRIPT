@@ -715,3 +715,84 @@ The first user-facing action is the Wall-Fixer-derived `.NET` button `1. CHECK A
 - The inherited Wall-Fixer numeric contract is preserved for this port: planar fitting tolerance `1.0`, orientation aid `5°`, wall-cluster corner split `45°`, and Wall-Fixer's internal robust-plane numeric guards.
 - Both LMB and RMB finish with the 3ds Max Modify panel active; LMB leaves Vertex sub-object level active when outliers are selected.
 
+
+
+## Tests UI organization — 0.24
+
+The former `DEBUG` rollout group is user-facing as `TESTS`. `1. CHECK AND MAKE WALLS PLANAR` is the first control inside that group, followed by the existing position/ortho controls and edge diagnostics. This is a UI organization change only; the planarity LMB/RMB contract and backend behavior remain unchanged.
+
+## Tests / Debug UI organization — 0.25
+
+The main diagnostic controls remain in the `TESTS` group. The development utility controls `CREATE TEST BOX`, `PAINT FACE COLORS`, `RESTORE COLORS`, and `DUMP CHANNEL 0` are grouped separately under `DEBUG`, and `DEBUG` is the bottom section of the dialog. This is a UI-only organization change; diagnostic and backend behavior are unchanged.
+
+## Tests threshold row — 0.26
+
+`postion preccision` and `ortho tolerance` are the first controls in the `TESTS` group and share one horizontal row. `1. CHECK AND MAKE WALLS PLANAR` follows below them. This is a UI-only layout change; persisted threshold values and backend behavior are unchanged.
+## Tests button styling and order — 0.27
+
+All action buttons inside `TESTS` use the Wall-Fixer-derived dark WinForms `.NET` button style. The threshold dropdowns remain the first row, followed by the vertical/horizontal direction buttons and `CHECK ORTHO EDGES`. `1. CHECK AND MAKE WALLS PLANAR` is the bottom action in `TESTS`. This is a UI-only change; diagnostic behavior is unchanged.
+## Clear object — 0.28
+
+`CLEAR OBJECT` is a destructive development utility in the bottom `DEBUG` group.
+
+- It operates on the current geometry-object selection.
+- It removes **every** modifier from each selected object, including user-created modifiers; this is intentionally broader than normal Geometry Diagnostics exact-instance ownership cleanup.
+- When the base object is `Editable_Poly`, map channel `0` support is disabled so stored base vertex paint is removed as well.
+- Vertex-color viewport display is disabled after cleanup.
+- If the shared `VertexColorPainter` is bound to the target, its current paint session is cleared first so no held `VertexPaintState` or base-color backup can later restore deleted paint.
+- Geometry Diagnostics edge/planar ownership rows are pruned after the stack has been cleared.
+- The operation is undoable, verifies that the modifier stack is empty and Editable Poly channel `0` is disabled, and finishes with the Modify panel active at Object level.
+
+
+
+
+## Direction CTRL+RMB repair and Ortho RMB batch — 0.29
+
+The two direction controls now import Wall-Fixer's selected-direction loop repair interaction as `CTRL+RMB`. Wall-Fixer's source event routing uses LMB for exact selection, RMB for skewed selection, and `CTRL+RMB` for `fixSelectedDirectionEdges`; Geometry Diagnostics keeps the same event contract while retaining its position-based classifier.
+
+Geometry Diagnostics intentionally does not import Wall-Fixer's angle threshold into this repair. Loop candidates use the same principal-axis endpoint classification as the direction buttons. Within-precision reference edges, loop-target grouping, final moved-edge verification, and position read-back use the explicit `postion preccision`. Vertical repair constrains selected loop vertices to one world XY target while preserving Z. Horizontal repair constrains them to one world Z target while preserving XY.
+
+The repair preserves the current edge selection, restores any pre-existing vertex selection used as a manual Wall-Fixer-style loop anchor, reactivates the exact session-owned direction `Edit_Poly`, and finishes in the Modify panel at Edge sub-object level with `showCage = off`.
+
+`CHECK ORTHO EDGES` remains a two-event control:
+
+- LMB runs the existing white / green-blue / yellow-red severity paint diagnostic.
+- RMB executes the requested ordered repair batch on each selected geometry object: `VERTICAL\SKEWED` LMB selection, vertical `CTRL+RMB` repair, `HORIZONTAL SLOPED` LMB selection, horizontal `CTRL+RMB` repair. The batch uses the same backend entry points as the individual buttons and leaves the final direction Edit Poly active at Edge level.
+
+
+## Direction CTRL+RMB constraint solver — 0.30
+
+Project 0.30 replaces the Wall-Fixer loop-target repair that was imported in 0.29. The source workflow assumes a different horizontal definition and also consumes whatever edge/vertex selection already exists. Those assumptions are not valid for Geometry Diagnostics.
+
+`CTRL+RMB` is now self-initializing. For each selected geometry node it first runs the same `#skewed` position-based direction detection used by ordinary RMB, stores that exact edge BitArray in the owned direction `Edit_Poly`, then repairs that detected set. A previous RMB click is no longer required and stale vertex selection is not used as a target hint.
+
+The repair constraint matches the Geometry Diagnostics classifier exactly:
+
+- Z-dominant vertical edge -> endpoint X and Y must match; Z remains free.
+- X-dominant horizontal edge -> endpoint Y and Z must match; X remains free.
+- Y-dominant horizontal edge -> endpoint X and Z must match; Y remains free.
+
+Selected edges are converted into independent coordinate-constraint components. For each constrained coordinate, exact visible unselected neighbor edges that constrain the same coordinate provide anchors. Anchor values are grouped with the explicit `postion preccision`; the strongest group wins. When no anchor exists, the selected component uses the mean of its original coordinate values, giving the minimum-displacement fallback without inventing an angle threshold. All target coordinates are solved before any vertex is moved.
+
+Edit Poly movement follows the shared Epoly stable pattern: isolate the exact vertex selection with `.Select`, apply `MoveSelection`, `Commit`, and verify the resulting world position. World-space targets are converted to object-space deltas before `MoveSelection`; this avoids inheriting Wall-Fixer's implicit coordinate-space assumption. No topology changes occur, so no dead-structure compaction is part of this operation.
+
+After movement, every originally detected skewed edge is rechecked with `postion preccision`. The detected edge BitArray is restored visibly, the owned direction Edit Poly remains current, and the tool finishes in Modify mode at Edge level.
+
+`CHECK ORTHO EDGES` RMB retains the requested order: vertical LMB, vertical CTRL+RMB, horizontal LMB, horizontal CTRL+RMB. Because each CTRL+RMB now performs its own skewed detection, the LMB selection is only the requested visible step and cannot seed the repair with the wrong exact-edge set.
+
+## Vertical CTRL+RMB selected-component repair — 0.31
+
+Project 0.31 isolates the reported `VERTICAL\SKEWED CTRL+RMB` failure. Ordinary vertical RMB selection is already working and is not changed.
+
+Vertical CTRL+RMB now treats the RMB-selected skewed vertical edge BitArray as the repair domain. It never expands the repair through unselected loop edges. If the user invokes CTRL+RMB without a preceding RMB, Geometry Diagnostics runs the same vertical RMB detection once and uses that resulting BitArray.
+
+The selected vertical edges are split into connected components through shared selected-edge vertices. For each component:
+
+- the lowest world-space component vertex is the deterministic anchor;
+- the anchor XY is preserved exactly;
+- every vertex in the component receives the anchor X and Y while retaining its own original Z;
+- only vertices belonging to the selected vertical component are moved;
+- final selected edges must satisfy the existing Z-dominant vertical classifier within the explicit `postion preccision`.
+
+This removes the Wall-Fixer-derived target-initialization ambiguity from the vertical repair. The operation still uses the exact owned direction `Edit_Poly`, restores the caller's vertex selection, restores the original RMB edge BitArray, refreshes once, and finishes with the Modify panel active at Edge level. No topology is changed.
+

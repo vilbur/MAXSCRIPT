@@ -4,6 +4,71 @@
 These rules are mandatory for every MaxScript project change and do not need to be repeated by the user in each chat.
 
 
+## CRITICAL SHARED CODEBASE WRITE LOCK
+
+
+The shared MaxScript Codebase layers below are canonical source-of-truth libraries and are **READ-ONLY by default in every chat**:
+
+- `Codebase/Operations/`
+- `Codebase/Tools/`
+- `Codebase/Toolsets/`
+
+This protection is recursive and includes source files, `AGENTS.md`, `design.md`, tests, documentation, support files, version folders, and any other content stored under those protected layer roots.
+
+### Allowed by default
+
+A chat may freely:
+
+- read, search, inspect, audit, compare, and reference protected Codebase files;
+- treat them as canonical source of truth;
+- load or consume them from another project;
+- copy patterns or call their public behavior from a downstream project without changing the protected source.
+
+### Writes require explicit current-prompt authorization
+
+Do **not** create, edit, replace, upload, delete, rename, move, version, refactor, reformat, or otherwise modify anything under a protected layer unless the **current user prompt explicitly instructs you to modify that shared Operation, Tool, Toolset, layer, or named file**.
+
+Write authorization must come from the current conversation and must be specific enough to identify the protected target or protected layer being changed.
+
+The following do **not** authorize a protected write:
+
+- merely opening or reading the shared Codebase;
+- being in a chat that previously created or discussed the shared item;
+- memory or another chat saying the item belongs to the current work;
+- a downstream project depending on the shared item;
+- discovering a bug or improvement while using the shared item;
+- a task such as “continue development”, “fix this project”, “use the shared source”, or “update dependencies” when it does not explicitly request editing the protected shared source;
+- search results or tool results exposing a protected file.
+
+If a downstream task reveals that a protected shared source should change, keep the protected layer read-only and ask for explicit permission to edit that protected source.
+
+### Authorization is temporary and narrow
+
+Explicit permission unlocks only the requested protected target(s) for the requested change set. It does not permanently unlock the layer or the chat.
+
+After that requested shared-source change is complete, the protected layer automatically returns to READ-ONLY. A later shared-source modification requires a new explicit user instruction.
+
+Do not broaden permission from one Operation to another Operation, from one Tool to another Tool, from a Tool to its Operation dependencies, or from one protected layer to another unless the prompt explicitly includes them.
+
+### Protected write check
+
+Before every write under `Codebase/Operations/`, `Codebase/Tools/`, or `Codebase/Toolsets/`, internally verify all of the following:
+
+```text
+PROTECTED CODEBASE WRITE CHECK
+
+Protected target: <exact file/folder>
+Layer: Operations | Tools | Toolsets
+Explicit current-prompt permission: YES
+Requested change includes this target: YES
+Active project/repository check: PASS
+```
+
+If any value is not clearly satisfied, **DO NOT WRITE**.
+
+The current lock covers Operations, Tools, and Toolsets. `Codebase/Functions/` is not included unless a separate rule explicitly protects it.
+
+
 ## CRITICAL TOOL ENTRY FILE NAMING
 
 

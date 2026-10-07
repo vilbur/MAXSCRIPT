@@ -1,5 +1,5 @@
 /*
-Vertex Level Aligner Main 0.392
+Vertex Level Aligner Main 0.393
 Main executable entry. Loads backend FN and frontend UI, then opens or registers the Tool.
 */
 
@@ -17,8 +17,10 @@ global vertexLevelAlignerStartLog
 global DialogHost
 global ScriptReload
 global ToolTitleButton
+global VertexColorPainter
+global VertexColorPainter_v
 
-vertex_level_aligner_main_version = 0.392
+vertex_level_aligner_main_version = 0.393
 vertex_level_aligner_main_source = getSourceFileName()
 
 /*
@@ -73,6 +75,32 @@ function loadVertexLevelAlignerUiHelper helper_name =
 )
 
 /*
+Loads the canonical read-only Vertex Color Painter Operation used by diagnostic painting.
+The Operation remains independently versioned under Codebase/Operations and is never modified by this Tool.
+*/
+function loadVertexLevelAlignerVertexColorPainter =
+(
+    if VertexColorPainter_v != undefined then return true
+
+    painter_path = "C:\\GoogleDrive\\AI\\Codebase\\Operations\\Vertex-Color-Painter\\Vertex-Color-Painter.ms"
+
+    if not(doesFileExist painter_path) then
+    (
+        throw ("Missing Vertex Color Painter Operation: " + painter_path)
+    )
+
+    fileIn painter_path quiet:true
+
+    if VertexColorPainter_v == undefined then
+    (
+        throw "Vertex Color Painter Operation did not initialize."
+    )
+
+    true
+    -- return
+)
+
+/*
 Closes any existing standalone Vertex Level Aligner dialog before package modules are redefined.
 Embedded/library rollouts are left alone because hideUI() only destroys a standalone CreateDialog owner.
 */
@@ -108,6 +136,7 @@ function loadVertexLevelAligner =
         throw "Could not close existing Vertex Level Aligner dialog before reload."
     )
 
+    loadVertexLevelAlignerVertexColorPainter()
     loadVertexLevelAlignerFile "Vertex-Level-Aligner-FN.ms"
 
     if vertex_level_aligner == undefined then
@@ -176,9 +205,9 @@ function executeVertexLevelAligner =
 
     vertexLevelAlignerWriteLog ("030 MAIN runtime mode = " + (runtime_mode as string))
 
-    if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.122 then
+    if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.123 then
     (
-        epoly_tools_project_version = 1.122
+        epoly_tools_project_version = 1.123
     )
 
     if runtime_mode == #standalone then
@@ -192,7 +221,7 @@ function executeVertexLevelAligner =
         if EPolyToolsIntegration == undefined then return false
 
         vertexLevelAlignerWriteLog "040 MAIN before embedded registration"
-        EPolyToolsIntegration.registerTool "vertex-level-aligner" "Vertex Level Aligner" vertex_level_aligner vertex_level_aligner_rollout vertex_level_aligner.file_version 1.122 vertex_level_aligner_main_source capabilities:#(#detect, #selection, #vertex, #editable_poly, #edit_poly, #ui)
+        EPolyToolsIntegration.registerTool "vertex-level-aligner" "Vertex Level Aligner" vertex_level_aligner vertex_level_aligner_rollout vertex_level_aligner.file_version 1.123 vertex_level_aligner_main_source capabilities:#(#detect, #selection, #vertex, #editable_poly, #edit_poly, #diagnostic_paint, #ui)
         vertexLevelAlignerWriteLog "041 MAIN embedded registration complete"
     )
 

@@ -3,8 +3,8 @@ Geometry Diagnostics backend test.
 Runs direct channel-0 tests plus evaluated-stack VertexPaint tests on tessellation-created vertices.
 */
 
-global geometry_diagnostics_test_file_version = "0.21"
-global geometry_diagnostics_test_project_version = "0.23"
+global geometry_diagnostics_test_file_version = "0.25"
+global geometry_diagnostics_test_project_version = "0.31"
 global geometry_diagnostics_project_version
 global geometry_diagnostics_test_source_file = getSourceFileName()
 global geometry_diagnostics_test_directory
@@ -1394,6 +1394,373 @@ function partOfTest25 =
 )
 
 
+/*
+Test part 26 verifies destructive object cleanup.
+The selected test node must lose every modifier, channel-0 vertex paint, and vertex-color display state while remaining in Modify mode.
+*/
+function partOfTest26 =
+(
+    format "\n--- TEST PART 26 : CLEAR OBJECT ---\n"
+
+    local test_node = undefined
+    local test_passed = false
+
+    try
+    (
+        test_node = createGeometryDiagnosticsTestBox()
+        select test_node
+
+        local paint_result = paintGeometryDiagnosticsTestBox test_node
+        local paint_layer_mod = getGeometryDiagnosticsPaintLayerMod test_node
+        local source_poly = test_node.baseObject
+        local initial_modifier_count = test_node.modifiers.count
+        local initial_map_support = polyop.getMapSupport source_poly 0
+
+        geometryDiagnosticsTestCheck paint_result "Clear-object fixture created diagnostic vertex paint."
+        geometryDiagnosticsTestCheck (paint_layer_mod != undefined and classOf paint_layer_mod == PaintLayerMod) "Clear-object fixture owns a PaintLayerMod before cleanup."
+        geometryDiagnosticsTestCheck (initial_modifier_count >= 2) "Clear-object fixture has Tessellate plus diagnostic paint modifiers."
+        geometryDiagnosticsTestCheck initial_map_support "Clear-object fixture has base channel-0 vertex paint before cleanup."
+
+        local clear_result = clearGeometryDiagnosticsSelectedObjects()
+        local final_map_support = polyop.getMapSupport source_poly 0
+
+        geometryDiagnosticsTestCheck clear_result[1] "CLEAR OBJECT completed without backend failure."
+        geometryDiagnosticsTestCheck (clear_result[2] == 1 and clear_result[3] == 0) "CLEAR OBJECT processed one selected geometry object."
+        geometryDiagnosticsTestCheck (clear_result[4] == initial_modifier_count) "CLEAR OBJECT reports every removed modifier."
+        geometryDiagnosticsTestCheck (clear_result[5] == 1) "CLEAR OBJECT reports the removed Editable Poly channel-0 paint."
+        geometryDiagnosticsTestCheck (test_node.modifiers.count == 0) "CLEAR OBJECT leaves no modifiers on the object."
+        geometryDiagnosticsTestCheck (not final_map_support) "CLEAR OBJECT removes Editable Poly channel-0 vertex paint."
+        geometryDiagnosticsTestCheck (not test_node.showVertexColors and not test_node.vertexColorsShaded) "CLEAR OBJECT disables vertex-color viewport display."
+        geometryDiagnosticsTestCheck (getCommandPanelTaskMode() == #modify) "CLEAR OBJECT leaves the Modify panel active."
+        geometryDiagnosticsTestCheck (modPanel.getCurrentObject() == test_node.baseObject and subObjectLevel == 0) "CLEAR OBJECT leaves the base object active at Object level."
+
+        test_passed = \
+            clear_result[1] and \
+            clear_result[2] == 1 and \
+            clear_result[3] == 0 and \
+            clear_result[4] == initial_modifier_count and \
+            clear_result[5] == 1 and \
+            test_node.modifiers.count == 0 and \
+            not final_map_support and \
+            getCommandPanelTaskMode() == #modify and \
+            modPanel.getCurrentObject() == test_node.baseObject and \
+            subObjectLevel == 0
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics TEST PART 26 ERROR | exception:%\n" exception_text
+        geometryDiagnosticsTestCheck false "CLEAR OBJECT regression completed without exception."
+        test_passed = false
+    )
+
+    if isValidNode test_node then
+    (
+        delete test_node
+    )
+
+    test_passed
+    -- return
+)
+
+
+/*
+Test part 27 verifies vertical RMB selection followed by CTRL+RMB repair, while horizontal keeps its self-initializing repair coverage.
+Vertical XY drift uses the selected-component anchor repair; horizontal lateral-plus-Z drift keeps the direction constraint solver.
+*/
+function partOfTest27 =
+(
+    format "\n--- TEST PART 27 : RMB-SELECTION VERTICAL CTRL+RMB FIX ---\n"
+
+    local vertical_node = undefined
+    local horizontal_node = undefined
+    local test_passed = true
+    local position_precision = units.decodeValue "0.01mm"
+
+    try
+    (
+        vertical_node = box \
+            name:(uniqueName "GeometryDiagnostics_VerticalCtrlRmbTest") \
+            length:100.0 width:100.0 height:100.0 \
+            lengthsegs:1 widthsegs:1 heightsegs:1
+        convertTo vertical_node Editable_Poly
+        vertical_node.baseObject.showCage = off
+
+        local vertical_poly = vertical_node.baseObject
+        local vertical_edge_id = 0
+        local vertical_top_vertex_id = 0
+        local vertical_bottom_vertex_id = 0
+
+        for edge_id = 1 to polyop.getNumEdges vertical_poly while vertical_edge_id == 0 do
+        (
+            local edge_verts = polyop.getEdgeVerts vertical_poly edge_id
+            local point_a = (polyop.getVert vertical_poly edge_verts[1]) * vertical_node.objectTransform
+            local point_b = (polyop.getVert vertical_poly edge_verts[2]) * vertical_node.objectTransform
+            local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
+
+            if axis_data.count == 2 and axis_data[1] == #z then
+            (
+                vertical_edge_id = edge_id
+
+                if point_a.z > point_b.z then
+                (
+                    vertical_top_vertex_id = edge_verts[1]
+                    vertical_bottom_vertex_id = edge_verts[2]
+                )
+                else
+                (
+                    vertical_top_vertex_id = edge_verts[2]
+                    vertical_bottom_vertex_id = edge_verts[1]
+                )
+            )
+        )
+
+        local vertical_bottom_before = (polyop.getVert vertical_poly vertical_bottom_vertex_id) * vertical_node.objectTransform
+        local vertical_top_local = polyop.getVert vertical_poly vertical_top_vertex_id
+        polyop.setVert vertical_poly vertical_top_vertex_id \
+            (vertical_top_local + [position_precision * 5.0, position_precision * 3.0, 0.0])
+        update vertical_node
+        select vertical_node
+
+        local vertical_rmb_result = checkGeometryDiagnosticsDirectionEdges vertical_node #vertical #skewed "0.01mm"
+        local vertical_rmb_edges = if vertical_rmb_result != undefined then copy vertical_rmb_result.edge_ids else #{}
+
+        geometryDiagnosticsTestCheck (vertical_rmb_result != undefined) "Vertical RMB returns the skewed-edge selection used by CTRL+RMB."
+        geometryDiagnosticsTestCheck (vertical_rmb_edges.numberSet == 1 and vertical_rmb_edges[vertical_edge_id]) "Vertical RMB selects the deliberately skewed vertical edge."
+
+        local vertical_fix_result = fixGeometryDiagnosticsSelectedDirectionEdges #vertical "0.01mm"
+        local vertical_adapter = if vertical_fix_result[4] != undefined then #(#edit_poly, vertical_fix_result[4], false) else #()
+        local vertical_after_selection = if vertical_adapter.count >= 2 then getGeometryDiagnosticsDirectionEdgeSelection vertical_node vertical_adapter else undefined
+        local vertical_all_exact = classOf vertical_after_selection == BitArray and vertical_after_selection == vertical_rmb_edges
+
+        if vertical_all_exact then
+        (
+            for edge_id in vertical_after_selection do
+            (
+                if not isGeometryDiagnosticsExactDirectionEdge vertical_node vertical_adapter edge_id #vertical position_precision then
+                (
+                    vertical_all_exact = false
+                )
+            )
+        )
+
+        local vertical_bottom_after = if vertical_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionVertexWorldPosition vertical_node vertical_adapter vertical_bottom_vertex_id else undefined
+        local vertical_top_after = if vertical_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionVertexWorldPosition vertical_node vertical_adapter vertical_top_vertex_id else undefined
+        local vertical_xy_aligned = vertical_bottom_after != undefined and vertical_top_after != undefined and \
+            abs (vertical_top_after.x - vertical_bottom_after.x) <= position_precision and \
+            abs (vertical_top_after.y - vertical_bottom_after.y) <= position_precision
+
+        geometryDiagnosticsTestCheck (vertical_fix_result[2] == 1 and vertical_fix_result[3] == 0) "Vertical CTRL+RMB processes the RMB-selected edge set without failure."
+        geometryDiagnosticsTestCheck (classOf vertical_after_selection == BitArray and vertical_after_selection == vertical_rmb_edges) "Vertical CTRL+RMB preserves the RMB edge selection after repair."
+        geometryDiagnosticsTestCheck vertical_all_exact "Vertical CTRL+RMB repairs every RMB-selected vertical edge to within postion preccision."
+        geometryDiagnosticsTestCheck vertical_xy_aligned "Vertical CTRL+RMB aligns the skewed edge endpoints to one XY coordinate."
+        geometryDiagnosticsTestCheck (vertical_bottom_after != undefined and (distance vertical_bottom_after vertical_bottom_before) <= position_precision) "Vertical CTRL+RMB keeps the lowest component anchor in place."
+        geometryDiagnosticsTestCheck (getCommandPanelTaskMode() == #modify and subObjectLevel == 2) "Vertical CTRL+RMB leaves Modify mode at Edge level."
+
+        horizontal_node = box \
+            name:(uniqueName "GeometryDiagnostics_HorizontalCtrlRmbTest") \
+            length:100.0 width:100.0 height:100.0 \
+            lengthsegs:1 widthsegs:1 heightsegs:1
+        convertTo horizontal_node Editable_Poly
+        horizontal_node.baseObject.showCage = off
+
+        local horizontal_poly = horizontal_node.baseObject
+        local horizontal_edge_id = 0
+        local horizontal_vertex_id = 0
+        local horizontal_axis = undefined
+
+        for edge_id = 1 to polyop.getNumEdges horizontal_poly while horizontal_edge_id == 0 do
+        (
+            local edge_verts = polyop.getEdgeVerts horizontal_poly edge_id
+            local point_a = (polyop.getVert horizontal_poly edge_verts[1]) * horizontal_node.objectTransform
+            local point_b = (polyop.getVert horizontal_poly edge_verts[2]) * horizontal_node.objectTransform
+            local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
+
+            if axis_data.count == 2 and (axis_data[1] == #x or axis_data[1] == #y) then
+            (
+                horizontal_edge_id = edge_id
+                horizontal_vertex_id = edge_verts[1]
+                horizontal_axis = axis_data[1]
+            )
+        )
+
+        local horizontal_local_position = polyop.getVert horizontal_poly horizontal_vertex_id
+        local horizontal_offset = if horizontal_axis == #x then \
+            [0.0, position_precision * 5.0, position_precision * 4.0] else \
+            [position_precision * 5.0, 0.0, position_precision * 4.0]
+
+        polyop.setVert horizontal_poly horizontal_vertex_id (horizontal_local_position + horizontal_offset)
+        update horizontal_node
+        select horizontal_node
+
+        local horizontal_fix_result = fixGeometryDiagnosticsSelectedDirectionEdges #horizontal "0.01mm"
+        local horizontal_adapter = if horizontal_fix_result[4] != undefined then #(#edit_poly, horizontal_fix_result[4], false) else #()
+        local horizontal_after_selection = if horizontal_adapter.count >= 2 then getGeometryDiagnosticsDirectionEdgeSelection horizontal_node horizontal_adapter else undefined
+        local horizontal_all_exact = classOf horizontal_after_selection == BitArray and horizontal_after_selection.numberSet > 0
+
+        if horizontal_all_exact then
+        (
+            for edge_id in horizontal_after_selection do
+            (
+                if not isGeometryDiagnosticsExactDirectionEdge horizontal_node horizontal_adapter edge_id #horizontal position_precision then
+                (
+                    horizontal_all_exact = false
+                )
+            )
+        )
+
+        local target_edge_verts = if horizontal_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionEdgeVertIds horizontal_node horizontal_adapter horizontal_edge_id else #()
+        local target_axis_data = #()
+
+        if target_edge_verts.count == 2 then
+        (
+            local target_point_a = getGeometryDiagnosticsDirectionVertexWorldPosition horizontal_node horizontal_adapter target_edge_verts[1]
+            local target_point_b = getGeometryDiagnosticsDirectionVertexWorldPosition horizontal_node horizontal_adapter target_edge_verts[2]
+            target_axis_data = getGeometryDiagnosticsPrincipalAxisData target_point_a target_point_b
+        )
+
+        geometryDiagnosticsTestCheck (horizontal_fix_result[2] == 1 and horizontal_fix_result[3] == 0) "Horizontal CTRL+RMB self-detects and processes one object without failure."
+        geometryDiagnosticsTestCheck (classOf horizontal_after_selection == BitArray and horizontal_after_selection.numberSet > 0) "Horizontal CTRL+RMB creates the sloped/skewed edge selection itself."
+        geometryDiagnosticsTestCheck horizontal_all_exact "Horizontal CTRL+RMB repairs both lateral and Z off-axis drift to within postion preccision."
+        geometryDiagnosticsTestCheck (target_axis_data.count == 2 and target_axis_data[2] <= position_precision) "The explicitly laterally skewed horizontal test edge becomes axis-exact."
+        geometryDiagnosticsTestCheck (getCommandPanelTaskMode() == #modify and subObjectLevel == 2) "Horizontal CTRL+RMB leaves Modify mode at Edge level."
+
+        test_passed = \
+            vertical_fix_result[3] == 0 and \
+            vertical_rmb_edges.numberSet == 1 and \
+            vertical_all_exact and \
+            vertical_xy_aligned and \
+            vertical_bottom_after != undefined and \
+            (distance vertical_bottom_after vertical_bottom_before <= position_precision) and \
+            horizontal_fix_result[3] == 0 and \
+            horizontal_all_exact and \
+            target_axis_data.count == 2 and \
+            target_axis_data[2] <= position_precision
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics TEST PART 27 ERROR | exception:%\n" exception_text
+        geometryDiagnosticsTestCheck false "RMB-selection direction CTRL+RMB repair completed without exception."
+        test_passed = false
+    )
+
+    if isValidNode vertical_node then delete vertical_node
+    if isValidNode horizontal_node then delete horizontal_node
+
+    test_passed
+    -- return
+)
+
+
+/*
+Test part 28 verifies CHECK ORTHO EDGES RMB on a vertex displaced beyond postion preccision in X, Y, and Z.
+The requested vertical-LMB/CTRL+RMB then horizontal-LMB/CTRL+RMB sequence must finish with every box edge axis-exact.
+*/
+function partOfTest28 =
+(
+    format "\n--- TEST PART 28 : CHECK ORTHO EDGES RMB BATCH FIX ---\n"
+
+    local test_node = undefined
+    local test_passed = false
+    local position_precision = units.decodeValue "0.01mm"
+
+    try
+    (
+        test_node = box \
+            name:(uniqueName "GeometryDiagnostics_OrthoRmbBatchTest") \
+            length:100.0 width:100.0 height:100.0 \
+            lengthsegs:1 widthsegs:1 heightsegs:1
+        convertTo test_node Editable_Poly
+        test_node.baseObject.showCage = off
+
+        local source_poly = test_node.baseObject
+        local highest_vertex_id = 0
+        local highest_position = undefined
+
+        for vertex_id = 1 to polyop.getNumVerts source_poly do
+        (
+            local vertex_position = polyop.getVert source_poly vertex_id
+
+            if highest_position == undefined or vertex_position.z > highest_position.z then
+            (
+                highest_vertex_id = vertex_id
+                highest_position = vertex_position
+            )
+        )
+
+        polyop.setVert source_poly highest_vertex_id \
+            (highest_position + [position_precision * 5.0, position_precision * 3.0, position_precision * 4.0])
+        update test_node
+        select test_node
+
+        local batch_result = fixGeometryDiagnosticsSelectedOrthoBatch "0.01mm"
+        local final_edit_poly_mod = batch_result[4]
+        local final_adapter = if final_edit_poly_mod != undefined then #(#edit_poly, final_edit_poly_mod, false) else #()
+        local edge_count = if final_adapter.count >= 2 then getGeometryDiagnosticsDirectionEdgeCount test_node final_adapter else 0
+        local all_edges_exact = edge_count > 0
+
+        if final_adapter.count >= 2 then
+        (
+            for edge_id = 1 to edge_count do
+            (
+                local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds test_node final_adapter edge_id
+
+                if edge_verts.count == 2 then
+                (
+                    local point_a = getGeometryDiagnosticsDirectionVertexWorldPosition test_node final_adapter edge_verts[1]
+                    local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition test_node final_adapter edge_verts[2]
+                    local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
+
+                    if axis_data.count != 2 or axis_data[2] > position_precision then
+                    (
+                        all_edges_exact = false
+                    )
+                )
+                else
+                (
+                    all_edges_exact = false
+                )
+            )
+        )
+        else
+        (
+            all_edges_exact = false
+        )
+
+        geometryDiagnosticsTestCheck (batch_result[2] == 1 and batch_result[3] == 0) "CHECK ORTHO EDGES RMB processes one object without failure."
+        geometryDiagnosticsTestCheck (batch_result[1] > 0) "CHECK ORTHO EDGES RMB repairs beyond-precision vertical/horizontal edges."
+        geometryDiagnosticsTestCheck all_edges_exact "CHECK ORTHO EDGES RMB leaves every box edge within postion preccision after true X/Y/Z drift."
+        geometryDiagnosticsTestCheck (getCommandPanelTaskMode() == #modify) "CHECK ORTHO EDGES RMB leaves the Modify panel active."
+        geometryDiagnosticsTestCheck (modPanel.getCurrentObject() == final_edit_poly_mod and subObjectLevel == 2) "CHECK ORTHO EDGES RMB leaves the final direction Edit Poly active at Edge level."
+
+        test_passed = \
+            batch_result[2] == 1 and \
+            batch_result[3] == 0 and \
+            batch_result[1] > 0 and \
+            all_edges_exact and \
+            getCommandPanelTaskMode() == #modify and \
+            modPanel.getCurrentObject() == final_edit_poly_mod and \
+            subObjectLevel == 2
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics TEST PART 28 ERROR | exception:%\n" exception_text
+        geometryDiagnosticsTestCheck false "CHECK ORTHO EDGES RMB batch repair completed without exception."
+        test_passed = false
+    )
+
+    if isValidNode test_node then delete test_node
+
+    test_passed
+    -- return
+)
+
+
 clearListener()
 partOfTest1()
 partOfTest2()
@@ -1420,3 +1787,6 @@ partOfTest22()
 partOfTest23()
 partOfTest24()
 partOfTest25()
+partOfTest26()
+partOfTest27()
+partOfTest28()

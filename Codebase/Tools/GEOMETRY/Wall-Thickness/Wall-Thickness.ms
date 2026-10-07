@@ -1,5 +1,5 @@
 /*
-Wall Thickness Tool 1.005
+Wall Thickness Tool 1.017
 Keeps the stable strict face-normal wall shell unchanged; CLEANUP quadrifies only the current Edit Poly and smoothing reset edits existing geometry without adding a modifier.
 */
 global wallThicknessRollout
@@ -45,9 +45,11 @@ global wall_thickness_cleanup_quadrify_modifier_name = "CLEANUP 01 - QUADRIFY"
 global wall_thickness_cleanup_cap_modifier_name = "CLEANUP 02 - CAP HOLES"
 global wall_thickness_cleanup_weld_modifier_name = "CLEANUP 03 - WELD"
 global wall_thickness_cleanup_multiple_modifier_name = "CLEANUP 04 - MULTIPLE EDGES"
-global wall_thickness_file_version = 1.005
+global wall_thickness_file_version = 1.017
 global wall_thickness_stored_project_version = wall_thickness_file_version
 global wall_thickness_project_version = wall_thickness_file_version
+global wall_thickness_batch_silent_messages = false
+global wall_thickness_quiet_mode = false
 global wall_thickness_ui_title = "WALL THICKNESS " + (formattedPrint wall_thickness_project_version format:"1.3f")
 global wall_thickness_source_file_path = getSourceFileName()
 global wall_thickness_inner_corners_module_path = undefined
@@ -76,6 +78,87 @@ function getWallThicknessSharedUiFolder =
         undefined
         -- return
 )
+/*
+Returns whether routine Wall Thickness Listener trace is currently suppressed.
+Fatal diagnostics and exceptions remain explicit and do not use this gate.
+*/
+function isWallThicknessQuietMode =
+(
+        wall_thickness_quiet_mode == true
+        -- return
+)
+/*
+Synchronizes the persistent QUIET MODE control with the runtime trace gate.
+The runtime flag is deliberately independent from rollout lifetime so backend helpers can query it safely.
+*/
+function setWallThicknessQuietMode enabled_value =
+(
+        wall_thickness_quiet_mode = enabled_value == true
+        true
+        -- return
+)
+/*
+Makes one existing stack item current only when the same node and exact stack item are not already active.
+Edit Poly receives its primary-node binding only on a real activation change; repeated hot-path calls keep the existing Modify-panel context.
+*/
+function ensureWallThicknessStackItemCurrent source_node stack_item =
+(
+        if not isValidNode source_node then return false
+        if stack_item == undefined then return false
+        current_item = undefined
+        source_is_current_selection = selection.count == 1 and selection[1] == source_node
+        if getCommandPanelTaskMode() == #modify then
+        (
+                current_item = try (modPanel.getCurrentObject()) catch (undefined)
+        )
+        if source_is_current_selection and current_item == stack_item then
+        (
+                if classOf stack_item == Edit_Poly then stack_item.showCage = off
+                true
+        )
+        else
+        (
+                activation_succeeded = false
+                try
+                (
+                        if not source_is_current_selection then select source_node
+                        if getCommandPanelTaskMode() != #modify then max modify mode
+                        if classOf stack_item == Edit_Poly then
+                        (
+                                stack_item.SetPrimaryNode source_node
+                                stack_item.showCage = off
+                        )
+                        modPanel.setCurrentObject stack_item node:source_node
+                        activation_succeeded = modPanel.getCurrentObject() == stack_item
+                )
+                catch
+                (
+                        exception_text = getCurrentException()
+                        format "Wall Thickness MODIFIER ACTIVATE ERROR | node:% | stack item:% | %\n" source_node stack_item exception_text
+                        activation_succeeded = false
+                )
+                activation_succeeded
+        )
+        -- return
+)
+/*
+Shows a Wall Thickness modal message unless a multi-object batch is currently suppressing intermediate dialogs.
+Single-object behavior remains unchanged; batch wrappers restore dialogs before their final summary.
+*/
+function showWallThicknessMessage message_text =
+(
+        if wall_thickness_batch_silent_messages then
+        (
+                false
+        )
+        else
+        (
+                messageBox message_text title:"Wall Thickness"
+                true
+        )
+        -- return
+)
+
 /*
 Loads the canonical shared UI restart helpers used by the tool title button.
 The shared UI folder is resolved from the current tool source path.
@@ -202,6 +285,7 @@ Logging failure is reported but never changes the geometry operation result.
 */
 function logWallThicknessInnerCornerDump dump_value =
 (
+        if isWallThicknessQuietMode() then return true
         log_succeeded = false
         if wall_thickness_dump_logger != undefined and wall_thickness_dump_logger.started then
         (
@@ -261,12 +345,9 @@ struct WallThicknessPreprocess_v
                 prepared = false
                 try
                 (
-                        select source_node
-                        max modify mode
-                        edit_modifier.SetPrimaryNode source_node
+                        if not ensureWallThicknessStackItemCurrent source_node edit_modifier then return false
                         edit_modifier.useStackSelection = false
                         forceSelectModeZero edit_modifier
-                        modPanel.setCurrentObject edit_modifier node:source_node
                         case selection_level of
                         (
                                 #Vertex: edit_modifier.SetEPolySelLevel #Vertex
@@ -433,8 +514,8 @@ struct WallThicknessPreprocess_v
         (
                 if not isValidNode source_node then return false
                 if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then return false
+                if not ensureWallThicknessStackItemCurrent source_node edit_modifier then return false
                 forceSelectModeZero edit_modifier
-                edit_modifier.SetPrimaryNode source_node
                 sub_object_level = 0
                 case component_level of
                 (
@@ -444,7 +525,7 @@ struct WallThicknessPreprocess_v
                         default: return false
                 )
                 edit_modifier.SetEPolySelLevel component_level
-                subObjectLevel = sub_object_level
+                if subObjectLevel != sub_object_level then subObjectLevel = sub_object_level
                 old_selection = edit_modifier.GetSelection component_level node:source_node
                 if old_selection.numberSet > 0 then edit_modifier.Select component_level old_selection select:false
                 if component_bits != undefined and component_bits.numberSet > 0 then edit_modifier.Select component_level component_bits
@@ -1428,8 +1509,8 @@ function saveWallThicknessChangeMaterialIds enabled_value =
         -- return
 )
 /*
-Reads whether routine per-action Listener output is suppressed.
-QUIET defaults to disabled.
+Reads whether routine Wall Thickness Listener trace is suppressed.
+QUIET MODE defaults to disabled; required failure diagnostics remain visible.
 */
 function loadWallThicknessQuietMode =
 (
@@ -1473,7 +1554,9 @@ function loadWallThicknessControlValues =
                 wallThicknessRollout.spn_thickness.value = loadWallThicknessSetting()
                 wallThicknessRollout.spn_ratio.value = loadWallThicknessRatio()
                 wallThicknessRollout.chk_change_material_ids.checked = loadWallThicknessChangeMaterialIds()
-                wallThicknessRollout.chk_quiet.checked = loadWallThicknessQuietMode()
+                quiet_enabled = loadWallThicknessQuietMode()
+                wallThicknessRollout.chk_quiet.checked = quiet_enabled
+                setWallThicknessQuietMode quiet_enabled
         )
         true
         -- return
@@ -2271,7 +2354,7 @@ function resetWallThickness source_node =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 false
         )
         else
@@ -2829,7 +2912,7 @@ function resetWallThicknessXFormHard source_node =
                                 setUserProp source_node prop_name true
                         )
                         reset_succeeded = true
-                        format "Wall Thickness HARD RESET XFORM: % | RESET XFORM + COLLAPSE + RESET PIVOT complete\n" source_node.name
+                        if not isWallThicknessQuietMode() then format "Wall Thickness HARD RESET XFORM: % | RESET XFORM + COLLAPSE + RESET PIVOT complete\n" source_node.name
                 )
                 catch
                 (
@@ -2956,7 +3039,7 @@ function buildWallThicknessModifier source_node thickness change_material_ids:fa
                 if not modifier_prepared then
                 (
                         deleteModifier source_node edit_modifier
-                        messageBox "Unable to initialize WALL THICKNESS on the source wall." title:"Wall Thickness"
+                        showWallThicknessMessage "Unable to initialize WALL THICKNESS on the source wall."
                         undefined
                 )
                 else
@@ -3000,7 +3083,7 @@ function buildWallThicknessModifier source_node thickness change_material_ids:fa
                         if source_mesh == undefined then
                         (
                                 deleteModifier source_node edit_modifier
-                                messageBox "Unable to read source wall geometry." title:"Wall Thickness"
+                                showWallThicknessMessage "Unable to read source wall geometry."
                                 undefined
                         )
                         else
@@ -3012,7 +3095,7 @@ function buildWallThicknessModifier source_node thickness change_material_ids:fa
                                         format "Wall Thickness EXTRUDE SOURCE TOPOLOGY MISMATCH: Edit Poly verts % | snapshot verts % | Edit Poly polygons %\n" modifier_source_vert_count source_vert_count modifier_source_face_count
                                         deleteModifier source_node edit_modifier
                                         free source_mesh
-                                        messageBox "Source topology changed while creating thickness. WALL THICKNESS was not applied." title:"Wall Thickness"
+                                        showWallThicknessMessage "Source topology changed while creating thickness. WALL THICKNESS was not applied."
                                         undefined
                                 )
                                 else
@@ -3106,7 +3189,7 @@ function buildWallThicknessModifier source_node thickness change_material_ids:fa
                                 (
                                         deleteModifier source_node edit_modifier
                                         free source_mesh
-                                        messageBox "Unable to assign Wall Thickness Material IDs." title:"Wall Thickness"
+                                        showWallThicknessMessage "Unable to assign Wall Thickness Material IDs."
                                         return undefined
                                 )
                                 autoSmoothEditPolyResult edit_modifier source_node
@@ -3605,7 +3688,7 @@ function validateWallThicknessSTLChecks source_node show_messages pre_extrude =
 (
         if not isValidNode source_node then
         (
-                if show_messages then messageBox "Select exactly one wall object." title:"Wall Thickness"
+                if show_messages then showWallThicknessMessage "Select exactly one wall object."
                 #(false, "", -1)
         )
         else
@@ -3615,7 +3698,7 @@ function validateWallThicknessSTLChecks source_node show_messages pre_extrude =
                 stl_modifier = addWallThicknessSTLCheck source_node selection_type:test_types[1]
                 if stl_modifier == undefined then
                 (
-                        if show_messages then messageBox "Unable to add STL CHECK." title:"Wall Thickness"
+                        if show_messages then showWallThicknessMessage "Unable to add STL CHECK."
                         #(false, "STL Check unavailable", -1)
                 )
                 else
@@ -3665,11 +3748,11 @@ function validateWallThicknessSTLChecks source_node show_messages pre_extrude =
                                 (
                                         if pre_extrude then
                                         (
-                                                messageBox "PRE-EXTRUDE STL CHECK could not read the generated error selection. STL CHECK was kept for inspection." title:"Wall Thickness"
+                                                showWallThicknessMessage "PRE-EXTRUDE STL CHECK could not read the generated error selection. STL CHECK was kept for inspection."
                                         )
                                         else
                                         (
-                                                messageBox "STL CHECK could not read the generated error selection. The modifier was kept for inspection." title:"Wall Thickness"
+                                                showWallThicknessMessage "STL CHECK could not read the generated error selection. The modifier was kept for inspection."
                                         )
                                 )
                                 #(false, "Read failure", -1)
@@ -3690,11 +3773,11 @@ function validateWallThicknessSTLChecks source_node show_messages pre_extrude =
                                 (
                                         if pre_extrude then
                                         (
-                                                messageBox ("WALL THICKNESS was not created.\n\nSTL CHECK failed:\n" + failed_name + ": " + (failed_count as string) + " selected error faces.\n\nSTL CHECK was kept on the failing test.") title:"Wall Thickness"
+                                                showWallThicknessMessage ("WALL THICKNESS was not created.\n\nSTL CHECK failed:\n" + failed_name + ": " + (failed_count as string) + " selected error faces.\n\nSTL CHECK was kept on the failing test.")
                                         )
                                         else
                                         (
-                                                messageBox ("STL CHECK FAILED\n\n" + failed_name + ": " + (failed_count as string) + " selected error faces.\n\nThe STL Check modifier was kept on the failing test.") title:"Wall Thickness"
+                                                showWallThicknessMessage ("STL CHECK FAILED\n\n" + failed_name + ": " + (failed_count as string) + " selected error faces.\n\nThe STL Check modifier was kept on the failing test.")
                                         )
                                 )
                                 #(false, failed_name, failed_count)
@@ -3705,7 +3788,7 @@ function validateWallThicknessSTLChecks source_node show_messages pre_extrude =
                                 if not pre_extrude then
                                 (
                                         completeRedraw()
-                                        if show_messages then messageBox "WALL THICKNESS CHECK PASSED\n\nOpen Edge: PASS\nDouble Face: PASS\nSpike: PASS\nMultiple Edge: PASS" title:"Wall Thickness"
+                                        if show_messages then showWallThicknessMessage "WALL THICKNESS CHECK PASSED\n\nOpen Edge: PASS\nDouble Face: PASS\nSpike: PASS\nMultiple Edge: PASS"
                                 )
                                 #(true, "", 0)
                         )
@@ -4039,7 +4122,7 @@ function preprocessWallThicknessStep source_node step_number =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 false
         )
         else
@@ -4053,14 +4136,14 @@ function preprocessWallThicknessStep source_node step_number =
                 if step_data != undefined and step_data[1] then
                 (
                         wall_thickness_target = source_node
-                        format "Wall Thickness PREP %: PASS | %\n" (formattedPrint step_number format:"02d") step_data[2]
+                        if not isWallThicknessQuietMode() then format "Wall Thickness PREP %: PASS | %\n" (formattedPrint step_number format:"02d") step_data[2]
                         true
                 )
                 else
                 (
                         wall_thickness_target = undefined
                         failure_text = if step_data != undefined then step_data[2] else "PRE-PROCESS step failed"
-                        messageBox ("PRE-PROCESS " + (formattedPrint step_number format:"02d") + " stopped.\n\n" + failure_text + "\n\nThe stage remains visible in the modifier stack.") title:"Wall Thickness"
+                        showWallThicknessMessage ("PRE-PROCESS " + (formattedPrint step_number format:"02d") + " stopped.\n\n" + failure_text + "\n\nThe stage remains visible in the modifier stack.")
                         false
                 )
         )
@@ -4074,7 +4157,7 @@ function preprocessWallThicknessRemoveStep source_node step_number =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 false
         )
         else if step_number != 2 and step_number != 4 then
@@ -4118,7 +4201,7 @@ function preprocessWallThickness source_node =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 false
         )
         else
@@ -4131,14 +4214,14 @@ function preprocessWallThickness source_node =
                 if preprocess_data != undefined and preprocess_data[1] then
                 (
                         wall_thickness_target = source_node
-                        format "Wall Thickness PRE-PROCESS: PASS | %\n" preprocess_data[2]
+                        if not isWallThicknessQuietMode() then format "Wall Thickness PRE-PROCESS: PASS | %\n" preprocess_data[2]
                         true
                 )
                 else
                 (
                         wall_thickness_target = undefined
                         failure_text = if preprocess_data != undefined then preprocess_data[2] else "preprocessing failed"
-                        messageBox ("PRE-PROCESS stopped.\n\n" + failure_text + "\n\nThe preprocessing history remains visible in the modifier stack.") title:"Wall Thickness"
+                        showWallThicknessMessage ("PRE-PROCESS stopped.\n\n" + failure_text + "\n\nThe preprocessing history remains visible in the modifier stack.")
                         false
                 )
         )
@@ -4185,10 +4268,10 @@ function prepareWallThicknessV008Extrude source_node show_stl_messages:true =
                                 update source_node
                                 remaining_dead_struct_flags = polyop.GetHasDeadStructs source_node.baseObject
                                 compact_vertex_count = polyop.getNumVerts source_node.baseObject
-                                format "Wall Thickness EXTRUDE SOURCE COMPACT: dead flags % | vertex slots % -> % | remaining dead flags %\n" dead_struct_flags dead_vertex_slots_before compact_vertex_count remaining_dead_struct_flags
+                                if not isWallThicknessQuietMode() then format "Wall Thickness EXTRUDE SOURCE COMPACT: dead flags % | vertex slots % -> % | remaining dead flags %\n" dead_struct_flags dead_vertex_slots_before compact_vertex_count remaining_dead_struct_flags
                                 if remaining_dead_struct_flags != 0 then
                                 (
-                                        messageBox "Unable to compact dead Editable Poly elements before creating thickness. WALL THICKNESS was not applied." title:"Wall Thickness"
+                                        showWallThicknessMessage "Unable to compact dead Editable Poly elements before creating thickness. WALL THICKNESS was not applied."
                                         return false
                                 )
                         )
@@ -4214,12 +4297,12 @@ function applyWallThickness source_node thickness change_material_ids:false auto
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 false
         )
         else if thickness <= 0 then
         (
-                messageBox "Thickness must be greater than zero." title:"Wall Thickness"
+                showWallThicknessMessage "Thickness must be greater than zero."
                 false
         )
         else
@@ -4268,16 +4351,16 @@ function applyWallThickness source_node thickness change_material_ids:false auto
                         (
                                 if auto_fix_moved_vertex_count > 0 then
                                 (
-                                        format "Wall Thickness EXTRUDE / UPDATE: complete v0.08 builder | % | automatic FIX INNER CORNERS | bad edges % | corrected vertices %.\n" material_mode_text auto_fix_bad_edge_count auto_fix_moved_vertex_count
+                                        if not isWallThicknessQuietMode() then format "Wall Thickness EXTRUDE / UPDATE: complete v0.08 builder | % | automatic FIX INNER CORNERS | bad edges % | corrected vertices %.\n" material_mode_text auto_fix_bad_edge_count auto_fix_moved_vertex_count
                                 )
                                 else
                                 (
-                                        format "Wall Thickness EXTRUDE / UPDATE: complete v0.08 builder | % | automatic FIX INNER CORNERS check | no correction required.\n" material_mode_text
+                                        if not isWallThicknessQuietMode() then format "Wall Thickness EXTRUDE / UPDATE: complete v0.08 builder | % | automatic FIX INNER CORNERS check | no correction required.\n" material_mode_text
                                 )
                         )
                         else
                         (
-                                format "Wall Thickness EXTRUDE ONLY: complete v0.08 builder | % | raw extrusion | single WALL THICKNESS modifier only.\n" material_mode_text
+                                if not isWallThicknessQuietMode() then format "Wall Thickness EXTRUDE ONLY: complete v0.08 builder | % | raw extrusion | single WALL THICKNESS modifier only.\n" material_mode_text
                         )
                         true
                 )
@@ -4286,7 +4369,7 @@ function applyWallThickness source_node thickness change_material_ids:false auto
                         if auto_fix_inner and thickness_modifier != undefined then
                         (
                                 setObjectWallThicknessInnerFixEnabled source_node false
-                                messageBox "WALL THICKNESS was created, but automatic FIX INNER CORNERS failed. The raw extrusion remains available for manual inspection." title:"Wall Thickness"
+                                showWallThicknessMessage "WALL THICKNESS was created, but automatic FIX INNER CORNERS failed. The raw extrusion remains available for manual inspection."
                         )
                         false
                 )
@@ -4667,12 +4750,12 @@ function fixWallThicknessCornerMiters source_node corner_mode =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 #(false, 0, 0)
         )
         else if getWallThicknessModifier source_node == undefined then
         (
-                messageBox "Create WALL THICKNESS first." title:"Wall Thickness"
+                showWallThicknessMessage "Create WALL THICKNESS first."
                 #(false, 0, 0)
         )
         else
@@ -4680,7 +4763,7 @@ function fixWallThicknessCornerMiters source_node corner_mode =
                 saved_thickness = getUserProp source_node wall_thickness_user_prop
                 if saved_thickness == undefined then
                 (
-                        messageBox "This object has no WallThickness value. Run EXTRUDE / UPDATE first." title:"Wall Thickness"
+                        showWallThicknessMessage "This object has no WallThickness value. Run EXTRUDE / UPDATE first."
                         #(false, 0, 0)
                 )
                 else
@@ -4704,7 +4787,7 @@ function fixWallThicknessCornerMiters source_node corner_mode =
                         if source_mesh == undefined then
                         (
                                 if had_stl_modifier then addWallThicknessSTLCheck source_node
-                                messageBox "Unable to read the source topology below WALL THICKNESS." title:"Wall Thickness"
+                                showWallThicknessMessage "Unable to read the source topology below WALL THICKNESS."
                                 #(false, 0, 0)
                         )
                         else
@@ -4888,13 +4971,11 @@ function fixWallThicknessCornerMiters source_node corner_mode =
                                 (
                                         if is_inner then
                                         (
-                                                format "Wall Thickness FIX INNER CORNERS: sharp source edges % | matched inner edges % | moved vertices %.
-" sharp_edge_count matched_edge_count moved_vertex_count
+                                                if not isWallThicknessQuietMode() then format "Wall Thickness FIX INNER CORNERS: sharp source edges % | matched inner edges % | moved vertices %.\n" sharp_edge_count matched_edge_count moved_vertex_count
                                         )
                                         else
                                         (
-                                                format "Wall Thickness FIX OUTER CORNERS: sharp source edges % | matched safe outer edges % | moved vertices %.
-" sharp_edge_count matched_edge_count moved_vertex_count
+                                                if not isWallThicknessQuietMode() then format "Wall Thickness FIX OUTER CORNERS: sharp source edges % | matched safe outer edges % | moved vertices %.\n" sharp_edge_count matched_edge_count moved_vertex_count
                                         )
                                 )
                                 #(build_succeeded, matched_edge_count, moved_vertex_count)
@@ -5761,17 +5842,1063 @@ function fixWallThicknessResidualInnerFaces edit_modifier source_node collapse_r
         -- return
 )
 /*
-Loads the extracted FIX INNER CORNERS planning module from the current repository.
-The public planWallThicknessInnerCorners() function name and behavior remain unchanged.
+Embeds the FIX INNER CORNERS planner in the canonical entry script.
+The tool no longer requires Wall-Thickness-Inner-Corners.ms to exist beside the launcher.
 */
-wall_thickness_inner_corners_module_path = (getFilenamePath wall_thickness_source_file_path) + "Wall-Thickness-Inner-Corners.ms"
-if doesFileExist wall_thickness_inner_corners_module_path then
+/*
+Plans generated inner-corner border vertex targets from the evaluated WALL THICKNESS result.
+This is analysis-only: it snapshots and reads the modifier, but never collapses the stack and never writes geometry.
+*/
+function planWallThicknessInnerCorners source_node planned_targets_out =
 (
-        fileIn wall_thickness_inner_corners_module_path
-)
-else
-(
-        throw ("Missing Wall Thickness inner-corners module: " + wall_thickness_inner_corners_module_path)
+        if not isValidNode source_node then
+        (
+                showWallThicknessMessage "Select exactly one wall object."
+                #(false, 0, 0)
+        )
+        else
+        (
+                thickness_modifier = getWallThicknessModifier source_node
+                if thickness_modifier == undefined then
+                (
+                        showWallThicknessMessage "Create WALL THICKNESS first."
+                        #(false, 0, 0)
+                )
+                else
+                (
+                        removeWallThicknessInnerCornerWeldModifier source_node
+                        removeWallThicknessInnerCornerFixModifier source_node
+                        minimum_edge_length = units.decodeValue "100mm"
+                        tolerance = units.decodeValue "0.01mm"
+                        stack_xy_tolerance = units.decodeValue "1mm"
+                        protected_source_vertices = #{}
+                        moved_vertex_count = 0
+                        bad_edge_count = 0
+                        border_edges = #()
+                        build_succeeded = true
+                        candidate_targets = #()
+                        planned_generated_ids = #{}
+                        planned_targets = #()
+                        saved_selection = selection as array
+                        saved_sub_object_level = try (subObjectLevel) catch (0)
+                        saved_current_object = try (modPanel.getCurrentObject()) catch (undefined)
+                        live_vertex_count = 0
+                        face_count = 0
+                        source_vert_count = 0
+                        before_mesh = undefined
+                        after_mesh = undefined
+                        dump_started = startWallThicknessInnerCornerDump()
+                        if dump_started then
+                        (
+                                logWallThicknessInnerCornerDump #("FIX INNER CORNERS START", wall_thickness_file_version, source_node.name, wall_thickness_inner_dump_file)
+                                logWallThicknessInnerCornerDump #("THRESHOLDS", minimum_edge_length, tolerance, stack_xy_tolerance)
+                                logWallThicknessInnerCornerDump #("NODE OBJECT TRANSFORM", source_node.objectTransform)
+                                logWallThicknessInnerCornerDump #("WALL THICKNESS", getObjectWallThickness source_node)
+                        )
+                        else
+                        (
+                                format "FIX INNER CORNERS DUMP ERROR: file logging is unavailable for this run.\n"
+                        )
+                        try
+                        (
+                                /*
+                                Read the evaluated WALL THICKNESS result before baking it.
+                                */
+                                select source_node
+                                update source_node
+                                before_mesh = snapshotAsMesh source_node
+                                if before_mesh == undefined then throw "could not snapshot WALL THICKNESS result"
+                                live_vertex_count = meshop.getNumVerts before_mesh
+                                initial_live_vertex_count = live_vertex_count
+                                initial_triangle_count = meshop.getNumFaces before_mesh
+                                face_count = thickness_modifier.GetNumFaces node:source_node
+                                if live_vertex_count <= 0 then throw "WALL THICKNESS result returned zero live vertices"
+                                if face_count <= 0 then throw "WALL THICKNESS modifier returned zero polygon faces"
+                                original_vertex_positions = for vertex_id = 1 to live_vertex_count collect (getVert before_mesh vertex_id)
+                                stored_source_vert_count = getUserProp source_node wall_thickness_source_vert_count_prop
+                                stored_source_face_count = getUserProp source_node wall_thickness_source_face_count_prop
+                                source_vert_count = 0
+                                source_face_count = 0
+                                if stored_source_vert_count != undefined then
+                                (
+                                        source_vert_count = stored_source_vert_count as integer
+                                )
+                                if stored_source_face_count != undefined then
+                                (
+                                        source_face_count = stored_source_face_count as integer
+                                )
+                                if source_vert_count > 0 and source_vert_count < live_vertex_count then
+                                (
+                                        source_face_ids = #{}
+                                        if source_face_count > 0 and source_face_count <= face_count then
+                                        (
+                                                source_face_ids = #{1..source_face_count}
+                                        )
+                                        else
+                                        (
+                                                for face_id = 1 to face_count do
+                                                (
+                                                        face_degree = EditPolyMod.GetFaceDegree thickness_modifier face_id node:source_node
+                                                        if face_degree >= 3 then
+                                                        (
+                                                                source_only_face = true
+                                                                for corner_id = 1 to face_degree while source_only_face do
+                                                                (
+                                                                        face_vertex_id = EditPolyMod.GetFaceVertex thickness_modifier face_id corner_id node:source_node
+                                                                        if face_vertex_id < 1 or face_vertex_id > source_vert_count then
+                                                                        (
+                                                                                source_only_face = false
+                                                                        )
+                                                                )
+                                                                if source_only_face then
+                                                                (
+                                                                        source_face_ids[face_id] = true
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        source_face_use_counts = for source_id = 1 to source_vert_count collect 0
+                                        for source_face_id in source_face_ids do
+                                        (
+                                                source_face_degree = EditPolyMod.GetFaceDegree thickness_modifier source_face_id node:source_node
+                                                for source_corner_id = 1 to source_face_degree do
+                                                (
+                                                        source_face_vertex_id = EditPolyMod.GetFaceVertex thickness_modifier source_face_id source_corner_id node:source_node
+                                                        if source_face_vertex_id >= 1 and source_face_vertex_id <= source_vert_count then
+                                                        (
+                                                                source_face_use_counts[source_face_vertex_id] += 1
+                                                        )
+                                                )
+                                        )
+                                        edge_count = EditPolyMod.GetNumEdges thickness_modifier node:source_node
+                                        border_neighbors = for vertex_id = 1 to source_vert_count collect #()
+                                        /*
+                                        WALL THICKNESS creates one generated vertex for every source vertex.
+                                        Generated vertex IDs therefore map directly as source_id + source_vert_count.
+                                        */
+                                        for edge_id = 1 to edge_count do
+                                        (
+                                                source_a = EditPolyMod.GetEdgeVertex thickness_modifier edge_id 1 node:source_node
+                                                source_b = EditPolyMod.GetEdgeVertex thickness_modifier edge_id 2 node:source_node
+                                                if source_a >= 1 and source_a <= source_vert_count and source_b >= 1 and source_b <= source_vert_count then
+                                                (
+                                                        adjacent_face_a = 0
+                                                        adjacent_face_b = 0
+                                                        try (adjacent_face_a = EditPolyMod.GetEdgeFace thickness_modifier edge_id 1 node:source_node) catch ()
+                                                        try (adjacent_face_b = EditPolyMod.GetEdgeFace thickness_modifier edge_id 2 node:source_node) catch ()
+                                                        source_face_use_count = 0
+                                                        if adjacent_face_a > 0 and source_face_ids[adjacent_face_a] then source_face_use_count += 1
+                                                        if adjacent_face_b > 0 and source_face_ids[adjacent_face_b] then source_face_use_count += 1
+                                                        if source_face_use_count == 1 then
+                                                        (
+                                                                generated_a = source_a + source_vert_count
+                                                                generated_b = source_b + source_vert_count
+                                                                if generated_a <= live_vertex_count and generated_b <= live_vertex_count then
+                                                                (
+                                                                        append border_edges #(source_a, source_b, generated_a, generated_b)
+                                                                        if (findItem border_neighbors[source_a] source_b) == 0 then append border_neighbors[source_a] source_b
+                                                                        if (findItem border_neighbors[source_b] source_a) == 0 then append border_neighbors[source_b] source_a
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        logWallThicknessInnerCornerDump #("SOURCE TOPOLOGY", source_vert_count, source_face_count, live_vertex_count, face_count, border_edges.count, source_face_ids)
+                                        for dump_source_id = 1 to source_vert_count do
+                                        (
+                                                dump_source_position = EditPolyMod.GetVertex thickness_modifier dump_source_id node:source_node
+                                                dump_generated_id = dump_source_id + source_vert_count
+                                                dump_generated_position = undefined
+                                                if dump_generated_id <= live_vertex_count then
+                                                (
+                                                        dump_generated_position = EditPolyMod.GetVertex thickness_modifier dump_generated_id node:source_node
+                                                )
+                                                if not loadWallThicknessQuietMode() then
+                                                (
+                                                        logWallThicknessInnerCornerDump #("SOURCE VERTEX", dump_source_id, dump_source_position, source_face_use_counts[dump_source_id], border_neighbors[dump_source_id], dump_generated_id, dump_generated_position)
+                                                )
+                                        )
+                                        /*
+                                        Protect true wall endings automatically.
+                                        Group source vertices by plan XY, then count unique horizontal border-neighbor stacks.
+                                        A source XY stack with one or zero plan neighbors is a wall ending and must never move.
+                                        */
+                                        processed_ending_source_vertices = #{}
+                                        for source_id = 1 to source_vert_count do
+                                        (
+                                                if not processed_ending_source_vertices[source_id] then
+                                                (
+                                                        source_position = EditPolyMod.GetVertex thickness_modifier source_id node:source_node
+                                                        ending_stack_source_ids = #()
+                                                        if source_position != undefined then
+                                                        (
+                                                                for compare_source_id = 1 to source_vert_count do
+                                                                (
+                                                                        compare_source_position = EditPolyMod.GetVertex thickness_modifier compare_source_id node:source_node
+                                                                        if compare_source_position != undefined then
+                                                                        (
+                                                                                same_source_x = abs (compare_source_position.x - source_position.x) <= stack_xy_tolerance
+                                                                                same_source_y = abs (compare_source_position.y - source_position.y) <= stack_xy_tolerance
+                                                                                if same_source_x and same_source_y then
+                                                                                (
+                                                                                        append ending_stack_source_ids compare_source_id
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                        ending_neighbor_positions = #()
+                                                        for stack_source_id in ending_stack_source_ids do
+                                                        (
+                                                                processed_ending_source_vertices[stack_source_id] = true
+                                                                stack_source_position = EditPolyMod.GetVertex thickness_modifier stack_source_id node:source_node
+                                                                if stack_source_position != undefined then
+                                                                (
+                                                                        for neighbor_source_id in border_neighbors[stack_source_id] do
+                                                                        (
+                                                                                neighbor_source_position = EditPolyMod.GetVertex thickness_modifier neighbor_source_id node:source_node
+                                                                                if neighbor_source_position != undefined then
+                                                                                (
+                                                                                        plan_delta = [neighbor_source_position.x - stack_source_position.x, neighbor_source_position.y - stack_source_position.y, 0]
+                                                                                        if length plan_delta > tolerance then
+                                                                                        (
+                                                                                                neighbor_position_exists = false
+                                                                                                for known_neighbor_position in ending_neighbor_positions while not neighbor_position_exists do
+                                                                                                (
+                                                                                                        same_neighbor_x = abs (known_neighbor_position.x - neighbor_source_position.x) <= stack_xy_tolerance
+                                                                                                        same_neighbor_y = abs (known_neighbor_position.y - neighbor_source_position.y) <= stack_xy_tolerance
+                                                                                                        if same_neighbor_x and same_neighbor_y then
+                                                                                                        (
+                                                                                                                neighbor_position_exists = true
+                                                                                                        )
+                                                                                                )
+                                                                                                if not neighbor_position_exists then
+                                                                                                (
+                                                                                                        append ending_neighbor_positions neighbor_source_position
+                                                                                                )
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                        if ending_stack_source_ids.count > 0 and ending_neighbor_positions.count <= 1 then
+                                                        (
+                                                                for stack_source_id in ending_stack_source_ids do
+                                                                (
+                                                                        protected_source_vertices[stack_source_id] = true
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        logWallThicknessInnerCornerDump #("PROTECTED SOURCE VERTICES", protected_source_vertices)
+                                        /*
+                                        A sharp wall-plan corner has two non-vertical source-border neighbors.
+                                        End-cap vertices with one horizontal plus one vertical border edge are ignored.
+                                        */
+                                        sharp_source_vertices = #{}
+                                        for vertex_id = 1 to source_vert_count do
+                                        (
+                                                center_position = EditPolyMod.GetVertex thickness_modifier vertex_id node:source_node
+                                                horizontal_neighbors = #()
+                                                if center_position != undefined then
+                                                (
+                                                        for neighbor_id in border_neighbors[vertex_id] do
+                                                        (
+                                                                neighbor_position = EditPolyMod.GetVertex thickness_modifier neighbor_id node:source_node
+                                                                if neighbor_position != undefined then
+                                                                (
+                                                                        plan_delta = [neighbor_position.x - center_position.x, neighbor_position.y - center_position.y, 0]
+                                                                        if length plan_delta > tolerance then
+                                                                        (
+                                                                                append horizontal_neighbors neighbor_id
+                                                                        )
+                                                                )
+                                                        )
+                                                )
+                                                if horizontal_neighbors.count == 2 then
+                                                (
+                                                        neighbor_a_position = EditPolyMod.GetVertex thickness_modifier horizontal_neighbors[1] node:source_node
+                                                        neighbor_b_position = EditPolyMod.GetVertex thickness_modifier horizontal_neighbors[2] node:source_node
+                                                        direction_a = [neighbor_a_position.x - center_position.x, neighbor_a_position.y - center_position.y, 0]
+                                                        direction_b = [neighbor_b_position.x - center_position.x, neighbor_b_position.y - center_position.y, 0]
+                                                        if length direction_a > tolerance and length direction_b > tolerance then
+                                                        (
+                                                                direction_a = normalize direction_a
+                                                                direction_b = normalize direction_b
+                                                                if (dot direction_a direction_b) > -0.9999 then
+                                                                (
+                                                                        sharp_source_vertices[vertex_id] = true
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        logWallThicknessInnerCornerDump #("SHARP SOURCE VERTICES", sharp_source_vertices)
+                                        bad_edges = #()
+                                        /*
+                                        A repair is valid only when exactly one endpoint belongs to a sharp source-wall corner.
+                                        That endpoint is the fixed generated intersection. The opposite generated endpoint is the only vertex allowed to move.
+                                        */
+                                        for edge_data in border_edges do
+                                        (
+                                                source_a = edge_data[1]
+                                                source_b = edge_data[2]
+                                                generated_a = edge_data[3]
+                                                generated_b = edge_data[4]
+                                                sharp_a = sharp_source_vertices[source_a]
+                                                sharp_b = sharp_source_vertices[source_b]
+                                                if sharp_a != sharp_b then
+                                                (
+                                                        if sharp_a then
+                                                        (
+                                                                anchor_source_id = source_a
+                                                                remote_source_id = source_b
+                                                                anchor_generated_id = generated_a
+                                                                remote_generated_id = generated_b
+                                                        )
+                                                        else
+                                                        (
+                                                                anchor_source_id = source_b
+                                                                remote_source_id = source_a
+                                                                anchor_generated_id = generated_b
+                                                                remote_generated_id = generated_a
+                                                        )
+                                                        anchor_source_position = EditPolyMod.GetVertex thickness_modifier anchor_source_id node:source_node
+                                                        remote_source_position = EditPolyMod.GetVertex thickness_modifier remote_source_id node:source_node
+                                                        anchor_generated_position = EditPolyMod.GetVertex thickness_modifier anchor_generated_id node:source_node
+                                                        remote_generated_position = EditPolyMod.GetVertex thickness_modifier remote_generated_id node:source_node
+                                                        if anchor_source_position != undefined and remote_source_position != undefined and anchor_generated_position != undefined and remote_generated_position != undefined then
+                                                        (
+                                                                source_direction = [remote_source_position.x - anchor_source_position.x, remote_source_position.y - anchor_source_position.y, 0]
+                                                                source_length = length source_direction
+                                                                if source_length > tolerance then
+                                                                (
+                                                                        source_direction = source_direction / source_length
+                                                                        generated_delta = [remote_generated_position.x - anchor_generated_position.x, remote_generated_position.y - anchor_generated_position.y, 0]
+                                                                        generated_projection = dot generated_delta source_direction
+                                                                        projected_delta = source_direction * generated_projection
+                                                                        cross_track_distance = length (generated_delta - projected_delta)
+                                                                        reversed_edge = generated_projection <= tolerance
+                                                                        short_edge = generated_projection < (minimum_edge_length - tolerance)
+                                                                        crossed_edge = cross_track_distance > tolerance and generated_projection < minimum_edge_length
+                                                                        logWallThicknessInnerCornerDump #("BAD EDGE TEST", anchor_source_id, remote_source_id, anchor_generated_id, remote_generated_id, source_length, generated_projection, cross_track_distance, reversed_edge, crossed_edge, short_edge, protected_source_vertices[remote_source_id], ((reversed_edge or crossed_edge or short_edge) and not protected_source_vertices[remote_source_id]))
+                                                                        if (reversed_edge or crossed_edge or short_edge) and not protected_source_vertices[remote_source_id] then
+                                                                        (
+                                                                                append bad_edges #(anchor_source_id, remote_source_id, anchor_generated_id, remote_generated_id)
+                                                                        )
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        bad_edge_count = bad_edges.count
+                                        logWallThicknessInnerCornerDump #("BAD EDGES", bad_edge_count, bad_edges)
+                                        object_tm = source_node.objectTransform
+                                        /*
+                                        Build exact-position candidates first.
+                                        T-junction stacks can be reachable from more than one fixed corner,
+                                        so candidate resolution happens per source-XY stack instead of first-match wins.
+                                        */
+                                        for bad_edge_data in bad_edges do
+                                        (
+                                                anchor_source_id = bad_edge_data[1]
+                                                remote_source_id = bad_edge_data[2]
+                                                anchor_generated_id = bad_edge_data[3]
+                                                remote_generated_id = bad_edge_data[4]
+                                                anchor_source_position = EditPolyMod.GetVertex thickness_modifier anchor_source_id node:source_node
+                                                remote_source_position = EditPolyMod.GetVertex thickness_modifier remote_source_id node:source_node
+                                                fixed_corner_position = EditPolyMod.GetVertex thickness_modifier anchor_generated_id node:source_node
+                                                remote_generated_position = EditPolyMod.GetVertex thickness_modifier remote_generated_id node:source_node
+                                                if anchor_source_position != undefined and remote_source_position != undefined and fixed_corner_position != undefined and remote_generated_position != undefined then
+                                                (
+                                                        allow_candidate = true
+                                                        remote_stack_source_ids = #()
+                                                        for stack_source_id = 1 to source_vert_count do
+                                                        (
+                                                                stack_source_position = EditPolyMod.GetVertex thickness_modifier stack_source_id node:source_node
+                                                                if stack_source_position != undefined then
+                                                                (
+                                                                        same_source_x = abs (stack_source_position.x - remote_source_position.x) <= stack_xy_tolerance
+                                                                        same_source_y = abs (stack_source_position.y - remote_source_position.y) <= stack_xy_tolerance
+                                                                        if same_source_x and same_source_y then
+                                                                        (
+                                                                                append remote_stack_source_ids stack_source_id
+                                                                        )
+                                                                )
+                                                        )
+                                                        logWallThicknessInnerCornerDump #("CANDIDATE REMOTE STACK", anchor_source_id, remote_source_id, remote_stack_source_ids)
+                                                        /*
+                                                        Preserve the lower boundary member of the same vertical opening stack for any number of stacked loop levels.
+                                                        The stable two-level rule is unchanged; extra directly connected levels only extend the stack searched for its lowest endpoint.
+                                                        */
+                                                        if remote_stack_source_ids.count >= 2 then
+                                                        (
+                                                                lower_stack_source_id = 0
+                                                                lower_stack_position = undefined
+                                                                for stack_source_id in remote_stack_source_ids do
+                                                                (
+                                                                        stack_source_position = EditPolyMod.GetVertex thickness_modifier stack_source_id node:source_node
+                                                                        if stack_source_position != undefined then
+                                                                        (
+                                                                                if lower_stack_position == undefined or stack_source_position.z < lower_stack_position.z then
+                                                                                (
+                                                                                        lower_stack_source_id = stack_source_id
+                                                                                        lower_stack_position = stack_source_position
+                                                                                )
+                                                                        )
+                                                                )
+                                                                lower_stack_has_connected_neighbor = false
+                                                                if lower_stack_source_id > 0 then
+                                                                (
+                                                                        for stack_source_id in remote_stack_source_ids while not lower_stack_has_connected_neighbor do
+                                                                        (
+                                                                                if stack_source_id != lower_stack_source_id and (findItem border_neighbors[lower_stack_source_id] stack_source_id) > 0 then
+                                                                                (
+                                                                                        lower_stack_has_connected_neighbor = true
+                                                                                )
+                                                                        )
+                                                                )
+                                                                if lower_stack_has_connected_neighbor and remote_source_id == lower_stack_source_id then
+                                                                (
+                                                                        allow_candidate = false
+                                                                        logWallThicknessInnerCornerDump #("CANDIDATE REJECT LOWER STACK", anchor_source_id, remote_source_id, remote_stack_source_ids, lower_stack_source_id)
+                                                                )
+                                                        )
+                                                        if allow_candidate then
+                                                        (
+                                                                source_direction = [remote_source_position.x - anchor_source_position.x, remote_source_position.y - anchor_source_position.y, 0]
+                                                                source_length = length source_direction
+                                                                if source_length > tolerance then
+                                                                (
+                                                                        source_direction = source_direction / source_length
+                                                                        target_xy_position = fixed_corner_position + (source_direction * minimum_edge_length)
+                                                                        target_local_position = [target_xy_position.x, target_xy_position.y, remote_generated_position.z]
+                                                                        candidate_move_distance = distance remote_generated_position target_local_position
+                                                                        append candidate_targets #(
+                                                                                anchor_source_id,
+                                                                                remote_source_id,
+                                                                                anchor_generated_id,
+                                                                                remote_generated_id,
+                                                                                target_xy_position,
+                                                                                candidate_move_distance,
+                                                                                fixed_corner_position
+                                                                        )
+                                                                        logWallThicknessInnerCornerDump #("CANDIDATE TARGET", anchor_source_id, remote_source_id, anchor_generated_id, remote_generated_id, target_xy_position, candidate_move_distance, fixed_corner_position)
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        logWallThicknessInnerCornerDump #("CANDIDATE TARGETS", candidate_targets)
+                                        /*
+                                        Resolve every remote source-XY stack once.
+                                        When several corners propose targets for the same stack, keep the target
+                                        that requires the smallest move from the current generated position.
+                                        */
+                                        resolved_source_vertices = #{}
+                                        for candidate_id = 1 to candidate_targets.count do
+                                        (
+                                                candidate_data = candidate_targets[candidate_id]
+                                                candidate_remote_source_id = candidate_data[2]
+                                                if not resolved_source_vertices[candidate_remote_source_id] then
+                                                (
+                                                        candidate_remote_source_position = EditPolyMod.GetVertex thickness_modifier candidate_remote_source_id node:source_node
+                                                        best_candidate_data = undefined
+                                                        best_candidate_move_distance = 1.0e30
+                                                        matching_source_ids = #()
+                                                        if candidate_remote_source_position != undefined then
+                                                        (
+                                                                for stack_source_id = 1 to source_vert_count do
+                                                                (
+                                                                        stack_source_position = EditPolyMod.GetVertex thickness_modifier stack_source_id node:source_node
+                                                                        if stack_source_position != undefined then
+                                                                        (
+                                                                                same_source_x = abs (stack_source_position.x - candidate_remote_source_position.x) <= stack_xy_tolerance
+                                                                                same_source_y = abs (stack_source_position.y - candidate_remote_source_position.y) <= stack_xy_tolerance
+                                                                                if same_source_x and same_source_y then
+                                                                                (
+                                                                                        append matching_source_ids stack_source_id
+                                                                                        resolved_source_vertices[stack_source_id] = true
+                                                                                )
+                                                                        )
+                                                                )
+                                                                for compare_candidate_data in candidate_targets do
+                                                                (
+                                                                        compare_remote_source_id = compare_candidate_data[2]
+                                                                        compare_remote_source_position = EditPolyMod.GetVertex thickness_modifier compare_remote_source_id node:source_node
+                                                                        if compare_remote_source_position != undefined then
+                                                                        (
+                                                                                same_candidate_x = abs (compare_remote_source_position.x - candidate_remote_source_position.x) <= stack_xy_tolerance
+                                                                                same_candidate_y = abs (compare_remote_source_position.y - candidate_remote_source_position.y) <= stack_xy_tolerance
+                                                                                if same_candidate_x and same_candidate_y and compare_candidate_data[6] < best_candidate_move_distance then
+                                                                                (
+                                                                                        best_candidate_move_distance = compare_candidate_data[6]
+                                                                                        best_candidate_data = compare_candidate_data
+                                                                                )
+                                                                        )
+                                                                )
+                                                                if best_candidate_data != undefined then
+                                                                (
+                                                                        anchor_source_id = best_candidate_data[1]
+                                                                        remote_source_id = best_candidate_data[2]
+                                                                        anchor_generated_id = best_candidate_data[3]
+                                                                        target_xy_position = best_candidate_data[5]
+                                                                        fixed_corner_position = best_candidate_data[7]
+                                                                        for stack_source_id in matching_source_ids do
+                                                                        (
+                                                                                stack_generated_id = stack_source_id + source_vert_count
+                                                                                if stack_generated_id <= live_vertex_count and not planned_generated_ids[stack_generated_id] then
+                                                                                (
+                                                                                        stack_generated_position = EditPolyMod.GetVertex thickness_modifier stack_generated_id node:source_node
+                                                                                        if stack_generated_position != undefined then
+                                                                                        (
+                                                                                                target_local_position = [target_xy_position.x, target_xy_position.y, stack_generated_position.z]
+                                                                                                if distance stack_generated_position target_local_position > tolerance then
+                                                                                                (
+                                                                                                        planned_generated_ids[stack_generated_id] = true
+                                                                                                        append planned_targets #(stack_generated_id, target_local_position, stack_generated_position, anchor_generated_id, fixed_corner_position)
+                                                                                                        if not isWallThicknessQuietMode() then format "FIX INNER CORNERS PLAN STACK V%: % -> % | anchor source V% | remote source stack V%\n" stack_generated_id stack_generated_position target_local_position anchor_source_id remote_source_id
+                                                                                                        logWallThicknessInnerCornerDump #("PLAN STACK", stack_generated_id, stack_generated_position, target_local_position, anchor_source_id, remote_source_id, anchor_generated_id, fixed_corner_position)
+                                                                                                )
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        logWallThicknessInnerCornerDump #("PLANNED TARGETS AFTER CANDIDATE RESOLUTION", planned_targets)
+                                        /*
+                                        Only near-vertical source edges may use the vertical-stack compatibility alignment.
+                                        Real horizontal near-loop corner repairs must keep their exact 100 mm planned targets;
+                                        otherwise this alignment would overwrite the actual FIX INNER CORNERS repair.
+                                        */
+                                        vertical_stack_alignment_sources = #{}
+                                        for candidate_data in candidate_targets do
+                                        (
+                                                candidate_anchor_source_id = candidate_data[1]
+                                                candidate_remote_source_id = candidate_data[2]
+                                                candidate_anchor_source_position = EditPolyMod.GetVertex thickness_modifier candidate_anchor_source_id node:source_node
+                                                candidate_remote_source_position = EditPolyMod.GetVertex thickness_modifier candidate_remote_source_id node:source_node
+                                                if candidate_anchor_source_position != undefined and candidate_remote_source_position != undefined then
+                                                (
+                                                        candidate_source_plan_delta = [candidate_remote_source_position.x - candidate_anchor_source_position.x, candidate_remote_source_position.y - candidate_anchor_source_position.y, 0]
+                                                        if length candidate_source_plan_delta <= stack_xy_tolerance then
+                                                        (
+                                                                vertical_stack_alignment_sources[candidate_anchor_source_id] = true
+                                                                vertical_stack_alignment_sources[candidate_remote_source_id] = true
+                                                        )
+                                                )
+                                        )
+                                        processed_vertical_stack_sources = #{}
+                                        for source_id = 1 to source_vert_count do
+                                        (
+                                                if not processed_vertical_stack_sources[source_id] then
+                                                (
+                                                        source_position = EditPolyMod.GetVertex thickness_modifier source_id node:source_node
+                                                        vertical_stack_source_ids = #()
+                                                        if source_position != undefined then
+                                                        (
+                                                                for compare_source_id = 1 to source_vert_count do
+                                                                (
+                                                                        compare_source_position = EditPolyMod.GetVertex thickness_modifier compare_source_id node:source_node
+                                                                        if compare_source_position != undefined then
+                                                                        (
+                                                                                same_source_x = abs (compare_source_position.x - source_position.x) <= stack_xy_tolerance
+                                                                                same_source_y = abs (compare_source_position.y - source_position.y) <= stack_xy_tolerance
+                                                                                if same_source_x and same_source_y then
+                                                                                (
+                                                                                        append vertical_stack_source_ids compare_source_id
+                                                                                        processed_vertical_stack_sources[compare_source_id] = true
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                        align_vertical_stack = false
+                                                        for stack_source_id in vertical_stack_source_ids while not align_vertical_stack do
+                                                        (
+                                                                if vertical_stack_alignment_sources[stack_source_id] then
+                                                                (
+                                                                        align_vertical_stack = true
+                                                                )
+                                                        )
+                                                        logWallThicknessInnerCornerDump #("VERTICAL STACK GROUP", source_id, vertical_stack_source_ids, align_vertical_stack)
+                                                        /*
+                                                        A 3+/2/1 source-face vertical corner stack can inherit only one face offset on the shared generated corner.
+                                                        Rebuild that corner XY from the intersection of the two neighboring generated border lines.
+                                                        This is topology-driven and rotation-invariant: it does not choose a stack anchor from local Z order.
+                                                        */
+                                                        special_stack_intersection_repair = false
+                                                        special_stack_intersection_target = undefined
+                                                        special_stack_corner_source_id = 0
+                                                        if vertical_stack_source_ids.count >= 3 then
+                                                        (
+                                                                has_three_face_member = false
+                                                                has_one_face_member = false
+                                                                for stack_source_id in vertical_stack_source_ids do
+                                                                (
+                                                                        if source_face_use_counts[stack_source_id] >= 3 then has_three_face_member = true
+                                                                        if source_face_use_counts[stack_source_id] == 1 then has_one_face_member = true
+                                                                )
+                                                                if has_three_face_member and has_one_face_member then
+                                                                (
+                                                                        for stack_source_id in vertical_stack_source_ids while not special_stack_intersection_repair do
+                                                                        (
+                                                                                if source_face_use_counts[stack_source_id] == 2 and sharp_source_vertices[stack_source_id] then
+                                                                                (
+                                                                                        stack_corner_source_position = EditPolyMod.GetVertex thickness_modifier stack_source_id node:source_node
+                                                                                        stack_corner_horizontal_neighbors = #()
+                                                                                        if stack_corner_source_position != undefined then
+                                                                                        (
+                                                                                                for neighbor_source_id in border_neighbors[stack_source_id] do
+                                                                                                (
+                                                                                                        neighbor_source_position = EditPolyMod.GetVertex thickness_modifier neighbor_source_id node:source_node
+                                                                                                        if neighbor_source_position != undefined then
+                                                                                                        (
+                                                                                                                neighbor_plan_delta = [neighbor_source_position.x - stack_corner_source_position.x, neighbor_source_position.y - stack_corner_source_position.y, 0]
+                                                                                                                if length neighbor_plan_delta > tolerance then append stack_corner_horizontal_neighbors neighbor_source_id
+                                                                                                        )
+                                                                                                )
+                                                                                        )
+                                                                                        if stack_corner_horizontal_neighbors.count == 2 then
+                                                                                        (
+                                                                                                neighbor_source_a = stack_corner_horizontal_neighbors[1]
+                                                                                                neighbor_source_b = stack_corner_horizontal_neighbors[2]
+                                                                                                neighbor_generated_a = neighbor_source_a + source_vert_count
+                                                                                                neighbor_generated_b = neighbor_source_b + source_vert_count
+                                                                                                stack_corner_generated_id = stack_source_id + source_vert_count
+                                                                                                if neighbor_generated_a <= live_vertex_count and neighbor_generated_b <= live_vertex_count and stack_corner_generated_id <= live_vertex_count then
+                                                                                                (
+                                                                                                        neighbor_source_position_a = EditPolyMod.GetVertex thickness_modifier neighbor_source_a node:source_node
+                                                                                                        neighbor_source_position_b = EditPolyMod.GetVertex thickness_modifier neighbor_source_b node:source_node
+                                                                                                        neighbor_generated_position_a = EditPolyMod.GetVertex thickness_modifier neighbor_generated_a node:source_node
+                                                                                                        neighbor_generated_position_b = EditPolyMod.GetVertex thickness_modifier neighbor_generated_b node:source_node
+                                                                                                        stack_corner_generated_position = EditPolyMod.GetVertex thickness_modifier stack_corner_generated_id node:source_node
+                                                                                                        if neighbor_source_position_a != undefined and neighbor_source_position_b != undefined and neighbor_generated_position_a != undefined and neighbor_generated_position_b != undefined and stack_corner_generated_position != undefined then
+                                                                                                        (
+                                                                                                                neighbor_direction_a = [neighbor_source_position_a.x - stack_corner_source_position.x, neighbor_source_position_a.y - stack_corner_source_position.y, 0]
+                                                                                                                neighbor_direction_b = [neighbor_source_position_b.x - stack_corner_source_position.x, neighbor_source_position_b.y - stack_corner_source_position.y, 0]
+                                                                                                                if length neighbor_direction_a > tolerance and length neighbor_direction_b > tolerance then
+                                                                                                                (
+                                                                                                                        line_end_a = neighbor_generated_position_a + neighbor_direction_a
+                                                                                                                        line_end_b = neighbor_generated_position_b + neighbor_direction_b
+                                                                                                                        special_stack_intersection_target = getWallThicknessLineIntersectionXY neighbor_generated_position_a line_end_a neighbor_generated_position_b line_end_b stack_corner_generated_position.z tolerance:tolerance
+                                                                                                                        if special_stack_intersection_target != undefined then
+                                                                                                                        (
+                                                                                                                                special_stack_intersection_repair = true
+                                                                                                                                special_stack_corner_source_id = stack_source_id
+                                                                                                                        )
+                                                                                                                )
+                                                                                                        )
+                                                                                                )
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                        if special_stack_intersection_repair then
+                                                        (
+                                                                for stack_source_id in vertical_stack_source_ids do
+                                                                (
+                                                                        stack_generated_id = stack_source_id + source_vert_count
+                                                                        if stack_generated_id <= live_vertex_count then
+                                                                        (
+                                                                                stack_generated_position = EditPolyMod.GetVertex thickness_modifier stack_generated_id node:source_node
+                                                                                if stack_generated_position != undefined then
+                                                                                (
+                                                                                        stack_intersection_target = [special_stack_intersection_target.x, special_stack_intersection_target.y, stack_generated_position.z]
+                                                                                        if distance stack_generated_position stack_intersection_target > tolerance then
+                                                                                        (
+                                                                                                target_updated = false
+                                                                                                for target_id = 1 to planned_targets.count while not target_updated do
+                                                                                                (
+                                                                                                        if planned_targets[target_id][1] == stack_generated_id then
+                                                                                                        (
+                                                                                                                planned_targets[target_id][2] = stack_intersection_target
+                                                                                                                planned_targets[target_id][4] = special_stack_corner_source_id + source_vert_count
+                                                                                                                planned_targets[target_id][5] = special_stack_intersection_target
+                                                                                                                target_updated = true
+                                                                                                        )
+                                                                                                )
+                                                                                                if not target_updated then
+                                                                                                (
+                                                                                                        planned_generated_ids[stack_generated_id] = true
+                                                                                                        append planned_targets #(stack_generated_id, stack_intersection_target, stack_generated_position, special_stack_corner_source_id + source_vert_count, special_stack_intersection_target)
+                                                                                                )
+                                                                                                planned_generated_ids[stack_generated_id] = true
+                                                                                                if not isWallThicknessQuietMode() then format "FIX INNER CORNERS ALIGN ROTATION-INVARIANT STACK V%: % -> % | corner source V%\n" stack_generated_id stack_generated_position stack_intersection_target special_stack_corner_source_id
+                                                                                                logWallThicknessInnerCornerDump #("ALIGN ROTATION-INVARIANT STACK", stack_source_id, stack_generated_id, stack_generated_position, stack_intersection_target, special_stack_corner_source_id, special_stack_intersection_target)
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                        /*
+                                                        Exact 3+ member vertical T stacks must not depend on tiny XY drift to enter candidate resolution.
+                                                        Continuing source members establish the generated corner XY; only terminal one-face members are aligned to it, preserving Z.
+                                                        */
+                                                        if vertical_stack_source_ids.count >= 3 then
+                                                        (
+                                                                exact_vertical_stack = true
+                                                                stack_reference_source_position = EditPolyMod.GetVertex thickness_modifier vertical_stack_source_ids[1] node:source_node
+                                                                continuing_stack_source_ids = #()
+                                                                terminal_stack_source_ids = #()
+                                                                if stack_reference_source_position == undefined then
+                                                                (
+                                                                        exact_vertical_stack = false
+                                                                )
+                                                                else
+                                                                (
+                                                                        for stack_source_id in vertical_stack_source_ids do
+                                                                        (
+                                                                                stack_member_source_position = EditPolyMod.GetVertex thickness_modifier stack_source_id node:source_node
+                                                                                if stack_member_source_position == undefined then
+                                                                                (
+                                                                                        exact_vertical_stack = false
+                                                                                )
+                                                                                else
+                                                                                (
+                                                                                        stack_source_plan_delta = [stack_member_source_position.x - stack_reference_source_position.x, stack_member_source_position.y - stack_reference_source_position.y, 0]
+                                                                                        if length stack_source_plan_delta > tolerance then exact_vertical_stack = false
+                                                                                        if source_face_use_counts[stack_source_id] >= 2 then
+                                                                                        (
+                                                                                                append continuing_stack_source_ids stack_source_id
+                                                                                        )
+                                                                                        else if source_face_use_counts[stack_source_id] == 1 then
+                                                                                        (
+                                                                                                append terminal_stack_source_ids stack_source_id
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                )
+                                                                topology_stack_repair = exact_vertical_stack and continuing_stack_source_ids.count >= 2 and terminal_stack_source_ids.count > 0
+                                                                topology_stack_anchor_source_id = 0
+                                                                topology_stack_anchor_source_position = undefined
+                                                                topology_stack_anchor_generated_id = 0
+                                                                topology_stack_anchor_generated_position = undefined
+                                                                topology_stack_anchor_agreement = true
+                                                                if topology_stack_repair then
+                                                                (
+                                                                        topology_stack_anchor_source_id = continuing_stack_source_ids[1]
+                                                                        topology_stack_anchor_source_position = EditPolyMod.GetVertex thickness_modifier topology_stack_anchor_source_id node:source_node
+                                                                        for continuing_source_id in continuing_stack_source_ids do
+                                                                        (
+                                                                                continuing_source_position = EditPolyMod.GetVertex thickness_modifier continuing_source_id node:source_node
+                                                                                if continuing_source_position != undefined and topology_stack_anchor_source_position != undefined and continuing_source_position.z > topology_stack_anchor_source_position.z then
+                                                                                (
+                                                                                        topology_stack_anchor_source_id = continuing_source_id
+                                                                                        topology_stack_anchor_source_position = continuing_source_position
+                                                                                )
+                                                                        )
+                                                                        topology_stack_anchor_generated_id = topology_stack_anchor_source_id + source_vert_count
+                                                                        if topology_stack_anchor_generated_id <= live_vertex_count then
+                                                                        (
+                                                                                topology_stack_anchor_generated_position = EditPolyMod.GetVertex thickness_modifier topology_stack_anchor_generated_id node:source_node
+                                                                        )
+                                                                        else
+                                                                        (
+                                                                                topology_stack_repair = false
+                                                                        )
+                                                                        if topology_stack_anchor_generated_position == undefined then
+                                                                        (
+                                                                                topology_stack_repair = false
+                                                                        )
+                                                                )
+                                                                if topology_stack_repair then
+                                                                (
+                                                                        for continuing_source_id in continuing_stack_source_ids while topology_stack_anchor_agreement do
+                                                                        (
+                                                                                continuing_generated_id = continuing_source_id + source_vert_count
+                                                                                continuing_generated_position = undefined
+                                                                                if continuing_generated_id <= live_vertex_count then
+                                                                                (
+                                                                                        continuing_generated_position = EditPolyMod.GetVertex thickness_modifier continuing_generated_id node:source_node
+                                                                                )
+                                                                                if continuing_generated_position == undefined then
+                                                                                (
+                                                                                        topology_stack_anchor_agreement = false
+                                                                                )
+                                                                                else
+                                                                                (
+                                                                                        continuing_generated_plan_delta = [continuing_generated_position.x - topology_stack_anchor_generated_position.x, continuing_generated_position.y - topology_stack_anchor_generated_position.y, 0]
+                                                                                        if length continuing_generated_plan_delta > stack_xy_tolerance then topology_stack_anchor_agreement = false
+                                                                                )
+                                                                        )
+                                                                        if not topology_stack_anchor_agreement then topology_stack_repair = false
+                                                                )
+                                                                logWallThicknessInnerCornerDump #("EXACT T STACK TEST", vertical_stack_source_ids, exact_vertical_stack, continuing_stack_source_ids, terminal_stack_source_ids, topology_stack_anchor_source_id, topology_stack_anchor_generated_id, topology_stack_anchor_agreement, topology_stack_repair)
+                                                                if topology_stack_repair then
+                                                                (
+                                                                        topology_stack_anchor_final_position = topology_stack_anchor_generated_position
+                                                                        for target_data in planned_targets do
+                                                                        (
+                                                                                if target_data[1] == topology_stack_anchor_generated_id then
+                                                                                (
+                                                                                        topology_stack_anchor_final_position = target_data[2]
+                                                                                )
+                                                                        )
+                                                                        for terminal_source_id in terminal_stack_source_ids do
+                                                                        (
+                                                                                terminal_generated_id = terminal_source_id + source_vert_count
+                                                                                if terminal_generated_id <= live_vertex_count and not planned_generated_ids[terminal_generated_id] then
+                                                                                (
+                                                                                        terminal_generated_position = EditPolyMod.GetVertex thickness_modifier terminal_generated_id node:source_node
+                                                                                        if terminal_generated_position != undefined then
+                                                                                        (
+                                                                                                terminal_target_position = [topology_stack_anchor_final_position.x, topology_stack_anchor_final_position.y, terminal_generated_position.z]
+                                                                                                if distance terminal_generated_position terminal_target_position > tolerance then
+                                                                                                (
+                                                                                                        planned_generated_ids[terminal_generated_id] = true
+                                                                                                        append planned_targets #(terminal_generated_id, terminal_target_position, terminal_generated_position, topology_stack_anchor_generated_id, topology_stack_anchor_final_position)
+                                                                                                        if not isWallThicknessQuietMode() then format "FIX INNER CORNERS ALIGN EXACT T STACK V%: % -> % | fixed continuing V%\n" terminal_generated_id terminal_generated_position terminal_target_position topology_stack_anchor_generated_id
+                                                                                                        logWallThicknessInnerCornerDump #("ALIGN EXACT T STACK", terminal_source_id, terminal_generated_id, terminal_generated_position, terminal_target_position, topology_stack_anchor_source_id, topology_stack_anchor_generated_id)
+                                                                                                )
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                        /*
+                                                        A two-member vertical T stack can have one generated member already at the correct corner miter while the other remains on the raw face offset.
+                                                        When the upper source member belongs to multiple source faces and the lower member belongs to only one, propagate the upper generated XY to the lower member and preserve both Z values.
+                                                        */
+                                                        if vertical_stack_source_ids.count == 2 then
+                                                        (
+                                                                stack_source_a = vertical_stack_source_ids[1]
+                                                                stack_source_b = vertical_stack_source_ids[2]
+                                                                stack_position_a = EditPolyMod.GetVertex thickness_modifier stack_source_a node:source_node
+                                                                stack_position_b = EditPolyMod.GetVertex thickness_modifier stack_source_b node:source_node
+                                                                vertical_stack_edge = (findItem border_neighbors[stack_source_a] stack_source_b) > 0
+                                                                logWallThicknessInnerCornerDump #("T STACK PAIR", stack_source_a, stack_source_b, stack_position_a, stack_position_b, vertical_stack_edge, border_neighbors[stack_source_a], border_neighbors[stack_source_b])
+                                                                if vertical_stack_edge and stack_position_a != undefined and stack_position_b != undefined then
+                                                                (
+                                                                        stack_anchor_source_id = if stack_position_a.z > stack_position_b.z then stack_source_a else stack_source_b
+                                                                        stack_other_source_id = if stack_anchor_source_id == stack_source_a then stack_source_b else stack_source_a
+                                                                        anchor_source_face_count = source_face_use_counts[stack_anchor_source_id]
+                                                                        other_source_face_count = source_face_use_counts[stack_other_source_id]
+                                                                        logWallThicknessInnerCornerDump #("T STACK FACE COUNTS", stack_anchor_source_id, anchor_source_face_count, stack_other_source_id, other_source_face_count)
+                                                                        if anchor_source_face_count >= 2 and other_source_face_count == 1 then
+                                                                        (
+                                                                                stack_anchor_generated_id = stack_anchor_source_id + source_vert_count
+                                                                                stack_other_generated_id = stack_other_source_id + source_vert_count
+                                                                                if stack_anchor_generated_id <= live_vertex_count and stack_other_generated_id <= live_vertex_count then
+                                                                                (
+                                                                                        stack_anchor_generated_position = EditPolyMod.GetVertex thickness_modifier stack_anchor_generated_id node:source_node
+                                                                                        stack_other_generated_position = EditPolyMod.GetVertex thickness_modifier stack_other_generated_id node:source_node
+                                                                                        stack_other_source_position = EditPolyMod.GetVertex thickness_modifier stack_other_source_id node:source_node
+                                                                                        logWallThicknessInnerCornerDump #("T STACK GENERATED", stack_anchor_generated_id, stack_anchor_generated_position, stack_other_generated_id, stack_other_generated_position, planned_generated_ids[stack_other_generated_id])
+                                                                                        if stack_anchor_generated_position != undefined and stack_other_generated_position != undefined and stack_other_source_position != undefined then
+                                                                                        (
+                                                                                                parallel_strip_repair = false
+                                                                                                parallel_reference_edge = undefined
+                                                                                                /*
+                                                                                                A three-face upper border corner is different from the stable two-face T stack.
+                                                                                                When a clean vertical border strip proves that the one-face lower endpoint carries the established extrusion offset, keep that lower generated XY fixed and move only the upper generated corner onto it.
+                                                                                                */
+                                                                                                if anchor_source_face_count >= 3 and not planned_generated_ids[stack_anchor_generated_id] then
+                                                                                                (
+                                                                                                        source_stack_plan_delta = [stack_position_a.x - stack_position_b.x, stack_position_a.y - stack_position_b.y, 0]
+                                                                                                        if length source_stack_plan_delta <= tolerance then
+                                                                                                        (
+                                                                                                                simple_offset_xy = [stack_other_generated_position.x - stack_other_source_position.x, stack_other_generated_position.y - stack_other_source_position.y, 0]
+                                                                                                                for reference_edge_data in border_edges while not parallel_strip_repair do
+                                                                                                                (
+                                                                                                                        reference_source_a = reference_edge_data[1]
+                                                                                                                        reference_source_b = reference_edge_data[2]
+                                                                                                                        reference_generated_a = reference_edge_data[3]
+                                                                                                                        reference_generated_b = reference_edge_data[4]
+                                                                                                                        if not ((reference_source_a == stack_source_a and reference_source_b == stack_source_b) or (reference_source_a == stack_source_b and reference_source_b == stack_source_a)) then
+                                                                                                                        (
+                                                                                                                                reference_source_position_a = EditPolyMod.GetVertex thickness_modifier reference_source_a node:source_node
+                                                                                                                                reference_source_position_b = EditPolyMod.GetVertex thickness_modifier reference_source_b node:source_node
+                                                                                                                                reference_generated_position_a = EditPolyMod.GetVertex thickness_modifier reference_generated_a node:source_node
+                                                                                                                                reference_generated_position_b = EditPolyMod.GetVertex thickness_modifier reference_generated_b node:source_node
+                                                                                                                                if reference_source_position_a != undefined and reference_source_position_b != undefined and reference_generated_position_a != undefined and reference_generated_position_b != undefined then
+                                                                                                                                (
+                                                                                                                                        reference_source_plan_delta = [reference_source_position_b.x - reference_source_position_a.x, reference_source_position_b.y - reference_source_position_a.y, 0]
+                                                                                                                                        reference_generated_plan_delta = [reference_generated_position_b.x - reference_generated_position_a.x, reference_generated_position_b.y - reference_generated_position_a.y, 0]
+                                                                                                                                        if length reference_source_plan_delta <= stack_xy_tolerance and length reference_generated_plan_delta <= stack_xy_tolerance then
+                                                                                                                                        (
+                                                                                                                                                reference_offset_a = [reference_generated_position_a.x - reference_source_position_a.x, reference_generated_position_a.y - reference_source_position_a.y, 0]
+                                                                                                                                                reference_offset_b = [reference_generated_position_b.x - reference_source_position_b.x, reference_generated_position_b.y - reference_source_position_b.y, 0]
+                                                                                                                                                if distance reference_offset_a simple_offset_xy <= stack_xy_tolerance and distance reference_offset_b simple_offset_xy <= stack_xy_tolerance then
+                                                                                                                                                (
+                                                                                                                                                        parallel_strip_repair = true
+                                                                                                                                                        parallel_reference_edge = #(reference_source_a, reference_source_b, reference_generated_a, reference_generated_b)
+                                                                                                                                                )
+                                                                                                                                        )
+                                                                                                                                )
+                                                                                                                        )
+                                                                                                                )
+                                                                                                        )
+                                                                                                )
+                                                                                                logWallThicknessInnerCornerDump #("PARALLEL STRIP TEST", stack_anchor_source_id, anchor_source_face_count, stack_other_source_id, other_source_face_count, parallel_strip_repair, parallel_reference_edge)
+                                                                                                if parallel_strip_repair then
+                                                                                                (
+                                                                                                        parallel_target_position = [stack_other_generated_position.x, stack_other_generated_position.y, stack_anchor_generated_position.z]
+                                                                                                        if distance stack_anchor_generated_position parallel_target_position > tolerance then
+                                                                                                        (
+                                                                                                                planned_generated_ids[stack_anchor_generated_id] = true
+                                                                                                                append planned_targets #(stack_anchor_generated_id, parallel_target_position, stack_anchor_generated_position, stack_other_generated_id, stack_other_generated_position)
+                                                                                                                if not isWallThicknessQuietMode() then format "FIX INNER CORNERS ALIGN PARALLEL STRIP V%: % -> % | fixed simple V% | reference %\n" stack_anchor_generated_id stack_anchor_generated_position parallel_target_position stack_other_generated_id parallel_reference_edge
+                                                                                                                logWallThicknessInnerCornerDump #("ALIGN PARALLEL STRIP", stack_anchor_source_id, stack_anchor_generated_id, stack_anchor_generated_position, parallel_target_position, stack_other_source_id, stack_other_generated_id, parallel_reference_edge)
+                                                                                                        )
+                                                                                                )
+                                                                                                else if not planned_generated_ids[stack_other_generated_id] then
+                                                                                                (
+                                                                                                        stack_anchor_final_position = stack_anchor_generated_position
+                                                                                                        for target_data in planned_targets do
+                                                                                                        (
+                                                                                                                if target_data[1] == stack_anchor_generated_id then
+                                                                                                                (
+                                                                                                                        stack_anchor_final_position = target_data[2]
+                                                                                                                )
+                                                                                                        )
+                                                                                                        stack_target_position = [stack_anchor_final_position.x, stack_anchor_final_position.y, stack_other_generated_position.z]
+                                                                                                        logWallThicknessInnerCornerDump #("T STACK TARGET", stack_anchor_source_id, stack_other_source_id, stack_anchor_generated_id, stack_other_generated_id, stack_anchor_final_position, stack_target_position, (distance stack_other_generated_position stack_target_position))
+                                                                                                        if distance stack_other_generated_position stack_target_position > tolerance then
+                                                                                                        (
+                                                                                                                planned_generated_ids[stack_other_generated_id] = true
+                                                                                                                append planned_targets #(stack_other_generated_id, stack_target_position, stack_other_generated_position, stack_anchor_generated_id, stack_anchor_final_position)
+                                                                                                                if not isWallThicknessQuietMode() then format "FIX INNER CORNERS ALIGN T STACK V%: % -> % | fixed upper V%\n" stack_other_generated_id stack_other_generated_position stack_target_position stack_anchor_generated_id
+                                                                                                                logWallThicknessInnerCornerDump #("ALIGN T STACK", stack_other_generated_id, stack_other_generated_position, stack_target_position, stack_anchor_generated_id)
+                                                                                                        )
+                                                                                                        else
+                                                                                                        (
+                                                                                                                logWallThicknessInnerCornerDump #("T STACK NO MOVE", stack_other_generated_id, stack_other_generated_position, stack_target_position, tolerance)
+                                                                                                        )
+                                                                                                )
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                        else
+                                                                        (
+                                                                                logWallThicknessInnerCornerDump #("T STACK REJECT FACE COUNTS", stack_anchor_source_id, anchor_source_face_count, stack_other_source_id, other_source_face_count)
+                                                                        )
+                                                                )
+                                                                else
+                                                                (
+                                                                        logWallThicknessInnerCornerDump #("T STACK REJECT EDGE OR POSITION", stack_source_a, stack_source_b, vertical_stack_edge, stack_position_a, stack_position_b)
+                                                                )
+                                                        )
+                                                        if vertical_stack_source_ids.count >= 3 and align_vertical_stack and not special_stack_intersection_repair then
+                                                        (
+                                                                stack_anchor_source_id = vertical_stack_source_ids[1]
+                                                                stack_anchor_source_position = EditPolyMod.GetVertex thickness_modifier stack_anchor_source_id node:source_node
+                                                                for stack_source_id in vertical_stack_source_ids do
+                                                                (
+                                                                        stack_source_position = EditPolyMod.GetVertex thickness_modifier stack_source_id node:source_node
+                                                                        if stack_source_position != undefined and stack_anchor_source_position != undefined and stack_source_position.z > stack_anchor_source_position.z then
+                                                                        (
+                                                                                stack_anchor_source_id = stack_source_id
+                                                                                stack_anchor_source_position = stack_source_position
+                                                                        )
+                                                                )
+                                                                stack_anchor_generated_id = stack_anchor_source_id + source_vert_count
+                                                                if stack_anchor_generated_id <= live_vertex_count then
+                                                                (
+                                                                        stack_anchor_generated_position = EditPolyMod.GetVertex thickness_modifier stack_anchor_generated_id node:source_node
+                                                                        if stack_anchor_generated_position != undefined then
+                                                                        (
+                                                                                if planned_generated_ids[stack_anchor_generated_id] then
+                                                                                (
+                                                                                        for target_id = planned_targets.count to 1 by -1 do
+                                                                                        (
+                                                                                                if planned_targets[target_id][1] == stack_anchor_generated_id then
+                                                                                                (
+                                                                                                        deleteItem planned_targets target_id
+                                                                                                )
+                                                                                        )
+                                                                                        planned_generated_ids[stack_anchor_generated_id] = false
+                                                                                )
+                                                                                for stack_source_id in vertical_stack_source_ids do
+                                                                                (
+                                                                                        stack_generated_id = stack_source_id + source_vert_count
+                                                                                        if stack_generated_id <= live_vertex_count and stack_generated_id != stack_anchor_generated_id then
+                                                                                        (
+                                                                                                stack_generated_position = EditPolyMod.GetVertex thickness_modifier stack_generated_id node:source_node
+                                                                                                if stack_generated_position != undefined then
+                                                                                                (
+                                                                                                        stack_target_position = [stack_anchor_generated_position.x, stack_anchor_generated_position.y, stack_generated_position.z]
+                                                                                                        if distance stack_generated_position stack_target_position > tolerance then
+                                                                                                        (
+                                                                                                                target_overridden = false
+                                                                                                                for target_id = 1 to planned_targets.count while not target_overridden do
+                                                                                                                (
+                                                                                                                        if planned_targets[target_id][1] == stack_generated_id then
+                                                                                                                        (
+                                                                                                                                planned_targets[target_id][2] = stack_target_position
+                                                                                                                                planned_targets[target_id][4] = stack_anchor_generated_id
+                                                                                                                                planned_targets[target_id][5] = stack_anchor_generated_position
+                                                                                                                                target_overridden = true
+                                                                                                                        )
+                                                                                                                )
+                                                                                                                if not target_overridden then
+                                                                                                                (
+                                                                                                                        planned_generated_ids[stack_generated_id] = true
+                                                                                                                        append planned_targets #(stack_generated_id, stack_target_position, stack_generated_position, stack_anchor_generated_id, stack_anchor_generated_position)
+                                                                                                                )
+                                                                                                                if not isWallThicknessQuietMode() then format "FIX INNER CORNERS ALIGN STACK V%: % -> % | fixed top V%\n" stack_generated_id stack_generated_position stack_target_position stack_anchor_generated_id
+                                                                                                                logWallThicknessInnerCornerDump #("ALIGN STACK", stack_generated_id, stack_generated_position, stack_target_position, stack_anchor_generated_id)
+                                                                                                        )
+                                                                                                )
+                                                                                        )
+                                                                                )
+                                                                        )
+                                                                )
+                                                        )
+                                                )
+                                        )
+                                        logWallThicknessInnerCornerDump #("PLANNED TARGETS FINAL", planned_targets)
+                                        if planned_targets_out != undefined then
+                                        (
+                                                for target_data in planned_targets do
+                                                (
+                                                        append planned_targets_out target_data
+                                                )
+                                        )
+                                        moved_vertex_count = planned_targets.count
+                                        if moved_vertex_count > 0 then
+                                        (
+                                                logWallThicknessInnerCornerDump #("PLAN ONLY", moved_vertex_count, "no geometry written")
+                                        )
+                                        if bad_edge_count > 0 and planned_targets.count == 0 then
+                                        (
+                                                build_succeeded = false
+                                                logWallThicknessInnerCornerDump #("FAILED NO PLANNED TARGETS", bad_edge_count, candidate_targets)
+                                        )
+                                )
+                                else
+                                (
+                                        build_succeeded = false
+                                )
+                                update source_node
+                                if before_mesh != undefined then free before_mesh
+                                if after_mesh != undefined then free after_mesh
+                        )
+                        catch
+                        (
+                                build_succeeded = false
+                                try (if before_mesh != undefined then free before_mesh) catch ()
+                                try (if after_mesh != undefined then free after_mesh) catch ()
+                                exception_text = getCurrentException()
+                                format "Wall Thickness FIX INNER CORNERS ERROR: %\n" exception_text
+                                logWallThicknessInnerCornerDump #("ERROR", exception_text)
+                        )
+                        try
+                        (
+                                if saved_selection.count > 0 then select saved_selection else clearSelection()
+                                try
+                                (
+                                        if saved_current_object != undefined then modPanel.setCurrentObject saved_current_object
+                                )
+                                catch ()
+                                subObjectLevel = saved_sub_object_level
+                        )
+                        catch ()
+                        completeRedraw()
+                        if not isWallThicknessQuietMode() then format "Wall Thickness FIX INNER CORNERS %: source verts % | live verts % | mapped source border edges % | bad edges % | positions planned % .\n" wall_thickness_file_version source_vert_count live_vertex_count border_edges.count bad_edge_count moved_vertex_count
+                        logWallThicknessInnerCornerDump #("FIX INNER CORNERS SUMMARY", wall_thickness_file_version, build_succeeded, source_vert_count, live_vertex_count, border_edges.count, bad_edge_count, moved_vertex_count)
+                        if dump_started then if not isWallThicknessQuietMode() then format "FIX INNER CORNERS DUMP FILE: %\n" wall_thickness_inner_dump_file
+                        #(build_succeeded, bad_edge_count, moved_vertex_count)
+                )
+        )
+        -- return
 )
 /*
 Creates the persistent deformation-only FIX INNER CORNERS modifier from stable planned world-space target positions, converted to modifier-local space before storage.
@@ -5951,7 +7078,7 @@ function rebuildWallThicknessWithInnerCorners source_node thickness change_mater
                                 if fixed_mesh != undefined then free fixed_mesh
                                 if build_succeeded then
                                 (
-                                        format "Wall Thickness FIX INNER CORNERS NON-DESTRUCTIVE: bad edges % | corrected vertices % | WALL THICKNESS + FIX INNER CORNERS modifiers.\n" plan_data[2] moved_vertex_count
+                                        if not isWallThicknessQuietMode() then format "Wall Thickness FIX INNER CORNERS NON-DESTRUCTIVE: bad edges % | corrected vertices % | WALL THICKNESS + FIX INNER CORNERS modifiers.\n" plan_data[2] moved_vertex_count
                                         #(true, plan_data[2], moved_vertex_count, raw_modifier)
                                 )
                                 else
@@ -5972,12 +7099,12 @@ function fixWallThicknessInnerCorners source_node change_material_ids:undefined 
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 #(false, 0, 0)
         )
         else if getWallThicknessModifier source_node == undefined then
         (
-                messageBox "Create WALL THICKNESS first." title:"Wall Thickness"
+                showWallThicknessMessage "Create WALL THICKNESS first."
                 #(false, 0, 0)
         )
         else
@@ -6436,6 +7563,103 @@ function findWallThicknessTEdgeLiveEdge edit_modifier source_node vertex_a verte
         -- return
 )
 /*
+Binds the exact T-edge Edit Poly to the source node before one correctness-critical native topology operation.
+This intentionally restores the proven stable authoring context instead of relying on the optimized cached Command Panel state.
+*/
+function bindWallThicknessTEdgeOperationContext edit_modifier source_node component_level =
+(
+        if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then return false
+        if not isValidNode source_node then return false
+        select source_node
+        max modify mode
+        edit_modifier.SetPrimaryNode source_node
+        edit_modifier.showCage = off
+        edit_modifier.useStackSelection = false
+        edit_modifier.selectMode = 0
+        modPanel.setCurrentObject edit_modifier node:source_node
+        if component_level != undefined then
+        (
+                desired_level = 0
+                case component_level of
+                (
+                        #Vertex: desired_level = 1
+                        #Edge: desired_level = 2
+                        #Face: desired_level = 4
+                        default: return false
+                )
+                edit_modifier.SetEPolySelLevel component_level
+                if subObjectLevel != desired_level then subObjectLevel = desired_level
+        )
+        true
+        -- return
+)
+/*
+Collects the same segmented source corner chain already represented by the stable anchor->continuation T-edge case.
+Only directly connected source vertices continuing through the same X/Y stack and in the original continuation Z direction are appended.
+*/
+function collectWallThicknessTEdgeSegmentedSourceChain edit_modifier source_node source_vert_count anchor_source_id continuation_source_id tolerance =
+(
+        source_chain = #()
+        if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then return source_chain
+        if not isValidNode source_node then return source_chain
+        if source_vert_count < 1 then return source_chain
+        if anchor_source_id < 1 or anchor_source_id > source_vert_count then return source_chain
+        if continuation_source_id < 1 or continuation_source_id > source_vert_count then return source_chain
+        anchor_position = EditPolyMod.GetVertex edit_modifier anchor_source_id node:source_node
+        continuation_position = EditPolyMod.GetVertex edit_modifier continuation_source_id node:source_node
+        if anchor_position == undefined or continuation_position == undefined then return source_chain
+        direction_z = continuation_position.z - anchor_position.z
+        if abs direction_z <= tolerance then return source_chain
+        append source_chain anchor_source_id
+        append source_chain continuation_source_id
+        previous_source_id = anchor_source_id
+        current_source_id = continuation_source_id
+        current_position = continuation_position
+        keep_walking = true
+        while keep_walking do
+        (
+                next_candidates = #()
+                edge_count = EditPolyMod.GetNumEdges edit_modifier node:source_node
+                for edge_id = 1 to edge_count do
+                (
+                        edge_vertex_a = EditPolyMod.GetEdgeVertex edit_modifier edge_id 1 node:source_node
+                        edge_vertex_b = EditPolyMod.GetEdgeVertex edit_modifier edge_id 2 node:source_node
+                        other_source_id = 0
+                        if edge_vertex_a == current_source_id then other_source_id = edge_vertex_b
+                        else if edge_vertex_b == current_source_id then other_source_id = edge_vertex_a
+                        if other_source_id >= 1 and other_source_id <= source_vert_count and other_source_id != previous_source_id and (findItem source_chain other_source_id) == 0 then
+                        (
+                                other_position = EditPolyMod.GetVertex edit_modifier other_source_id node:source_node
+                                if other_position != undefined then
+                                (
+                                        xy_distance = length [other_position.x - anchor_position.x, other_position.y - anchor_position.y, 0]
+                                        continues_z = if direction_z > 0.0 then other_position.z > (current_position.z + tolerance) else other_position.z < (current_position.z - tolerance)
+                                        if xy_distance <= tolerance and continues_z then append next_candidates other_source_id
+                                )
+                        )
+                )
+                if next_candidates.count == 0 then
+                (
+                        keep_walking = false
+                )
+                else if next_candidates.count == 1 then
+                (
+                        previous_source_id = current_source_id
+                        current_source_id = next_candidates[1]
+                        current_position = EditPolyMod.GetVertex edit_modifier current_source_id node:source_node
+                        append source_chain current_source_id
+                )
+                else
+                (
+                        format "FIX T EDGE CORNERS SEGMENT CHAIN AMBIGUOUS | anchor:V% | current:V% | candidates:% | chain:%\n" anchor_source_id current_source_id next_candidates source_chain
+                        source_chain = #()
+                        keep_walking = false
+                )
+        )
+        source_chain
+        -- return
+)
+/*
 Divides one current Edit Poly edge at a fraction measured from a named endpoint.
 The edge is resolved immediately before the call so topology edits cannot stale its ID.
 */
@@ -6443,18 +7667,84 @@ function divideWallThicknessTEdgeFromVertexFraction edit_modifier source_node st
 (
         new_vertex_id = 0
         if fraction_from_start <= 0.0 or fraction_from_start >= 1.0 then return new_vertex_id
+        if not bindWallThicknessTEdgeOperationContext edit_modifier source_node #Edge then return new_vertex_id
         edge_id = findWallThicknessTEdgeLiveEdge edit_modifier source_node start_vertex_id end_vertex_id
         if edge_id < 1 then return new_vertex_id
         edge_vertex_a = EditPolyMod.GetEdgeVertex edit_modifier edge_id 1 node:source_node
         divide_fraction = if edge_vertex_a == start_vertex_id then fraction_from_start else (1.0 - fraction_from_start)
-        divided_vertex_id = EditPolyMod.DivideEdge edit_modifier edge_id divide_fraction node:source_node
-        if divided_vertex_id != undefined and divided_vertex_id > 0 then
+        before_vertex_count = EditPolyMod.GetNumVertices edit_modifier node:source_node
+        before_face_count = EditPolyMod.GetNumFaces edit_modifier node:source_node
+        before_edge_count = EditPolyMod.GetNumEdges edit_modifier node:source_node
+        EditPolyMod.DivideEdge edit_modifier edge_id divide_fraction node:source_node
+        EditPolyMod.Commit edit_modifier
+        edit_modifier.RefreshScreen()
+        completeRedraw()
+        if not bindWallThicknessTEdgeOperationContext edit_modifier source_node #Edge then return new_vertex_id
+        after_vertex_count = EditPolyMod.GetNumVertices edit_modifier node:source_node
+        after_face_count = EditPolyMod.GetNumFaces edit_modifier node:source_node
+        after_edge_count = EditPolyMod.GetNumEdges edit_modifier node:source_node
+        topology_matches =
+                after_vertex_count == (before_vertex_count + 1) and
+                after_face_count == before_face_count and
+                after_edge_count == (before_edge_count + 1)
+        if topology_matches then
         (
-                EditPolyMod.Commit edit_modifier
-                update source_node
-                new_vertex_id = divided_vertex_id as integer
+                new_vertex_id = after_vertex_count
+                if EditPolyMod.GetVertex edit_modifier new_vertex_id node:source_node == undefined then
+                (
+                        format "FIX T EDGE CORNERS DIVIDE APPENDED VERTEX FAILED | edge:E% | expected new vertex:V% | counts V:%->% F:%->% E:%->%\n" edge_id new_vertex_id before_vertex_count after_vertex_count before_face_count after_face_count before_edge_count after_edge_count
+                        new_vertex_id = 0
+                )
+        )
+        else
+        (
+                format "FIX T EDGE CORNERS DIVIDE TOPOLOGY FAILED | edge:E% | start:V% | end:V% | fraction:% | verts:%->% | faces:%->% | edges:%->%\n" edge_id start_vertex_id end_vertex_id fraction_from_start before_vertex_count after_vertex_count before_face_count after_face_count before_edge_count after_edge_count
         )
         new_vertex_id
+        -- return
+)
+/*
+Switches the already-bound T-edge Edit Poly to one component level.
+The Command Panel modifier activation is owned by the outer T-edge build; global subObjectLevel changes only when the requested level differs.
+*/
+function setWallThicknessTEdgeComponentLevel edit_modifier component_level =
+(
+        if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then return false
+        desired_level = 0
+        case component_level of
+        (
+                #Vertex: desired_level = 1
+                #Edge: desired_level = 2
+                #Face: desired_level = 4
+                default: return false
+        )
+        edit_modifier.SetEPolySelLevel component_level
+        if subObjectLevel != desired_level then subObjectLevel = desired_level
+        true
+        -- return
+)
+/*
+Replaces one component selection on the already-bound T-edge Edit Poly.
+No modifier-stack activation or primary-node rebinding occurs inside the hot topology loop.
+*/
+function selectWallThicknessTEdgeLiveComponents edit_modifier source_node component_level component_bits =
+(
+        if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then return false
+        if not isValidNode source_node then return false
+        if component_bits == undefined or classOf component_bits != BitArray then return false
+        if not setWallThicknessTEdgeComponentLevel edit_modifier component_level then return false
+        old_selection = edit_modifier.GetSelection component_level node:source_node
+        if old_selection == undefined then return false
+        if old_selection.numberSet > 0 then
+        (
+                edit_modifier.Select component_level old_selection select:false node:source_node
+        )
+        if component_bits.numberSet > 0 then
+        (
+                edit_modifier.Select component_level component_bits node:source_node
+        )
+        stored_selection = edit_modifier.GetSelection component_level node:source_node
+        stored_selection == component_bits
         -- return
 )
 /*
@@ -6466,12 +7756,20 @@ function connectWallThicknessTEdgeVertices edit_modifier source_node vertex_a ve
         if not isValidNode source_node then return false
         if vertex_a < 1 or vertex_b < 1 or vertex_a == vertex_b then return false
         if findWallThicknessTEdgeLiveEdge edit_modifier source_node vertex_a vertex_b > 0 then return true
+        if not bindWallThicknessTEdgeOperationContext edit_modifier source_node #Vertex then return false
         vertex_bits = #{}
         vertex_bits[vertex_a] = true
         vertex_bits[vertex_b] = true
-        if not WallThicknessPreprocess.selectModifierComponents source_node edit_modifier #Vertex vertex_bits then return false
+        old_vertices = edit_modifier.GetSelection #Vertex node:source_node
+        if old_vertices == undefined then return false
+        if old_vertices.numberSet > 0 then edit_modifier.Select #Vertex old_vertices select:false node:source_node
+        edit_modifier.Select #Vertex vertex_bits node:source_node
+        stored_vertices = edit_modifier.GetSelection #Vertex node:source_node
+        if stored_vertices != vertex_bits then return false
         edit_modifier.ButtonOp #ConnectVertices
-        update source_node
+        edit_modifier.RefreshScreen()
+        completeRedraw()
+        if not bindWallThicknessTEdgeOperationContext edit_modifier source_node #Vertex then return false
         findWallThicknessTEdgeLiveEdge edit_modifier source_node vertex_a vertex_b > 0
         -- return
 )
@@ -6592,7 +7890,7 @@ function fixWallThicknessTEdgeNewWallFaceMaterial edit_modifier source_node gene
                 if EditPolyMod.GetFaceMaterial edit_modifier target_face_id node:source_node == reference_material_id then
                 (
                         changed_face_count = 1
-                        format "FIX T EDGE CORNERS MATERIAL: selected new face F% | same-normal neighbor F% | normal dot % | Material ID % -> %\n" target_face_id reference_face_id best_normal_dot target_material_id reference_material_id
+                        if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS MATERIAL: selected new face F% | same-normal neighbor F% | normal dot % | Material ID % -> %\n" target_face_id reference_face_id best_normal_dot target_material_id reference_material_id
                 )
         )
         changed_face_count
@@ -7159,7 +8457,7 @@ function planWallThicknessTEdgeModifierRepairs source_node =
                 input_face_count = planner_node.GetNumFaces()
                 input_edge_count = planner_node.GetNumEdges()
                 detected_cases = detectWallThicknessTEdgeBaseCases planner_node source_vert_count source_face_count wall_thickness
-                format "FIX T EDGE CORNERS BASE DETECT: % case(s)\n" detected_cases.count
+                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS BASE DETECT: % case(s)\n" detected_cases.count
                 for case_data in detected_cases do
                 (
                         anchor_source_id = case_data[1]
@@ -7205,7 +8503,7 @@ function planWallThicknessTEdgeModifierRepairs source_node =
                                 0
                         )
                         primary_case_index = planned_cases.count
-                        format "FIX T EDGE CORNERS PLAN: source V% | branch V% | upper %-% | lower %-% | generated %-% | continuing %-% | anchor fraction % | target % | lower target %\n" anchor_source_id branch_neighbor_id anchor_source_id generated_anchor_id continuation_source_id generated_continuation_id generated_anchor_id generated_continuation_id generated_anchor_id generated_plan_id anchor_fraction_from_source fixed_anchor_position expected_bottom_position
+                        if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS PLAN: source V% | branch V% | upper %-% | lower %-% | generated %-% | continuing %-% | anchor fraction % | target % | lower target %\n" anchor_source_id branch_neighbor_id anchor_source_id generated_anchor_id continuation_source_id generated_continuation_id generated_anchor_id generated_continuation_id generated_anchor_id generated_plan_id anchor_fraction_from_source fixed_anchor_position expected_bottom_position
                         source_degree = getWallThicknessTEdgeSourceDegree planner_node source_face_count anchor_source_id
                         if source_degree == 4 then
                         (
@@ -7239,7 +8537,7 @@ function planWallThicknessTEdgeModifierRepairs source_node =
                                                         )
                                                         mirror_case_index = planned_cases.count
                                                         planned_cases[primary_case_index][9] = mirror_case_index
-                                                        format "FIX T EDGE CORNERS T-CORNER MIRROR: primary case % | mirror case % | source V% | first branch V% | mirror branch V% | mirror fraction % | mirror target % | mirror lower target %\n" primary_case_index mirror_case_index anchor_source_id branch_neighbor_id continuing_plan_source_id mirror_fraction mirror_anchor_position mirror_bottom_position
+                                                        if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS T-CORNER MIRROR: primary case % | mirror case % | source V% | first branch V% | mirror branch V% | mirror fraction % | mirror target % | mirror lower target %\n" primary_case_index mirror_case_index anchor_source_id branch_neighbor_id continuing_plan_source_id mirror_fraction mirror_anchor_position mirror_bottom_position
                                                 )
                                         )
                                 )
@@ -7252,7 +8550,7 @@ function planWallThicknessTEdgeModifierRepairs source_node =
                         (
                                 case_a = planned_cases[pair_data[1]]
                                 case_b = planned_cases[pair_data[2]]
-                                format "FIX T EDGE CORNERS T-CORNER PLAN: case % anchor V% branch V% | case % anchor V% mirror branch V%\n" pair_data[1] case_a[1] case_a[2] pair_data[2] case_b[1] case_b[2]
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS T-CORNER PLAN: case % anchor V% branch V% | case % anchor V% mirror branch V%\n" pair_data[1] case_a[1] case_a[2] pair_data[2] case_b[1] case_b[2]
                         )
                 )
                 plan_succeeded = true
@@ -7361,29 +8659,19 @@ function getWallThicknessTEdgeProbeCounts probe_node =
         -- return
 )
 /*
-Connects the three live endpoint-resolved T-edge edges in one native Edit Poly operation.
-The selection and ConnectEdges workflow mirrors EPoly-Stack-Test_1.10 and never interprets an operation status as a vertex ID.
+Connects the live branch plus every strip cross-edge for one T-edge case in one native Edit Poly operation.
+The stable two-level case still selects three edges; segmented versions select the same chain with additional cross-edges.
 */
 function executeWallThicknessTEdgeConnectEdges edit_modifier source_node connect_edges =
 (
         if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then return false
         if not isValidNode source_node then return false
         if connect_edges == undefined or classOf connect_edges != BitArray then return false
-        if connect_edges.numberSet != 3 then return false
-        edit_modifier.showCage = off
-        edit_modifier.useStackSelection = false
-        edit_modifier.selectMode = 0
-        select source_node
-        max modify mode
-        edit_modifier.SetPrimaryNode source_node
-        modPanel.setCurrentObject edit_modifier node:source_node
-        edit_modifier.SetEPolySelLevel #Edge
-        subObjectLevel = 2
+        if connect_edges.numberSet < 3 then return false
+        if not bindWallThicknessTEdgeOperationContext edit_modifier source_node #Edge then return false
         old_selection = edit_modifier.GetSelection #Edge node:source_node
-        if old_selection.numberSet > 0 then
-        (
-                edit_modifier.Select #Edge old_selection select:false node:source_node
-        )
+        if old_selection == undefined then return false
+        if old_selection.numberSet > 0 then edit_modifier.Select #Edge old_selection select:false node:source_node
         edit_modifier.Select #Edge connect_edges node:source_node
         stored_selection = edit_modifier.GetSelection #Edge node:source_node
         if stored_selection != connect_edges then return false
@@ -7394,7 +8682,7 @@ function executeWallThicknessTEdgeConnectEdges edit_modifier source_node connect
         edit_modifier.Commit()
         edit_modifier.RefreshScreen()
         completeRedraw()
-        true
+        bindWallThicknessTEdgeOperationContext edit_modifier source_node #Edge
         -- return
 )
 /*
@@ -7419,7 +8707,7 @@ function wallThicknessTEdgeProbeMaterialsMatch probe_a probe_b =
 )
 /*
 Moves one live Edit Poly vertex to a target expressed in the current Edit Poly coordinate domain.
-MoveSelection receives the transformed delta; the committed vertex is verified against the same live target.
+MoveSelection receives that same local/object-domain delta; the committed vertex is verified against the same live target.
 */
 function moveWallThicknessTEdgeVertexToPosition edit_modifier source_node vertex_id target_position tolerance =
 (
@@ -7455,8 +8743,7 @@ function moveWallThicknessTEdgeVertexToPosition edit_modifier source_node vertex
                 format "FIX T EDGE CORNERS ANCHOR MOVE ERROR: could not read vertex position | vertex:% | node:%\n" vertex_id source_node
                 return false
         )
-        object_tm = source_node.objectTransform
-        move_delta = (target_position * object_tm) - (start_position * object_tm)
+        move_delta = target_position - start_position
         select source_node
         max modify mode
         edit_modifier.SetPrimaryNode source_node
@@ -7499,55 +8786,72 @@ function moveWallThicknessTEdgeVertexToPosition edit_modifier source_node vertex
 )
 /*
 Moves one newly connected T-edge vertical edge onto the branch anchor in XY.
-Both edge vertices are selected and moved together in one Edit Poly MoveSelection call,
-so their Z values and the vertical edge length are preserved exactly.
+Moves the two cut vertices independently through the verified single-vertex Edit Poly path,
+so transformed nodes do not depend on one shared multi-vertex MoveSelection delta.
 */
 function moveWallThicknessTEdgeLiveCutEdgeToAnchor edit_modifier source_node top_vertex_id bottom_vertex_id anchor_vertex_id tolerance =
 (
-        if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then return false
-        if not isValidNode source_node then return false
-        if top_vertex_id < 1 or bottom_vertex_id < 1 or anchor_vertex_id < 1 then return false
+        if edit_modifier == undefined or classOf edit_modifier != Edit_Poly then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: expected Edit Poly modifier, got:%\n" edit_modifier
+                return false
+        )
+        if not isValidNode source_node then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: invalid source node:%\n" source_node
+                return false
+        )
+        if top_vertex_id < 1 or bottom_vertex_id < 1 or anchor_vertex_id < 1 then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: invalid vertex ids | top:% bottom:% anchor:% node:%\n" top_vertex_id bottom_vertex_id anchor_vertex_id source_node
+                return false
+        )
         vertex_count = edit_modifier.GetNumVertices node:source_node
-        if top_vertex_id > vertex_count or bottom_vertex_id > vertex_count or anchor_vertex_id > vertex_count then return false
+        if top_vertex_id > vertex_count or bottom_vertex_id > vertex_count or anchor_vertex_id > vertex_count then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: vertex id out of range | top:% bottom:% anchor:% count:% node:%\n" top_vertex_id bottom_vertex_id anchor_vertex_id vertex_count source_node
+                return false
+        )
         top_position = edit_modifier.GetVertex top_vertex_id node:source_node
         bottom_position = edit_modifier.GetVertex bottom_vertex_id node:source_node
         anchor_position = edit_modifier.GetVertex anchor_vertex_id node:source_node
-        if top_position == undefined or bottom_position == undefined or anchor_position == undefined then return false
-        original_bottom_z = bottom_position.z
-        top_target_position = [anchor_position.x, anchor_position.y, top_position.z]
-        object_tm = source_node.objectTransform
-        move_delta = (top_target_position * object_tm) - (top_position * object_tm)
-        select source_node
-        max modify mode
-        edit_modifier.SetPrimaryNode source_node
-        edit_modifier.useStackSelection = false
-        edit_modifier.selectMode = 0
-        modPanel.setCurrentObject edit_modifier node:source_node
-        edit_modifier.SetEPolySelLevel #Vertex
-        subObjectLevel = 1
-        old_vertices = edit_modifier.GetSelection #Vertex node:source_node
-        if old_vertices.numberSet > 0 then
+        if top_position == undefined or bottom_position == undefined or anchor_position == undefined then
         (
-                edit_modifier.Select #Vertex old_vertices select:false node:source_node
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: could not read positions | top:% bottom:% anchor:% node:%\n" top_position bottom_position anchor_position source_node
+                return false
         )
-        vertex_bits = #{}
-        vertex_bits[top_vertex_id] = true
-        vertex_bits[bottom_vertex_id] = true
-        edit_modifier.Select #Vertex vertex_bits node:source_node
-        stored_vertices = edit_modifier.GetSelection #Vertex node:source_node
-        if stored_vertices != vertex_bits then return false
-        edit_modifier.MoveSelection move_delta
-        edit_modifier.Commit()
-        edit_modifier.RefreshScreen()
-        completeRedraw()
+        original_top_z = top_position.z
+        original_bottom_z = bottom_position.z
+        top_target_position = [anchor_position.x, anchor_position.y, original_top_z]
+        bottom_target_position = [anchor_position.x, anchor_position.y, original_bottom_z]
+        if not moveWallThicknessTEdgeVertexToPosition edit_modifier source_node top_vertex_id top_target_position tolerance then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: upper cut move failed | vertex:% target:% node:%\n" top_vertex_id top_target_position source_node
+                return false
+        )
+        if not moveWallThicknessTEdgeVertexToPosition edit_modifier source_node bottom_vertex_id bottom_target_position tolerance then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: lower cut move failed | vertex:% target:% node:%\n" bottom_vertex_id bottom_target_position source_node
+                return false
+        )
         moved_top_position = edit_modifier.GetVertex top_vertex_id node:source_node
         moved_bottom_position = edit_modifier.GetVertex bottom_vertex_id node:source_node
         anchor_after_move = edit_modifier.GetVertex anchor_vertex_id node:source_node
-        if moved_top_position == undefined or moved_bottom_position == undefined or anchor_after_move == undefined then return false
-        if distance moved_top_position anchor_after_move > tolerance then return false
-        if abs (moved_bottom_position.x - anchor_after_move.x) > tolerance then return false
-        if abs (moved_bottom_position.y - anchor_after_move.y) > tolerance then return false
-        if moved_bottom_position.z != original_bottom_z then return false
+        if moved_top_position == undefined or moved_bottom_position == undefined or anchor_after_move == undefined then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE ERROR: could not read committed positions | top:% bottom:% anchor:% node:%\n" moved_top_position moved_bottom_position anchor_after_move source_node
+                return false
+        )
+        if distance moved_top_position top_target_position > tolerance or distance moved_bottom_position bottom_target_position > tolerance then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE FAILED | top expected:% actual:% | bottom expected:% actual:% | tolerance:% node:%\n" top_target_position moved_top_position bottom_target_position moved_bottom_position tolerance source_node
+                return false
+        )
+        if moved_top_position.z != original_top_z or moved_bottom_position.z != original_bottom_z then
+        (
+                format "FIX T EDGE CORNERS CUT MOVE Z FAILED | top z % -> % | bottom z % -> % | node:%\n" original_top_z moved_top_position.z original_bottom_z moved_bottom_position.z source_node
+                return false
+        )
         true
         -- return
 )
@@ -7595,6 +8899,7 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
         material_face_count = 0
         t_corner_anchor_ids = for planned_case_data in planned_cases collect 0
         t_corner_bottom_ids = for planned_case_data in planned_cases collect 0
+        t_corner_cut_chains = for planned_case_data in planned_cases collect #()
         build_succeeded = false
         inner_restored = false
         fix_modifier = undefined
@@ -7638,8 +8943,7 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                         max modify mode
                         fix_modifier.SetPrimaryNode source_node
                         modPanel.setCurrentObject fix_modifier node:source_node
-                        fix_modifier.SetEPolySelLevel #Edge
-                        subObjectLevel = 2
+                        if not setWallThicknessTEdgeComponentLevel fix_modifier #Edge then throw "could not enter T-edge Edit Poly edge level"
                         for case_index = 1 to planned_cases.count do
                         (
                                 planned_case = planned_cases[case_index]
@@ -7659,71 +8963,119 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                 case_start_vertex_count = fix_modifier.GetNumVertices node:source_node
                                 case_start_face_count = fix_modifier.GetNumFaces node:source_node
                                 case_start_edge_count = fix_modifier.GetNumEdges node:source_node
-                                format "FIX T EDGE CORNERS STACK CASE START: case % | verts % | polygons % | edges %\n" case_index case_start_vertex_count case_start_face_count case_start_edge_count
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS STACK CASE START: case % | verts % | polygons % | edges %\n" case_index case_start_vertex_count case_start_face_count case_start_edge_count
                                 if source_vert_count < 1 or source_vert_count >= case_start_vertex_count then throw "invalid source vertex count in direct stacked T-edge modifier"
                                 if source_face_count < 1 or source_face_count > case_start_face_count then throw "invalid source face count in direct stacked T-edge modifier"
                                 operation_stage = "resolve live T-edge edge IDs for case " + (case_index as string)
                                 branch_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node anchor_source_id branch_neighbor_id
-                                upper_edge_end_id = generated_anchor_id
-                                lower_edge_end_id = generated_continuation_id
+                                generated_vertical_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node generated_anchor_id generated_continuation_id
+                                generated_plan_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node generated_anchor_id generated_plan_id
+                                if branch_edge_id < 1 then throw "direct stacked modifier could not map T branch edge"
+                                if generated_vertical_edge_id < 1 then throw "direct stacked modifier could not map generated vertical edge"
+                                if generated_plan_edge_id < 1 then throw "direct stacked modifier could not map generated continuing edge"
+                                source_chain_ids = collectWallThicknessTEdgeSegmentedSourceChain fix_modifier source_node source_vert_count anchor_source_id continuation_source_id tolerance
+                                if source_chain_ids.count < 2 then
+                                (
+                                        format "FIX T EDGE CORNERS SEGMENT CHAIN FAILED | case:% | kind:% | anchor:V% | continuation:V% | chain:%\n" case_index case_kind anchor_source_id continuation_source_id source_chain_ids
+                                        throw "could not resolve segmented T-edge source chain"
+                                )
+                                if source_chain_ids[1] != anchor_source_id or source_chain_ids[2] != continuation_source_id then
+                                (
+                                        format "FIX T EDGE CORNERS SEGMENT CHAIN ORDER FAILED | case:% | kind:% | anchor:V% | continuation:V% | chain:%\n" case_index case_kind anchor_source_id continuation_source_id source_chain_ids
+                                        throw "segmented T-edge source chain changed stable anchor/continuation order"
+                                )
+                                chain_level_count = source_chain_ids.count
+                                cross_end_ids = #()
                                 if case_kind == #t_corner_mirror then
                                 (
                                         if paired_case_index < 1 or paired_case_index >= case_index then throw "T-Corner mirror case does not reference an earlier primary case"
-                                        upper_edge_end_id = t_corner_anchor_ids[paired_case_index]
-                                        lower_edge_end_id = t_corner_bottom_ids[paired_case_index]
-                                        if upper_edge_end_id < 1 or lower_edge_end_id < 1 then throw "T-Corner primary cut IDs are unavailable for mirror case"
+                                        paired_cut_chain = t_corner_cut_chains[paired_case_index]
+                                        if paired_cut_chain == undefined or classOf paired_cut_chain != Array or paired_cut_chain.count != chain_level_count then
+                                        (
+                                                format "FIX T EDGE CORNERS PRIMARY CHAIN MISMATCH | mirror case:% | primary case:% | source chain:% | primary cut chain:%\n" case_index paired_case_index source_chain_ids paired_cut_chain
+                                                throw "T-Corner primary cut chain is unavailable for segmented mirror case"
+                                        )
+                                        cross_end_ids = paired_cut_chain
                                 )
-                                upper_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node anchor_source_id upper_edge_end_id
-                                lower_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node continuation_source_id lower_edge_end_id
-                                generated_vertical_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node generated_anchor_id generated_continuation_id
-                                generated_plan_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node generated_anchor_id generated_plan_id
-                                format "FIX T EDGE CORNERS STACK MAP: case kind % | branch E% | upper E% (%-%) | lower E% (%-%) | generated vertical E% | generated continuing E%\n" case_kind branch_edge_id upper_edge_id anchor_source_id upper_edge_end_id lower_edge_id continuation_source_id lower_edge_end_id generated_vertical_edge_id generated_plan_edge_id
-                                if branch_edge_id < 1 then throw "direct stacked modifier could not map T branch edge"
-                                if upper_edge_id < 1 then throw "direct stacked modifier could not map upper strip edge"
-                                if lower_edge_id < 1 then throw "direct stacked modifier could not map lower strip edge"
-                                if generated_vertical_edge_id < 1 then throw "direct stacked modifier could not map generated vertical edge"
-                                if generated_plan_edge_id < 1 then throw "direct stacked modifier could not map generated continuing edge"
+                                else
+                                (
+                                        for source_chain_id in source_chain_ids do append cross_end_ids (source_chain_id + source_vert_count)
+                                )
+                                cross_edge_ids = #()
+                                expected_cut_positions = #()
+                                connect_edges = #{}
+                                connect_edges[branch_edge_id] = true
+                                for chain_index = 1 to chain_level_count do
+                                (
+                                        source_chain_id = source_chain_ids[chain_index]
+                                        cross_end_id = cross_end_ids[chain_index]
+                                        cross_edge_id = findWallThicknessTEdgeLiveEdge fix_modifier source_node source_chain_id cross_end_id
+                                        if cross_edge_id < 1 then
+                                        (
+                                                format "FIX T EDGE CORNERS SEGMENT EDGE FAILED | case:% | level:% | source:V% | opposite:V% | source chain:% | opposite chain:%\n" case_index chain_index source_chain_id cross_end_id source_chain_ids cross_end_ids
+                                                throw "direct stacked modifier could not map segmented strip edge"
+                                        )
+                                        source_chain_position = fix_modifier.GetVertex source_chain_id node:source_node
+                                        cross_end_position = fix_modifier.GetVertex cross_end_id node:source_node
+                                        if source_chain_position == undefined or cross_end_position == undefined then throw "direct stacked modifier could not read segmented strip positions"
+                                        append cross_edge_ids cross_edge_id
+                                        append expected_cut_positions (source_chain_position + ((cross_end_position - source_chain_position) * 0.5))
+                                        connect_edges[cross_edge_id] = true
+                                )
+                                upper_edge_id = cross_edge_ids[1]
+                                lower_edge_id = cross_edge_ids[2]
                                 upper_source_position = fix_modifier.GetVertex anchor_source_id node:source_node
-                                upper_generated_position = fix_modifier.GetVertex upper_edge_end_id node:source_node
+                                upper_generated_position = fix_modifier.GetVertex cross_end_ids[1] node:source_node
                                 lower_source_position = fix_modifier.GetVertex continuation_source_id node:source_node
-                                lower_generated_position = fix_modifier.GetVertex lower_edge_end_id node:source_node
+                                lower_generated_position = fix_modifier.GetVertex cross_end_ids[2] node:source_node
                                 branch_neighbor_position = fix_modifier.GetVertex branch_neighbor_id node:source_node
                                 if upper_source_position == undefined or upper_generated_position == undefined then throw "direct stacked modifier could not read active upper strip positions"
                                 if lower_source_position == undefined or lower_generated_position == undefined then throw "direct stacked modifier could not read active lower strip positions"
                                 if branch_neighbor_position == undefined then throw "direct stacked modifier could not read branch neighbor position"
                                 expected_anchor_connect_position = upper_source_position + ((branch_neighbor_position - upper_source_position) * 0.5)
-                                expected_upper_cut_position = upper_source_position + ((upper_generated_position - upper_source_position) * 0.5)
-                                expected_lower_cut_position = lower_source_position + ((lower_generated_position - lower_source_position) * 0.5)
+                                expected_upper_cut_position = expected_cut_positions[1]
+                                expected_lower_cut_position = expected_cut_positions[2]
                                 live_planned_anchor_position = upper_source_position + ((branch_neighbor_position - upper_source_position) * anchor_fraction_from_source)
                                 live_planned_bottom_position = [live_planned_anchor_position.x, live_planned_anchor_position.y, expected_lower_cut_position.z]
                                 if distance planner_anchor_position live_planned_anchor_position > tolerance or distance planner_bottom_position live_planned_bottom_position > tolerance then
                                 (
-                                        format "FIX T EDGE CORNERS COORDINATE REBASE: case % | planner anchor % -> live anchor % | planner lower % -> live lower %\n" case_index planner_anchor_position live_planned_anchor_position planner_bottom_position live_planned_bottom_position
+                                        if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS COORDINATE REBASE: case % | planner anchor % -> live anchor % | planner lower % -> live lower %\n" case_index planner_anchor_position live_planned_anchor_position planner_bottom_position live_planned_bottom_position
                                 )
-                                connect_edges = #{}
-                                connect_edges[branch_edge_id] = true
-                                connect_edges[upper_edge_id] = true
-                                connect_edges[lower_edge_id] = true
+                                if not isWallThicknessQuietMode() then
+                                (
+                                        format "FIX T EDGE CORNERS STACK MAP: case kind % | branch E% | strip levels % | strip edges % | source chain % | generated vertical E% | generated continuing E%\n" case_kind branch_edge_id chain_level_count cross_edge_ids source_chain_ids generated_vertical_edge_id generated_plan_edge_id
+                                )
                                 operation_stage = "ConnectEdges for case " + (case_index as string)
                                 if not executeWallThicknessTEdgeConnectEdges fix_modifier source_node connect_edges then throw "direct stacked Connect Edges failed"
                                 connect_vertex_count = fix_modifier.GetNumVertices node:source_node
                                 connect_face_count = fix_modifier.GetNumFaces node:source_node
                                 connect_edge_count = fix_modifier.GetNumEdges node:source_node
-                                format "FIX T EDGE CORNERS STACK AFTER CONNECT: verts % | polygons % | edges %\n" connect_vertex_count connect_face_count connect_edge_count
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS STACK AFTER CONNECT: verts % | polygons % | edges %\n" connect_vertex_count connect_face_count connect_edge_count
                                 first_new_vertex_id = case_start_vertex_count + 1
+                                cut_vertex_ids = #()
                                 if case_kind == #t_corner_mirror then
                                 (
-                                        if connect_vertex_count != (case_start_vertex_count + 2) then throw "T-Corner mirror ConnectEdges did not add exactly two strip vertices"
-                                        if connect_face_count != (case_start_face_count + 1) then throw "T-Corner mirror ConnectEdges did not add exactly one polygon"
-                                        if connect_edge_count != (case_start_edge_count + 3) then throw "T-Corner mirror ConnectEdges did not add exactly three edges"
-                                        operation_stage = "resolve two new T-Corner mirror strip vertices for case " + (case_index as string)
-                                        top_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_upper_cut_position tolerance first_new_vertex_id
-                                        bottom_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_lower_cut_position tolerance first_new_vertex_id
-                                        if top_cut_ids.count != 1 then throw "T-Corner mirror ConnectEdges did not resolve one new upper cut vertex"
-                                        if bottom_cut_ids.count != 1 then throw "T-Corner mirror ConnectEdges did not resolve one new lower cut vertex"
-                                        top_cut_vertex_id = top_cut_ids[1]
-                                        bottom_cut_vertex_id = bottom_cut_ids[1]
-                                        if findWallThicknessTEdgeLiveEdge fix_modifier source_node top_cut_vertex_id bottom_cut_vertex_id < 1 then throw "T-Corner mirror ConnectEdges did not create upper-to-lower edge"
+                                        expected_connect_vertex_add = chain_level_count
+                                        expected_connect_face_add = chain_level_count - 1
+                                        expected_connect_edge_add = (chain_level_count * 2) - 1
+                                        if connect_vertex_count != (case_start_vertex_count + expected_connect_vertex_add) then throw "T-Corner mirror ConnectEdges added an unexpected segmented vertex count"
+                                        if connect_face_count != (case_start_face_count + expected_connect_face_add) then throw "T-Corner mirror ConnectEdges added an unexpected segmented polygon count"
+                                        if connect_edge_count != (case_start_edge_count + expected_connect_edge_add) then throw "T-Corner mirror ConnectEdges added an unexpected segmented edge count"
+                                        operation_stage = "resolve segmented T-Corner mirror strip vertices for case " + (case_index as string)
+                                        for expected_cut_position in expected_cut_positions do
+                                        (
+                                                cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_cut_position tolerance first_new_vertex_id
+                                                if cut_ids.count != 1 then
+                                                (
+                                                        format "FIX T EDGE CORNERS MIRROR CUT RESOLVE FAILED | case:% | target:% | found:% | all targets:%\n" case_index expected_cut_position cut_ids expected_cut_positions
+                                                        throw "T-Corner mirror ConnectEdges did not resolve one cut vertex per segment level"
+                                                )
+                                                append cut_vertex_ids cut_ids[1]
+                                        )
+                                        for chain_index = 1 to (cut_vertex_ids.count - 1) do
+                                        (
+                                                if findWallThicknessTEdgeLiveEdge fix_modifier source_node cut_vertex_ids[chain_index] cut_vertex_ids[chain_index + 1] < 1 then throw "T-Corner mirror ConnectEdges did not create the complete segmented cut chain"
+                                        )
                                         operation_stage = "divide T-Corner mirror branch at planned fraction for case " + (case_index as string)
                                         before_branch_divide_vertex_count = fix_modifier.GetNumVertices node:source_node
                                         before_branch_divide_face_count = fix_modifier.GetNumFaces node:source_node
@@ -7743,44 +9095,52 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                                 format "FIX T EDGE CORNERS T-CORNER BRANCH DIVIDE VERIFY FAILED | case:% expected:% actual:% tolerance:%\n" case_index live_planned_anchor_position divided_anchor_position tolerance
                                                 throw "T-Corner mirror branch divide did not land at the live planned anchor"
                                         )
-                                        operation_stage = "connect T-Corner mirror anchor to upper cut for case " + (case_index as string)
+                                        operation_stage = "connect T-Corner mirror anchor to first cut for case " + (case_index as string)
                                         before_anchor_connect_vertex_count = fix_modifier.GetNumVertices node:source_node
                                         before_anchor_connect_face_count = fix_modifier.GetNumFaces node:source_node
                                         before_anchor_connect_edge_count = fix_modifier.GetNumEdges node:source_node
-                                        if not connectWallThicknessTEdgeVertices fix_modifier source_node fixed_anchor_vertex_id top_cut_vertex_id then throw "T-Corner mirror anchor-to-upper connect failed"
+                                        if not connectWallThicknessTEdgeVertices fix_modifier source_node fixed_anchor_vertex_id cut_vertex_ids[1] then throw "T-Corner mirror anchor-to-first-cut connect failed"
                                         after_anchor_connect_vertex_count = fix_modifier.GetNumVertices node:source_node
                                         after_anchor_connect_face_count = fix_modifier.GetNumFaces node:source_node
                                         after_anchor_connect_edge_count = fix_modifier.GetNumEdges node:source_node
                                         if after_anchor_connect_vertex_count != before_anchor_connect_vertex_count then throw "T-Corner mirror anchor connect changed vertex count"
                                         if after_anchor_connect_face_count != (before_anchor_connect_face_count + 1) then throw "T-Corner mirror anchor connect did not add exactly one polygon"
                                         if after_anchor_connect_edge_count != (before_anchor_connect_edge_count + 1) then throw "T-Corner mirror anchor connect did not add exactly one edge"
-                                        if after_anchor_connect_vertex_count != (case_start_vertex_count + 3) then throw "unexpected T-Corner mirror pre-weld vertex count"
-                                        if after_anchor_connect_face_count != (case_start_face_count + 2) then throw "unexpected T-Corner mirror pre-weld polygon count"
-                                        if after_anchor_connect_edge_count != (case_start_edge_count + 5) then throw "unexpected T-Corner mirror pre-weld edge count"
                                 )
                                 else
                                 (
-                                        if connect_vertex_count != (case_start_vertex_count + 3) then throw "direct stacked Connect Edges did not add exactly three vertices"
-                                        if connect_face_count != (case_start_face_count + 2) then throw "direct stacked Connect Edges did not add exactly two polygons"
-                                        if connect_edge_count != (case_start_edge_count + 5) then throw "direct stacked Connect Edges did not add exactly five edges"
-                                        operation_stage = "resolve three new ConnectEdges vertices for case " + (case_index as string)
+                                        expected_connect_vertex_add = chain_level_count + 1
+                                        expected_connect_face_add = chain_level_count
+                                        expected_connect_edge_add = (chain_level_count * 2) + 1
+                                        if connect_vertex_count != (case_start_vertex_count + expected_connect_vertex_add) then throw "direct stacked Connect Edges added an unexpected segmented vertex count"
+                                        if connect_face_count != (case_start_face_count + expected_connect_face_add) then throw "direct stacked Connect Edges added an unexpected segmented polygon count"
+                                        if connect_edge_count != (case_start_edge_count + expected_connect_edge_add) then throw "direct stacked Connect Edges added an unexpected segmented edge count"
+                                        operation_stage = "resolve segmented ConnectEdges vertices for case " + (case_index as string)
                                         fixed_anchor_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_anchor_connect_position tolerance first_new_vertex_id
-                                        top_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_upper_cut_position tolerance first_new_vertex_id
-                                        bottom_cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_lower_cut_position tolerance first_new_vertex_id
                                         if fixed_anchor_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new branch anchor"
-                                        if top_cut_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new upper cut vertex"
-                                        if bottom_cut_ids.count != 1 then throw "direct stacked Connect Edges did not resolve one new lower cut vertex"
                                         fixed_anchor_vertex_id = fixed_anchor_ids[1]
-                                        top_cut_vertex_id = top_cut_ids[1]
-                                        bottom_cut_vertex_id = bottom_cut_ids[1]
-                                        if findWallThicknessTEdgeLiveEdge fix_modifier source_node fixed_anchor_vertex_id top_cut_vertex_id < 1 then throw "direct stacked Connect Edges did not create anchor-to-upper edge"
-                                        if findWallThicknessTEdgeLiveEdge fix_modifier source_node top_cut_vertex_id bottom_cut_vertex_id < 1 then throw "direct stacked Connect Edges did not create upper-to-lower edge"
+                                        for expected_cut_position in expected_cut_positions do
+                                        (
+                                                cut_ids = getWallThicknessTEdgeNewVerticesAtPosition fix_modifier source_node expected_cut_position tolerance first_new_vertex_id
+                                                if cut_ids.count != 1 then
+                                                (
+                                                        format "FIX T EDGE CORNERS CUT RESOLVE FAILED | case:% | target:% | found:% | all targets:%\n" case_index expected_cut_position cut_ids expected_cut_positions
+                                                        throw "direct stacked Connect Edges did not resolve one cut vertex per segment level"
+                                                )
+                                                append cut_vertex_ids cut_ids[1]
+                                        )
                                 )
-                                format "FIX T EDGE CORNERS STACK NEW VERTS: anchor V% | upper V% | lower V%\n" fixed_anchor_vertex_id top_cut_vertex_id bottom_cut_vertex_id
+                                if cut_vertex_ids.count != chain_level_count then throw "direct stacked segmented cut vertex count does not match source chain"
+                                if findWallThicknessTEdgeLiveEdge fix_modifier source_node fixed_anchor_vertex_id cut_vertex_ids[1] < 1 then throw "direct stacked cut did not create anchor-to-first-cut edge"
+                                for chain_index = 1 to (cut_vertex_ids.count - 1) do
+                                (
+                                        if findWallThicknessTEdgeLiveEdge fix_modifier source_node cut_vertex_ids[chain_index] cut_vertex_ids[chain_index + 1] < 1 then throw "direct stacked cut did not create every consecutive segmented edge"
+                                )
+                                top_cut_vertex_id = cut_vertex_ids[1]
+                                bottom_cut_vertex_id = cut_vertex_ids[2]
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS STACK NEW VERTS: anchor V% | cut chain %\n" fixed_anchor_vertex_id cut_vertex_ids
                                 fixed_anchor_position = fix_modifier.GetVertex fixed_anchor_vertex_id node:source_node
-                                top_before_move = fix_modifier.GetVertex top_cut_vertex_id node:source_node
-                                bottom_before_move = fix_modifier.GetVertex bottom_cut_vertex_id node:source_node
-                                if fixed_anchor_position == undefined or top_before_move == undefined or bottom_before_move == undefined then throw "direct stacked modifier could not read new T-edge vertices"
+                                if fixed_anchor_position == undefined then throw "direct stacked modifier could not read new T-edge anchor"
                                 operation_stage = "move new T-edge branch anchor to planned intersection for case " + (case_index as string)
                                 if not moveWallThicknessTEdgeVertexToPosition fix_modifier source_node fixed_anchor_vertex_id live_planned_anchor_position tolerance then throw "direct stacked branch anchor move to planned intersection failed"
                                 fixed_anchor_position = fix_modifier.GetVertex fixed_anchor_vertex_id node:source_node
@@ -7789,17 +9149,39 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                         format "FIX T EDGE CORNERS PLANNED ANCHOR VERIFY FAILED | case:% expected:% actual:% tolerance:%\n" case_index live_planned_anchor_position fixed_anchor_position tolerance
                                         throw "direct stacked branch anchor did not reach planned intersection"
                                 )
-                                operation_stage = "move new T-edge cut edge onto branch anchor for case " + (case_index as string)
-                                if not moveWallThicknessTEdgeLiveCutEdgeToAnchor fix_modifier source_node top_cut_vertex_id bottom_cut_vertex_id fixed_anchor_vertex_id tolerance then throw "direct stacked cut-edge move failed"
+                                operation_stage = "move segmented T-edge cut onto branch anchor for case " + (case_index as string)
+                                cut_target_positions = #()
+                                for cut_vertex_id in cut_vertex_ids do
+                                (
+                                        cut_position = fix_modifier.GetVertex cut_vertex_id node:source_node
+                                        if cut_position == undefined then throw "direct stacked modifier could not read one segmented cut vertex"
+                                        cut_target_position = [fixed_anchor_position.x, fixed_anchor_position.y, cut_position.z]
+                                        append cut_target_positions cut_target_position
+                                        if not moveWallThicknessTEdgeVertexToPosition fix_modifier source_node cut_vertex_id cut_target_position tolerance then
+                                        (
+                                                format "FIX T EDGE CORNERS SEGMENT MOVE FAILED | case:% | vertex:V% | target:% | chain:%\n" case_index cut_vertex_id cut_target_position cut_vertex_ids
+                                                throw "direct stacked segmented cut move failed"
+                                        )
+                                )
                                 anchor_after_move = fix_modifier.GetVertex fixed_anchor_vertex_id node:source_node
                                 top_after_move = fix_modifier.GetVertex top_cut_vertex_id node:source_node
                                 moved_bottom_position = fix_modifier.GetVertex bottom_cut_vertex_id node:source_node
-                                bottom_target_position = live_planned_bottom_position
-                                format "FIX T EDGE CORNERS STACK PRE-WELD: anchor % | planned % | upper moved % | lower moved % | lower target %\n" anchor_after_move live_planned_anchor_position top_after_move moved_bottom_position bottom_target_position
-                                if anchor_after_move == undefined or distance anchor_after_move live_planned_anchor_position > tolerance then throw "direct stacked cut-edge move changed planned branch anchor"
-                                if top_after_move == undefined or distance top_after_move anchor_after_move > tolerance then throw "direct stacked upper cut did not coincide with branch anchor"
-                                if moved_bottom_position == undefined or distance moved_bottom_position bottom_target_position > tolerance then throw "direct stacked lower cut did not align below planned branch anchor"
+                                bottom_target_position = cut_target_positions[2]
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS STACK PRE-WELD: anchor % | planned % | cut chain % | cut targets %\n" anchor_after_move live_planned_anchor_position cut_vertex_ids cut_target_positions
+                                if anchor_after_move == undefined or distance anchor_after_move live_planned_anchor_position > tolerance then throw "direct stacked segmented cut move changed planned branch anchor"
+                                if top_after_move == undefined or distance top_after_move anchor_after_move > tolerance then throw "direct stacked first cut did not coincide with branch anchor"
+                                if moved_bottom_position == undefined or distance moved_bottom_position bottom_target_position > tolerance then throw "direct stacked continuation cut did not align below planned branch anchor"
+                                for chain_index = 1 to cut_vertex_ids.count do
+                                (
+                                        moved_cut_position = fix_modifier.GetVertex cut_vertex_ids[chain_index] node:source_node
+                                        if moved_cut_position == undefined or distance moved_cut_position cut_target_positions[chain_index] > tolerance then
+                                        (
+                                                format "FIX T EDGE CORNERS SEGMENT VERIFY FAILED | case:% | level:% | vertex:V% | expected:% | actual:%\n" case_index chain_index cut_vertex_ids[chain_index] cut_target_positions[chain_index] moved_cut_position
+                                                throw "one segmented T-edge cut vertex did not reach the stable anchor X/Y"
+                                        )
+                                )
                                 operation_stage = "weld coincident upper cut into branch anchor for case " + (case_index as string)
+                                if not bindWallThicknessTEdgeOperationContext fix_modifier source_node #Vertex then throw "could not bind T-edge Edit Poly for weld"
                                 before_weld_vertex_count = fix_modifier.GetNumVertices node:source_node
                                 before_weld_face_count = fix_modifier.GetNumFaces node:source_node
                                 before_weld_edge_count = fix_modifier.GetNumEdges node:source_node
@@ -7810,30 +9192,42 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
                                 after_weld_vertex_count = fix_modifier.GetNumVertices node:source_node
                                 after_weld_face_count = fix_modifier.GetNumFaces node:source_node
                                 after_weld_edge_count = fix_modifier.GetNumEdges node:source_node
-                                format "FIX T EDGE CORNERS STACK WELD: upper V% -> anchor V% | verts % -> % | polygons % -> % | edges % -> %\n" top_cut_vertex_id fixed_anchor_vertex_id before_weld_vertex_count after_weld_vertex_count before_weld_face_count after_weld_face_count before_weld_edge_count after_weld_edge_count
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS STACK WELD: upper V% -> anchor V% | verts % -> % | polygons % -> % | edges % -> %\n" top_cut_vertex_id fixed_anchor_vertex_id before_weld_vertex_count after_weld_vertex_count before_weld_face_count after_weld_face_count before_weld_edge_count after_weld_edge_count
                                 if after_weld_vertex_count != (before_weld_vertex_count - 1) then throw "direct stacked weld did not remove exactly one vertex"
                                 if after_weld_face_count != (before_weld_face_count - 1) then throw "direct stacked weld did not remove exactly one polygon"
                                 if after_weld_edge_count != (before_weld_edge_count - 2) then throw "direct stacked weld did not remove exactly two edges"
-                                if after_weld_vertex_count != (case_start_vertex_count + 2) then throw "unexpected direct stacked repaired vertex count"
-                                if after_weld_face_count != (case_start_face_count + 1) then throw "unexpected direct stacked repaired polygon count"
-                                if after_weld_edge_count != (case_start_edge_count + 3) then throw "unexpected direct stacked repaired edge count"
-                                surviving_anchor_ids = getWallThicknessLiveVerticesAtPosition fix_modifier source_node fixed_anchor_position tolerance
-                                if surviving_anchor_ids.count != 1 then throw "direct stacked fixed anchor was not uniquely preserved"
-                                surviving_anchor_id = surviving_anchor_ids[1]
-                                surviving_bottom_ids = getWallThicknessLiveVerticesAtPosition fix_modifier source_node bottom_target_position tolerance
-                                if surviving_bottom_ids.count != 1 then throw "direct stacked lower cut vertex was not uniquely preserved"
+                                expected_case_vertex_add = chain_level_count
+                                expected_case_face_add = chain_level_count - 1
+                                expected_case_edge_add = (chain_level_count * 2) - 1
+                                if after_weld_vertex_count != (case_start_vertex_count + expected_case_vertex_add) then throw "unexpected direct stacked segmented repaired vertex count"
+                                if after_weld_face_count != (case_start_face_count + expected_case_face_add) then throw "unexpected direct stacked segmented repaired polygon count"
+                                if after_weld_edge_count != (case_start_edge_count + expected_case_edge_add) then throw "unexpected direct stacked segmented repaired edge count"
+                                surviving_cut_chain = #()
+                                for cut_target_position in cut_target_positions do
+                                (
+                                        surviving_cut_ids = getWallThicknessLiveVerticesAtPosition fix_modifier source_node cut_target_position tolerance
+                                        if surviving_cut_ids.count != 1 then
+                                        (
+                                                format "FIX T EDGE CORNERS SEGMENT SURVIVOR FAILED | case:% | target:% | found:% | targets:%\n" case_index cut_target_position surviving_cut_ids cut_target_positions
+                                                throw "segmented T-edge cut vertex was not uniquely preserved after weld"
+                                        )
+                                        append surviving_cut_chain surviving_cut_ids[1]
+                                )
+                                surviving_anchor_id = surviving_cut_chain[1]
+                                surviving_bottom_ids = #(surviving_cut_chain[2])
                                 if case_kind == #t_corner_primary then
                                 (
-                                        t_corner_anchor_ids[case_index] = surviving_anchor_id
-                                        t_corner_bottom_ids[case_index] = surviving_bottom_ids[1]
-                                        format "FIX T EDGE CORNERS T-CORNER PRIMARY CUT: case % | shared upper endpoint V% | shared lower endpoint V%\n" case_index surviving_anchor_id surviving_bottom_ids[1]
+                                        t_corner_anchor_ids[case_index] = surviving_cut_chain[1]
+                                        t_corner_bottom_ids[case_index] = surviving_cut_chain[2]
+                                        t_corner_cut_chains[case_index] = surviving_cut_chain
+                                        if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS T-CORNER PRIMARY CUT: case % | shared cut chain % | source chain %\n" case_index surviving_cut_chain source_chain_ids
                                 )
                                 operation_stage = "generated-side Material ID correction for case " + (case_index as string)
-                                changed_material_faces = fixWallThicknessTEdgeNewWallFaceMaterial fix_modifier source_node generated_anchor_id generated_continuation_id surviving_anchor_id surviving_bottom_ids[1]
+                                changed_material_faces = fixWallThicknessTEdgeNewWallFaceMaterial fix_modifier source_node generated_anchor_id generated_continuation_id surviving_cut_chain[1] surviving_cut_chain[2]
                                 material_face_count += changed_material_faces
                                 repaired_case_count += 1
                                 welded_vertex_count += 1
-                                format "FIX T EDGE CORNERS STACK CASE COMPLETE: case % | material polygons updated %\n" case_index changed_material_faces
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS STACK CASE COMPLETE: case % | material polygons updated %\n" case_index changed_material_faces
                         )
                         if repaired_case_count != planned_cases.count then throw "not every direct stacked T-edge case completed"
                         build_succeeded = true
@@ -7859,8 +9253,12 @@ function buildWallThicknessTEdgeFixModifier source_node planned_cases =
         try
         (
                 if saved_selection.count > 0 then select saved_selection else clearSelection()
-                if saved_current_object != undefined then modPanel.setCurrentObject saved_current_object
-                subObjectLevel = saved_sub_object_level
+                if saved_current_object != undefined then
+                (
+                        current_restore_object = try (modPanel.getCurrentObject()) catch (undefined)
+                        if current_restore_object != saved_current_object then modPanel.setCurrentObject saved_current_object
+                )
+                if subObjectLevel != saved_sub_object_level then subObjectLevel = saved_sub_object_level
         )
         catch
         (
@@ -7878,12 +9276,12 @@ function fixWallThicknessTEdgeCorners source_node =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 #(false, 0, 0, 0)
         )
         else if getWallThicknessModifier source_node == undefined then
         (
-                messageBox "Create WALL THICKNESS first." title:"Wall Thickness"
+                showWallThicknessMessage "Create WALL THICKNESS first."
                 #(false, 0, 0, 0)
         )
         else
@@ -7922,7 +9320,7 @@ function fixWallThicknessTEdgeCorners source_node =
                                 setObjectWallThicknessInnerFixEnabled source_node true
                                 setObjectWallThicknessChangeMaterialIds source_node use_material_ids
                                 wall_thickness_target = source_node
-                                format "FIX T EDGE CORNERS BASE SIGNATURE: unchanged:true | verts % | edges % | polygons %\n" base_signature_after[1] base_signature_after[2] base_signature_after[3]
+                                if not isWallThicknessQuietMode() then format "FIX T EDGE CORNERS BASE SIGNATURE: unchanged:true | verts % | edges % | polygons %\n" base_signature_after[1] base_signature_after[2] base_signature_after[3]
                         )
                         catch
                         (
@@ -7960,7 +9358,7 @@ function fixWallThicknessTEdgeCorners source_node =
                 completeRedraw()
                 if build_succeeded then
                 (
-                        format "Wall Thickness FIX T EDGE CORNERS %: detected/repaired % | welded % | material polygons corrected % | removable Edit Poly:true | base unchanged:true | modifier selected:%\n" (formattedPrint wall_thickness_file_version format:"1.3f") repaired_case_count welded_vertex_count material_face_count modifier_selected
+                        if not isWallThicknessQuietMode() then format "Wall Thickness FIX T EDGE CORNERS %: detected/repaired % | welded % | material polygons corrected % | removable Edit Poly:true | base unchanged:true | modifier selected:%\n" (formattedPrint wall_thickness_file_version format:"1.3f") repaired_case_count welded_vertex_count material_face_count modifier_selected
                 )
                 else
                 (
@@ -8310,7 +9708,7 @@ function quadrifyCurrentWallThicknessModifier source_node =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 false
         )
         else
@@ -8318,7 +9716,7 @@ function quadrifyCurrentWallThicknessModifier source_node =
                 current_modifier = getWallThicknessCurrentEditPolyModifier source_node
                 if current_modifier == undefined then
                 (
-                        messageBox "Make an Edit Poly modifier current before using CLEANUP." title:"Wall Thickness"
+                        showWallThicknessMessage "Make an Edit Poly modifier current before using CLEANUP."
                         false
                 )
                 else
@@ -8348,7 +9746,7 @@ function quadrifyCurrentWallThicknessModifier source_node =
                         completeRedraw()
                         if not quadrify_succeeded then
                         (
-                                messageBox "Quadrify failed on the current Edit Poly modifier." title:"Wall Thickness"
+                                showWallThicknessMessage "Quadrify failed on the current Edit Poly modifier."
                         )
                         quadrify_succeeded
                 )
@@ -8363,7 +9761,7 @@ function cleanupWallThickness source_node =
 (
         if not isValidNode source_node then
         (
-                messageBox "Select exactly one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select exactly one wall object."
                 false
         )
         else
@@ -8371,7 +9769,7 @@ function cleanupWallThickness source_node =
                 preview_modifier = getWallThicknessModifier source_node
                 if preview_modifier == undefined then
                 (
-                        messageBox "Create a live thickness preview before using CLEANUP." title:"Wall Thickness"
+                        showWallThicknessMessage "Create a live thickness preview before using CLEANUP."
                         false
                 )
                 else
@@ -8410,7 +9808,7 @@ function cleanupWallThickness source_node =
                         if cleanup_succeeded then
                         (
                                 cleanup_changed = quadrify_data[2] or preprocess_data[4] or preprocess_data[5] or preprocess_data[6] or (cleanup_data[3] > 0)
-                                format "Wall Thickness CLEANUP: changed:% | quadrify:% | cap:% | weld:% | multiple:% | deleted faces:% | loop fills:% | open edges:% -> %.\n" cleanup_changed quadrify_data[2] preprocess_data[4] preprocess_data[5] preprocess_data[6] preprocess_data[3] cleanup_data[3] cleanup_data[6] cleanup_data[7]
+                                if not isWallThicknessQuietMode() then format "Wall Thickness CLEANUP: changed:% | quadrify:% | cap:% | weld:% | multiple:% | deleted faces:% | loop fills:% | open edges:% -> %.\n" cleanup_changed quadrify_data[2] preprocess_data[4] preprocess_data[5] preprocess_data[6] preprocess_data[3] cleanup_data[3] cleanup_data[6] cleanup_data[7]
                                 subObjectLevel = 0
                                 completeRedraw()
                                 true
@@ -8418,7 +9816,7 @@ function cleanupWallThickness source_node =
                         else
                         (
                                 setWallThicknessCleanupComplete source_node false
-                                messageBox "CLEANUP failed. Only cleanup stages that changed geometry are kept; RESET removes the remaining Wall Thickness history." title:"Wall Thickness"
+                                showWallThicknessMessage "CLEANUP failed. Only cleanup stages that changed geometry are kept; RESET removes the remaining Wall Thickness history."
                                 false
                         )
                 )
@@ -8433,7 +9831,7 @@ function clearWallSmoothingGroups =
 (
         if selection.count == 0 then
         (
-                messageBox "Select at least one wall object." title:"Wall Thickness"
+                showWallThicknessMessage "Select at least one wall object."
                 false
         )
         else
@@ -8463,7 +9861,7 @@ function clearWallSmoothingGroups =
                 completeRedraw()
                 if not clear_succeeded then
                 (
-                        messageBox "Smoothing groups could not be cleared on one or more selected objects." title:"Wall Thickness"
+                        showWallThicknessMessage "Smoothing groups could not be cleared on one or more selected objects."
                 )
                 clear_succeeded
         )
@@ -8515,22 +9913,105 @@ function setWallThicknessUILog action_name result_value:undefined detail:"" =
         )
         message_text = toUpper message_text
         try (wallThicknessRollout.edt_log.text = message_text) catch ()
-        quiet_enabled = false
-        if wallThicknessRollout != undefined then
-        (
-                quiet_enabled = wallThicknessRollout.chk_quiet.checked
-        )
-        if not quiet_enabled then
+        if not isWallThicknessQuietMode() then
         (
                 format "Wall Thickness % | %\n" action_name message_text
         )
         true
         -- return
 )
+/*
+Styles the combined EXTRUDE + FINISH batch button with the shared dark .NET button appearance.
+Only the semantic foreground color is overridden to green; standard background, border, hover, pressed, and font values remain unchanged.
+*/
+function setupWallThicknessExtrudeFinishButton button_control =
+(
+        if button_control == undefined then return false
+        button_control.UseVisualStyleBackColor = false
+        button_control.FlatStyle = (dotNetClass "System.Windows.Forms.FlatStyle").Flat
+        button_control.BackColor = (dotNetClass "System.Drawing.Color").FromArgb 68 68 68
+        button_control.ForeColor = (dotNetClass "System.Drawing.Color").FromArgb 120 220 120
+        button_control.FlatAppearance.BorderColor = (dotNetClass "System.Drawing.Color").FromArgb 120 120 120
+        button_control.FlatAppearance.BorderSize = 1
+        button_control.FlatAppearance.MouseOverBackColor = (dotNetClass "System.Drawing.Color").FromArgb 78 78 78
+        button_control.FlatAppearance.MouseDownBackColor = (dotNetClass "System.Drawing.Color").FromArgb 55 55 55
+        button_control.Font = dotNetObject "System.Drawing.Font" "Segoe UI" 9.0 (dotNetClass "System.Drawing.FontStyle").Bold
+        button_control.Text = "EXTRUDE + FINISH"
+        true
+        -- return
+)
+/*
+Runs the complete Wall Thickness pipeline sequentially for every supplied node.
+Each node must complete EXTRUDE / UPDATE with automatic inner-corner repair before its T-edge finishing pass is attempted.
+*/
+function runWallThicknessExtrudeFinishBatch selected_nodes batch_thickness batch_change_material_ids =
+(
+        success_count = 0
+        failed_nodes = #()
+        repaired_case_count = 0
+        material_face_count = 0
+        last_successful_node = undefined
+        for source_node in selected_nodes do
+        (
+                select source_node
+                extrude_succeeded = applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:true
+                if extrude_succeeded then
+                (
+                        finish_result = fixWallThicknessTEdgeCorners source_node
+                        if finish_result != undefined and finish_result.count >= 4 and finish_result[1] then
+                        (
+                                success_count += 1
+                                repaired_case_count += finish_result[2]
+                                material_face_count += finish_result[4]
+                                last_successful_node = source_node
+                        )
+                        else
+                        (
+                                append failed_nodes source_node
+                        )
+                )
+                else
+                (
+                        append failed_nodes source_node
+                )
+        )
+        #(success_count, failed_nodes, repaired_case_count, material_face_count, last_successful_node)
+        -- return
+)
+/*
+Finishes a multi-object Wall Thickness batch with one summary dialog and deterministic selection.
+Failed nodes are selected for inspection; otherwise the caller may keep the last successful T-edge result active.
+*/
+function finishWallThicknessBatch action_name selected_nodes failed_nodes summary_detail last_success_node:undefined keep_last_t_edge:false =
+(
+        wall_thickness_batch_silent_messages = false
+        if failed_nodes.count > 0 then
+        (
+                select failed_nodes
+        )
+        else if keep_last_t_edge and isValidNode last_success_node then
+        (
+                selectWallThicknessTEdgeFixModifier last_success_node
+        )
+        else
+        (
+                select selected_nodes
+        )
+        setWallThicknessUILog action_name detail:summary_detail
+        final_message = action_name + " BATCH COMPLETE\n\n" + summary_detail
+        if failed_nodes.count > 0 then
+        (
+                final_message += "\n\nFAILED OBJECTS ARE SELECTED."
+        )
+        showWallThicknessMessage final_message
+        true
+        -- return
+)
 rollout wallThicknessRollout wall_thickness_ui_title width:270
 (
+        local extrude_finish_tooltip = undefined
         dotNetControl btn_tool_title "System.Windows.Forms.Button" width:246 height:18 align:#center
-        checkbutton chk_quiet "QUIET" checked:false width:230 height:24 align:#center tooltip:"LMB: Suppress the routine Listener line written after each UI action.\n\nErrors and diagnostic output remain visible."
+        checkbutton chk_quiet "QUIET MODE" checked:false width:230 height:24 align:#center tooltip:"Suppress routine Wall Thickness Listener trace while keeping fatal errors, exceptions, and required failure diagnostics visible.\n\nThe setting is persistent."
         group "LOG"
         (
                 editText edt_log "" text:"READY" readOnly:true width:230 height:58 align:#center
@@ -8557,14 +10038,16 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 label lbl_scaled "" width:92 align:#left
                 label lbl_scaled_units "" width:42 align:#left
                 checkbox chk_change_material_ids "CHANGE MATERIAL IDS" checked:false width:230 align:#left tooltip:"When enabled, EXTRUDE / UPDATE sets source/outer faces to Material ID 1, generated inner faces to Material ID 2, and border strip faces to Material ID 3.\n\nWhen disabled, EXTRUDE / UPDATE preserves source Material IDs and inherits them onto generated faces."
-                button btn_create "EXTRUDE / UPDATE" width:230 height:32 align:#center tooltip:"LMB: Create or rebuild WALL THICKNESS on every selected wall, one object at a time. Automatically runs FIX INNER CORNERS and creates the fix modifier only when correction is required.\n\nCHANGE MATERIAL IDS OFF: preserve/inherit source Material IDs.\n\nCHANGE MATERIAL IDS ON: assign OUTER 1, INNER 2, STRIP 3."
+                button btn_create "EXTRUDE / UPDATE" width:230 height:32 align:#center tooltip:"LMB: Create or rebuild WALL THICKNESS on every selected wall, one object at a time. Automatically runs FIX INNER CORNERS and creates the fix modifier only when correction is required.\n\nMulti-object batches suppress intermediate dialogs, show one summary at the end, and select failed objects.\n\nCHANGE MATERIAL IDS OFF: preserve/inherit source Material IDs.\n\nCHANGE MATERIAL IDS ON: assign OUTER 1, INNER 2, STRIP 3."
+                button btn_finish_walls "FINISH WALLS" width:230 height:32 align:#center tooltip:"LMB: Run the same multi-object T-edge finishing pass as FIX T EDGE CORNERS.\n\nMulti-object batches suppress intermediate dialogs and select failed objects after one final summary. When nothing fails, the last successfully finished wall remains active with its T-edge modifier selected."
+                dotNetControl btn_extrude_finish "System.Windows.Forms.Button" width:230 height:32 align:#center
         )
         group "MANUAL-PROCESS"
         (
-                button btn_extrude_only "EXTRUDE ONLY" width:230 height:28 align:#center tooltip:"LMB: Rebuild only the raw WALL THICKNESS extrusion on every selected wall, one object at a time.\n\nNo automatic FIX INNER CORNERS pass is run; later spinner rebuilds remain raw-only until FIX INNER CORNERS is run manually."
-                button btn_fix_inner "FIX INNER CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX INNER CORNERS on every selected wall, one object at a time. Keeps WALL THICKNESS intact and adds a deformation-only FIX INNER CORNERS modifier above it.\n\nThe fix changes vertex positions only, never topology. Future thickness updates rebuild both modifiers from the untouched source."
-                button btn_fix_t_edge "FIX T EDGE CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX T EDGE CORNERS on every selected wall, one object at a time. Plans from the stable FIX INNER CORNERS result, then repairs T-edge topology in one removable Edit Poly directly above WALL THICKNESS.\n\nAfter a batch, the last successfully fixed wall remains active with its T-edge modifier selected."
-                button btn_fix_outer "FIX OUTER CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX OUTER CORNERS on every selected wall, one object at a time. Resolve convex outer corners by intersecting the offset face planes and removing the generated chamfer.\n\nSource-wall inner angles sharper than 90 degrees are left unchanged to avoid spikes."
+                button btn_extrude_only "EXTRUDE ONLY" width:230 height:28 align:#center tooltip:"LMB: Rebuild only the raw WALL THICKNESS extrusion on every selected wall, one object at a time.\n\nMulti-object batches suppress intermediate dialogs, show one summary at the end, and select failed objects.\n\nNo automatic FIX INNER CORNERS pass is run; later spinner rebuilds remain raw-only until FIX INNER CORNERS is run manually."
+                button btn_fix_inner "FIX INNER CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX INNER CORNERS on every selected wall, one object at a time. Keeps WALL THICKNESS intact and adds a deformation-only FIX INNER CORNERS modifier above it.\n\nMulti-object batches suppress intermediate dialogs, show one summary at the end, and select failed objects.\n\nThe fix changes vertex positions only, never topology. Future thickness updates rebuild both modifiers from the untouched source."
+                button btn_fix_t_edge "FIX T EDGE CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX T EDGE CORNERS on every selected wall, one object at a time. Plans from the stable FIX INNER CORNERS result, then repairs T-edge topology in one removable Edit Poly directly above WALL THICKNESS.\n\nMulti-object batches suppress intermediate dialogs and select failed objects after one final summary. When nothing fails, the last successfully fixed wall remains active with its T-edge modifier selected."
+                button btn_fix_outer "FIX OUTER CORNERS" width:230 height:28 align:#center tooltip:"LMB: Run FIX OUTER CORNERS on every selected wall, one object at a time. Resolve convex outer corners by intersecting the offset face planes and removing the generated chamfer.\n\nMulti-object batches suppress intermediate dialogs, show one summary at the end, and select failed objects.\n\nSource-wall inner angles sharper than 90 degrees are left unchanged to avoid spikes."
                 button btn_cleanup "CLEANUP" width:230 height:32 align:#center tooltip:"Run PolyTools Quadrify on the currently active Edit Poly modifier only.\n\nNo modifier is created."
         )
         group "FINISH"
@@ -8579,6 +10062,9 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
         (
                 ToolTitleButton.setupToolTitleButton btn_tool_title "WALL THICKNESS"
                 ToolTitleButton.resizeToolTitleButton btn_tool_title (wallThicknessRollout.width - 24)
+                setupWallThicknessExtrudeFinishButton btn_extrude_finish
+                extrude_finish_tooltip = dotNetObject "System.Windows.Forms.ToolTip"
+                extrude_finish_tooltip.SetToolTip btn_extrude_finish "Run EXTRUDE / UPDATE and FINISH WALLS sequentially for every selected wall. Multi-object batches suppress intermediate dialogs, show one final summary, and select failed objects."
                 lbl_units.text = getWallThicknessDisplayUnitsLabel()
                 loadWallThicknessControlValues()
                 syncWallThicknessSpinnerToSelection()
@@ -8610,8 +10096,9 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
         )
         on chk_quiet changed state do
         (
+                setWallThicknessQuietMode state
                 saveWallThicknessControlValues()
-                setWallThicknessUILog "QUIET" detail:(if state then "ON | ACTION LISTENER OUTPUT SUPPRESSED" else "OFF | ACTION LISTENER OUTPUT ENABLED")
+                setWallThicknessUILog "QUIET MODE" detail:(if state then "ON | ROUTINE LISTENER TRACE SUPPRESSED" else "OFF | LISTENER TRACE ENABLED")
         )
         on wallThicknessRollout resized dialog_size do
         (
@@ -8621,6 +10108,11 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
         (
                 saveWallThicknessControlValues()
                 saveWallThicknessDialogPos()
+                if extrude_finish_tooltip != undefined then
+                (
+                        extrude_finish_tooltip.Dispose()
+                        extrude_finish_tooltip = undefined
+                )
         )
         on btn_reset pressed do
         (
@@ -8634,7 +10126,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 else
                 (
                         setWallThicknessUILog "REMOVE MODIFIERS" detail:"SELECT AT LEAST ONE WALL OBJECT"
-                        messageBox "Select at least one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select at least one wall object."
                 )
         )
         on btn_preprocess_01 pressed do
@@ -8660,7 +10152,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                         selected_count = if select_modifier != undefined then (select_modifier.GetSelection #Face node:selection[1]).numberSet else 0
                         setWallThicknessUILog "02 LMB" detail:((selected_count as string) + " GENERATED FACES FOUND")
                 )
-                else messageBox "Select exactly one wall object." title:"Wall Thickness"
+                else showWallThicknessMessage "Select exactly one wall object."
         )
         on btn_preprocess_02 rightClick do
         (
@@ -8678,7 +10170,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                                 setWallThicknessUILog "02 RMB" detail:"GENERATED FACE REMOVE FAILED"
                         )
                 )
-                else messageBox "Select exactly one wall object." title:"Wall Thickness"
+                else showWallThicknessMessage "Select exactly one wall object."
         )
         on btn_preprocess_03 pressed do
         (
@@ -8687,7 +10179,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                         result_value = preprocessWallThicknessStep selection[1] 3
                         setWallThicknessUILog "03 WELD SOURCE" result_value:result_value
                 )
-                else messageBox "Select exactly one wall object." title:"Wall Thickness"
+                else showWallThicknessMessage "Select exactly one wall object."
         )
         on btn_preprocess_04 pressed do
         (
@@ -8698,7 +10190,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                         selected_count = if select_modifier != undefined then (select_modifier.GetSelection #Face node:selection[1]).numberSet else 0
                         setWallThicknessUILog "04 LMB" detail:((selected_count as string) + " DEGENERATE FACES FOUND")
                 )
-                else messageBox "Select exactly one wall object." title:"Wall Thickness"
+                else showWallThicknessMessage "Select exactly one wall object."
         )
         on btn_preprocess_04 rightClick do
         (
@@ -8716,7 +10208,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                                 setWallThicknessUILog "04 RMB" detail:"DEGENERATE FACE FIX FAILED"
                         )
                 )
-                else messageBox "Select exactly one wall object." title:"Wall Thickness"
+                else showWallThicknessMessage "Select exactly one wall object."
         )
         on btn_preprocess_05 pressed do
         (
@@ -8725,7 +10217,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                         result_value = preprocessWallThicknessStep selection[1] 5
                         setWallThicknessUILog "05 MULTIPLE EDGES" result_value:result_value
                 )
-                else messageBox "Select exactly one wall object." title:"Wall Thickness"
+                else showWallThicknessMessage "Select exactly one wall object."
         )
         on btn_preprocess_06 pressed do
         (
@@ -8734,7 +10226,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                         result_value = preprocessWallThicknessStep selection[1] 6
                         setWallThicknessUILog "06 DEGENERATE BORDERS" result_value:result_value
                 )
-                else messageBox "Select exactly one wall object." title:"Wall Thickness"
+                else showWallThicknessMessage "Select exactly one wall object."
         )
         on btn_create pressed do
         (
@@ -8743,28 +10235,169 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 (
                         batch_thickness = spn_thickness.value
                         batch_change_material_ids = chk_change_material_ids.checked
+                        batch_mode = selected_nodes.count > 1
                         success_count = 0
                         failed_count = 0
-                        for source_node in selected_nodes do
+                        failed_nodes = #()
+                        if batch_mode then wall_thickness_batch_silent_messages = true
+                        try
                         (
-                                select source_node
-                                result_value = applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:true
-                                if result_value then
+                                for source_node in selected_nodes do
                                 (
-                                        success_count += 1
-                                )
-                                else
-                                (
-                                        failed_count += 1
+                                        select source_node
+                                        result_value = applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:true
+                                        if result_value then
+                                        (
+                                                success_count += 1
+                                        )
+                                        else
+                                        (
+                                                failed_count += 1
+                                                append failed_nodes source_node
+                                        )
                                 )
                         )
-                        select selected_nodes
-                        setWallThicknessUILog "EXTRUDE / UPDATE" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED")
+                        catch
+                        (
+                                exception_text = getCurrentException()
+                                wall_thickness_batch_silent_messages = false
+                                format "Wall Thickness EXTRUDE / UPDATE BATCH ERROR: %\n" exception_text
+                                throw()
+                        )
+                        summary_detail = (success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED"
+                        if batch_mode then
+                        (
+                                finishWallThicknessBatch "EXTRUDE / UPDATE" selected_nodes failed_nodes summary_detail
+                        )
+                        else
+                        (
+                                select selected_nodes
+                                setWallThicknessUILog "EXTRUDE / UPDATE" detail:summary_detail
+                        )
                 )
                 else
                 (
                         setWallThicknessUILog "EXTRUDE / UPDATE" detail:"select at least one wall object"
-                        messageBox "Select at least one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select at least one wall object."
+                )
+        )
+        on btn_finish_walls pressed do
+        (
+                selected_nodes = selection as array
+                if selected_nodes.count > 0 then
+                (
+                        batch_mode = selected_nodes.count > 1
+                        success_count = 0
+                        failed_count = 0
+                        repaired_case_count = 0
+                        material_face_count = 0
+                        failed_nodes = #()
+                        last_successful_node = undefined
+                        if batch_mode then wall_thickness_batch_silent_messages = true
+                        try
+                        (
+                                for source_node in selected_nodes do
+                                (
+                                        select source_node
+                                        result_value = fixWallThicknessTEdgeCorners source_node
+                                        if result_value != undefined and result_value.count >= 4 and result_value[1] then
+                                        (
+                                                success_count += 1
+                                                repaired_case_count += result_value[2]
+                                                material_face_count += result_value[4]
+                                                last_successful_node = source_node
+                                        )
+                                        else
+                                        (
+                                                failed_count += 1
+                                                append failed_nodes source_node
+                                        )
+                                )
+                        )
+                        catch
+                        (
+                                exception_text = getCurrentException()
+                                wall_thickness_batch_silent_messages = false
+                                format "Wall Thickness FINISH WALLS BATCH ERROR: %\n" exception_text
+                                throw()
+                        )
+                        summary_detail = (success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (repaired_case_count as string) + " T EDGE CORNERS FIXED | " + (material_face_count as string) + " MATERIAL POLYGONS UPDATED"
+                        if batch_mode then
+                        (
+                                finishWallThicknessBatch "FINISH WALLS" selected_nodes failed_nodes summary_detail last_success_node:last_successful_node keep_last_t_edge:true
+                        )
+                        else
+                        (
+                                if last_successful_node != undefined then
+                                (
+                                        selectWallThicknessTEdgeFixModifier last_successful_node
+                                )
+                                else
+                                (
+                                        select selected_nodes
+                                )
+                                setWallThicknessUILog "FINISH WALLS" detail:summary_detail
+                        )
+                )
+                else
+                (
+                        setWallThicknessUILog "FINISH WALLS" detail:"select at least one wall object"
+                        showWallThicknessMessage "Select at least one wall object."
+                )
+        )
+        on btn_extrude_finish Click sender event_args do
+        (
+                selected_nodes = selection as array
+                if selected_nodes.count > 0 then
+                (
+                        batch_thickness = spn_thickness.value
+                        batch_change_material_ids = chk_change_material_ids.checked
+                        batch_mode = selected_nodes.count > 1
+                        batch_result = #(0, #(), 0, 0, undefined)
+                        if batch_mode then wall_thickness_batch_silent_messages = true
+                        try
+                        (
+                                batch_result = runWallThicknessExtrudeFinishBatch selected_nodes batch_thickness batch_change_material_ids
+                        )
+                        catch
+                        (
+                                exception_text = getCurrentException()
+                                wall_thickness_batch_silent_messages = false
+                                format "Wall Thickness EXTRUDE + FINISH BATCH ERROR: %\n" exception_text
+                                throw()
+                        )
+                        success_count = batch_result[1]
+                        failed_nodes = batch_result[2]
+                        failed_count = failed_nodes.count
+                        repaired_case_count = batch_result[3]
+                        material_face_count = batch_result[4]
+                        last_successful_node = batch_result[5]
+                        summary_detail = (success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (repaired_case_count as string) + " T EDGE CORNERS FIXED | " + (material_face_count as string) + " MATERIAL POLYGONS UPDATED"
+                        if batch_mode then
+                        (
+                                finishWallThicknessBatch "EXTRUDE + FINISH" selected_nodes failed_nodes summary_detail last_success_node:last_successful_node keep_last_t_edge:true
+                        )
+                        else
+                        (
+                                if failed_count > 0 then
+                                (
+                                        select failed_nodes
+                                )
+                                else if last_successful_node != undefined then
+                                (
+                                        selectWallThicknessTEdgeFixModifier last_successful_node
+                                )
+                                else
+                                (
+                                        select selected_nodes
+                                )
+                                setWallThicknessUILog "EXTRUDE + FINISH" detail:summary_detail
+                        )
+                )
+                else
+                (
+                        setWallThicknessUILog "EXTRUDE + FINISH" detail:"select at least one wall object"
+                        showWallThicknessMessage "Select at least one wall object."
                 )
         )
         on btn_extrude_only pressed do
@@ -8774,28 +10407,44 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 (
                         batch_thickness = spn_thickness.value
                         batch_change_material_ids = chk_change_material_ids.checked
+                        batch_mode = selected_nodes.count > 1
                         success_count = 0
                         failed_count = 0
-                        for source_node in selected_nodes do
+                        failed_nodes = #()
+                        if batch_mode then wall_thickness_batch_silent_messages = true
+                        try
                         (
-                                select source_node
-                                result_value = applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:false
-                                if result_value then
+                                for source_node in selected_nodes do
                                 (
-                                        success_count += 1
-                                )
-                                else
-                                (
-                                        failed_count += 1
+                                        select source_node
+                                        result_value = applyWallThickness source_node batch_thickness change_material_ids:batch_change_material_ids auto_fix_inner:false
+                                        if result_value then success_count += 1
+                                        else
+                                        (
+                                                failed_count += 1
+                                                append failed_nodes source_node
+                                        )
                                 )
                         )
-                        select selected_nodes
-                        setWallThicknessUILog "EXTRUDE ONLY" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED")
+                        catch
+                        (
+                                exception_text = getCurrentException()
+                                wall_thickness_batch_silent_messages = false
+                                format "Wall Thickness EXTRUDE ONLY BATCH ERROR: %\n" exception_text
+                                throw()
+                        )
+                        summary_detail = (success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED"
+                        if batch_mode then finishWallThicknessBatch "EXTRUDE ONLY" selected_nodes failed_nodes summary_detail
+                        else
+                        (
+                                select selected_nodes
+                                setWallThicknessUILog "EXTRUDE ONLY" detail:summary_detail
+                        )
                 )
                 else
                 (
                         setWallThicknessUILog "EXTRUDE ONLY" detail:"select at least one wall object"
-                        messageBox "Select at least one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select at least one wall object."
                 )
         )
         on btn_cleanup pressed do
@@ -8808,7 +10457,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 else
                 (
                         setWallThicknessUILog "CLEANUP" detail:"select exactly one wall object"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select exactly one wall object."
                 )
         )
         on btn_fix_inner pressed do
@@ -8817,30 +10466,49 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 if selected_nodes.count > 0 then
                 (
                         batch_change_material_ids = chk_change_material_ids.checked
+                        batch_mode = selected_nodes.count > 1
                         success_count = 0
                         failed_count = 0
                         corrected_vertex_count = 0
-                        for source_node in selected_nodes do
+                        failed_nodes = #()
+                        if batch_mode then wall_thickness_batch_silent_messages = true
+                        try
                         (
-                                select source_node
-                                result_value = fixWallThicknessInnerCorners source_node change_material_ids:batch_change_material_ids
-                                if result_value != undefined and result_value.count >= 3 and result_value[1] then
+                                for source_node in selected_nodes do
                                 (
-                                        success_count += 1
-                                        corrected_vertex_count += result_value[3]
-                                )
-                                else
-                                (
-                                        failed_count += 1
+                                        select source_node
+                                        result_value = fixWallThicknessInnerCorners source_node change_material_ids:batch_change_material_ids
+                                        if result_value != undefined and result_value.count >= 3 and result_value[1] then
+                                        (
+                                                success_count += 1
+                                                corrected_vertex_count += result_value[3]
+                                        )
+                                        else
+                                        (
+                                                failed_count += 1
+                                                append failed_nodes source_node
+                                        )
                                 )
                         )
-                        select selected_nodes
-                        setWallThicknessUILog "FIX INNER CORNERS" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (corrected_vertex_count as string) + " VERTICES CORRECTED")
+                        catch
+                        (
+                                exception_text = getCurrentException()
+                                wall_thickness_batch_silent_messages = false
+                                format "Wall Thickness FIX INNER CORNERS BATCH ERROR: %\n" exception_text
+                                throw()
+                        )
+                        summary_detail = (success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (corrected_vertex_count as string) + " VERTICES CORRECTED"
+                        if batch_mode then finishWallThicknessBatch "FIX INNER CORNERS" selected_nodes failed_nodes summary_detail
+                        else
+                        (
+                                select selected_nodes
+                                setWallThicknessUILog "FIX INNER CORNERS" detail:summary_detail
+                        )
                 )
                 else
                 (
                         setWallThicknessUILog "FIX INNER CORNERS" detail:"select at least one wall object"
-                        messageBox "Select at least one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select at least one wall object."
                 )
         )
         on btn_fix_t_edge pressed do
@@ -8848,41 +10516,57 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 selected_nodes = selection as array
                 if selected_nodes.count > 0 then
                 (
+                        batch_mode = selected_nodes.count > 1
                         success_count = 0
                         failed_count = 0
                         repaired_case_count = 0
                         material_face_count = 0
+                        failed_nodes = #()
                         last_successful_node = undefined
-                        for source_node in selected_nodes do
+                        if batch_mode then wall_thickness_batch_silent_messages = true
+                        try
                         (
-                                select source_node
-                                result_value = fixWallThicknessTEdgeCorners source_node
-                                if result_value != undefined and result_value.count >= 4 and result_value[1] then
+                                for source_node in selected_nodes do
                                 (
-                                        success_count += 1
-                                        repaired_case_count += result_value[2]
-                                        material_face_count += result_value[4]
-                                        last_successful_node = source_node
-                                )
-                                else
-                                (
-                                        failed_count += 1
+                                        select source_node
+                                        result_value = fixWallThicknessTEdgeCorners source_node
+                                        if result_value != undefined and result_value.count >= 4 and result_value[1] then
+                                        (
+                                                success_count += 1
+                                                repaired_case_count += result_value[2]
+                                                material_face_count += result_value[4]
+                                                last_successful_node = source_node
+                                        )
+                                        else
+                                        (
+                                                failed_count += 1
+                                                append failed_nodes source_node
+                                        )
                                 )
                         )
-                        if last_successful_node != undefined then
+                        catch
                         (
-                                selectWallThicknessTEdgeFixModifier last_successful_node
+                                exception_text = getCurrentException()
+                                wall_thickness_batch_silent_messages = false
+                                format "Wall Thickness FIX T EDGE CORNERS BATCH ERROR: %\n" exception_text
+                                throw()
+                        )
+                        summary_detail = (success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (repaired_case_count as string) + " T EDGE CORNERS FIXED | " + (material_face_count as string) + " MATERIAL POLYGONS UPDATED"
+                        if batch_mode then
+                        (
+                                finishWallThicknessBatch "FIX T EDGE CORNERS" selected_nodes failed_nodes summary_detail last_success_node:last_successful_node keep_last_t_edge:true
                         )
                         else
                         (
-                                select selected_nodes
+                                if last_successful_node != undefined then selectWallThicknessTEdgeFixModifier last_successful_node
+                                else select selected_nodes
+                                setWallThicknessUILog "FIX T EDGE CORNERS" detail:summary_detail
                         )
-                        setWallThicknessUILog "FIX T EDGE CORNERS" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (repaired_case_count as string) + " T EDGE CORNERS FIXED | " + (material_face_count as string) + " MATERIAL POLYGONS UPDATED")
                 )
                 else
                 (
                         setWallThicknessUILog "FIX T EDGE CORNERS" detail:"select at least one wall object"
-                        messageBox "Select at least one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select at least one wall object."
                 )
         )
         on btn_fix_outer pressed do
@@ -8890,30 +10574,49 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 selected_nodes = selection as array
                 if selected_nodes.count > 0 then
                 (
+                        batch_mode = selected_nodes.count > 1
                         success_count = 0
                         failed_count = 0
                         corrected_vertex_count = 0
-                        for source_node in selected_nodes do
+                        failed_nodes = #()
+                        if batch_mode then wall_thickness_batch_silent_messages = true
+                        try
                         (
-                                select source_node
-                                result_value = fixWallThicknessOuterCorners source_node
-                                if result_value != undefined and result_value.count >= 3 and result_value[1] then
+                                for source_node in selected_nodes do
                                 (
-                                        success_count += 1
-                                        corrected_vertex_count += result_value[3]
-                                )
-                                else
-                                (
-                                        failed_count += 1
+                                        select source_node
+                                        result_value = fixWallThicknessOuterCorners source_node
+                                        if result_value != undefined and result_value.count >= 3 and result_value[1] then
+                                        (
+                                                success_count += 1
+                                                corrected_vertex_count += result_value[3]
+                                        )
+                                        else
+                                        (
+                                                failed_count += 1
+                                                append failed_nodes source_node
+                                        )
                                 )
                         )
-                        select selected_nodes
-                        setWallThicknessUILog "FIX OUTER CORNERS" detail:((success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (corrected_vertex_count as string) + " VERTICES CORRECTED")
+                        catch
+                        (
+                                exception_text = getCurrentException()
+                                wall_thickness_batch_silent_messages = false
+                                format "Wall Thickness FIX OUTER CORNERS BATCH ERROR: %\n" exception_text
+                                throw()
+                        )
+                        summary_detail = (success_count as string) + " COMPLETE | " + (failed_count as string) + " FAILED | " + (corrected_vertex_count as string) + " VERTICES CORRECTED"
+                        if batch_mode then finishWallThicknessBatch "FIX OUTER CORNERS" selected_nodes failed_nodes summary_detail
+                        else
+                        (
+                                select selected_nodes
+                                setWallThicknessUILog "FIX OUTER CORNERS" detail:summary_detail
+                        )
                 )
                 else
                 (
                         setWallThicknessUILog "FIX OUTER CORNERS" detail:"select at least one wall object"
-                        messageBox "Select at least one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select at least one wall object."
                 )
         )
         on btn_stl_check pressed do
@@ -8926,7 +10629,7 @@ rollout wallThicknessRollout wall_thickness_ui_title width:270
                 else
                 (
                         setWallThicknessUILog "FINAL STL CHECK" detail:"select exactly one wall object"
-                        messageBox "Select exactly one wall object." title:"Wall Thickness"
+                        showWallThicknessMessage "Select exactly one wall object."
                 )
         )
         on btn_clear_smoothing pressed do

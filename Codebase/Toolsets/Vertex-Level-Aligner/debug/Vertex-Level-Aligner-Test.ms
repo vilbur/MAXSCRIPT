@@ -1,5 +1,5 @@
 /*
-Vertex Level Aligner Test 0.254
+Vertex Level Aligner Test 0.255
 Package architecture regression for main / UI / FN separation.
 */
 
@@ -10,7 +10,7 @@ global vertex_level_aligner_rollout
 global vertex_level_aligner_main_version
 global vertex_level_aligner_test_project_version
 
-vertex_level_aligner_test_project_version = 1.122
+vertex_level_aligner_test_project_version = 1.123
 
 /*
 Loads the package through the main entry in library mode.
@@ -104,6 +104,7 @@ function partOfTest2 =
     if (findString main_text "Vertex-Level-Aligner-FN.ms") == undefined then throw "VLevelA Test: main does not load FN."
     if (findString main_text "Vertex-Level-Aligner-UI.ms") == undefined then throw "VLevelA Test: main does not load UI."
     if (findString main_text "DialogHost.ms") == undefined or (findString main_text "ScriptReload.ms") == undefined or (findString main_text "ToolTitleButton.ms") == undefined then throw "VLevelA Test: shared dock/title UI helpers are not loaded by main."
+    if (findString main_text "Codebase\\\\Operations\\\\Vertex-Color-Painter\\\\Vertex-Color-Painter.ms") == undefined or (findString main_text "loadVertexLevelAlignerVertexColorPainter()") == undefined then throw "VLevelA Test: canonical Vertex Color Painter Operation is not loaded by main."
     if (findString main_text "Vertex-Layer-Aligner") != undefined or (findString ui_text "Vertex-Layer-Aligner") != undefined or (findString fn_text "Vertex-Layer-Aligner") != undefined then throw "VLevelA Test: old tool name remains in current package source."
     if (findString ui_text "fileIn") != undefined then throw "VLevelA Test: UI must not load package dependencies."
     if (findString ui_text "vertex_level_aligner_rollout.title =") != undefined then throw "VLevelA Test: runtime rollout-title mutation is forbidden."
@@ -114,7 +115,11 @@ function partOfTest2 =
     if (findString ui_text "ToolTitleButton.setupToolTitleButton btn_tool_title \"Vertex Level Aligner\"") == undefined then throw "VLevelA Test: canonical tool title button setup is missing."
     if (findString ui_text "restartTool vertex_level_aligner_main_source \"Vertex-Level-Aligner\"") == undefined then throw "VLevelA Test: tool title button is not wired to shared restartTool."
     if (findString ui_text "dropdownlist ddl_face_material_id") == undefined or (findString ui_text "button btn_apply_face_material_id \"SET POLY MAT ID\"") == undefined then throw "VLevelA Test: polygon Material ID controls are missing."
+    if (findString ui_text "button btn_paint_broken \"PAINT BROKEN\"") == undefined or (findString ui_text "button btn_clear_paint \"CLEAR PAINT\"") == undefined then throw "VLevelA Test: diagnostic paint controls are missing."
     if (findString fn_text "function getFullySelectedFacesFromVertexBits") == undefined or (findString fn_text "function applyMaterialIdToTargets") == undefined then throw "VLevelA Test: polygon Material ID backend is missing."
+    if (findString fn_text "function getBrokenDiagnosticFaceBits") == undefined or (findString fn_text "function paintBrokenDiagnosticFaces") == undefined or (findString fn_text "function clearDiagnosticPaint") == undefined then throw "VLevelA Test: broken-group diagnostic paint backend is missing."
+    if (findString fn_text "diagnostic_painter = VertexColorPainter_v()") == undefined or (findString fn_text "diagnostic_painter.paintFace face_id color_value") == undefined then throw "VLevelA Test: Aligner does not delegate diagnostic face painting to an independent Vertex Color Painter session."
+    if (findString fn_text "if group_data[6] then") == undefined or (findString fn_text "this.getFullySelectedFacesFromVertexBits group_data[4]") == undefined then throw "VLevelA Test: diagnostic paint is not restricted to exclusive faces from broken groups."
     if (findString fn_text "function synchronizeEditablePolyTopology context_data") == undefined then throw "VLevelA Test: Editable Poly dead-topology synchronization helper is missing."
     if (findString fn_text "polyop.getHasDeadStructs topology_value") == undefined or (findString fn_text "polyop.collapseDeadStructs topology_value") == undefined then throw "VLevelA Test: Editable Poly dead-topology synchronization does not use the required PolyOp APIs."
     if (findString fn_text "function invalidateStoredTopologyCache") == undefined or (findString fn_text "topology_compaction_serial") == undefined then throw "VLevelA Test: topology cache invalidation state is missing."
@@ -158,7 +163,7 @@ function partOfTest2 =
     if (findString ui_text "function setWorldAxisControls") == undefined then throw "VLevelA Test: mandatory one-of-three axis controller is missing."
     if (findString ui_text "on cb_axis_x changed state do") == undefined or (findString ui_text "on cb_axis_y changed state do") == undefined or (findString ui_text "on cb_axis_z changed state do") == undefined or (findString ui_text "scanCurrentThreshold()") == undefined then throw "VLevelA Test: world-axis checkbutton change does not trigger a rescan."
     if (findString ui_text "\"WorldAxis\"") == undefined then throw "VLevelA Test: selected world axis is not persisted."
-    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.122\" width:320 height:576") == undefined then throw "VLevelA Test: rollout width is not fixed at 320 px."
+    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.123\" width:320 height:576") == undefined then throw "VLevelA Test: rollout width is not fixed at 320 px."
     if (findString ui_text "spinner spn_threshold \"Threshold:\" pos:[8,41] offset:[96,0] width:96 height:20") == undefined or (findString ui_text "fieldWidth:42 align:#left") == undefined or (findString ui_text "spn_threshold.pos = [104, 41 + title_offset]") == undefined then throw "VLevelA Test: Threshold control does not keep its 96 px X offset inside row 2."
     if (findString ui_text "Threshold groups levels only; it does not move vertices.") == undefined or (findString ui_text "Units: millimeters.") == undefined then throw "VLevelA Test: Threshold tooltip does not clearly explain grouping and physical units."
     if (findString ui_text "dropdownlist ddl_round_precision \"\" pos:[136,41] width:72") == undefined or (findString ui_text "ddl_round_precision.pos = [136, 41 + title_offset]") == undefined then throw "VLevelA Test: Round Precision control does not leave space for the Threshold X offset."
@@ -196,7 +201,7 @@ function partOfTest2 =
     if (findString ui_text "roundContextTarget #up") == undefined or (findString ui_text "roundContextTarget #down") == undefined then throw "VLevelA Test: Round UP/DOWN menu callbacks are not wired."
     if (findString ui_text "Collapse All") == undefined or (findString ui_text "Expand All") == undefined then throw "VLevelA Test: TreeView Collapse/Expand All context actions are missing."
     if (findString fn_text "copy exact_levels") != undefined then throw "VLevelA Test: mapped copy() regression returned to group data."
-    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.122\"") == undefined then throw "VLevelA Test: literal static rollout title is missing."
+    if (findString ui_text "rollout vertex_level_aligner_rollout \"Vertex Level Aligner 1.123\"") == undefined then throw "VLevelA Test: literal static rollout title is missing."
     if (findString fn_text "rollout ") != undefined then throw "VLevelA Test: FN must not define rollouts."
     if (findString fn_text "createDialog") != undefined then throw "VLevelA Test: FN must not create dialogs."
     if (findString fn_text "global vertexLevelAlignerWriteLog") == undefined then throw "VLevelA Test: FN logger must be explicitly global."
@@ -261,13 +266,14 @@ function partOfTest3 =
 (
     vertex_level_aligner_ui.showUI()
 
-    if vertex_level_aligner_rollout.title != "Vertex Level Aligner 1.122" then throw ("VLevelA Test: unexpected rollout title: " + vertex_level_aligner_rollout.title)
+    if vertex_level_aligner_rollout.title != "Vertex Level Aligner 1.123" then throw ("VLevelA Test: unexpected rollout title: " + vertex_level_aligner_rollout.title)
     if getTestPropertyValue vertex_level_aligner_rollout #cb_axis_x == undefined or getTestPropertyValue vertex_level_aligner_rollout #cb_axis_y == undefined or getTestPropertyValue vertex_level_aligner_rollout #cb_axis_z == undefined then throw "VLevelA Test: XYZ world-axis checkbuttons missing."
     if getTestPropertyValue vertex_level_aligner_rollout #spn_threshold == undefined then throw "VLevelA Test: threshold spinner missing."
     if getTestPropertyValue vertex_level_aligner_rollout #btn_scan == undefined then throw "VLevelA Test: SCAN OBJECT button missing."
     if getTestPropertyValue vertex_level_aligner_rollout #rb_view_mode == undefined then throw "VLevelA Test: view-mode radios missing."
     if getTestPropertyValue vertex_level_aligner_rollout #btn_expand_collapse == undefined then throw "VLevelA Test: Expand/Collapse button missing."
     if getTestPropertyValue vertex_level_aligner_rollout #ddl_face_material_id == undefined or getTestPropertyValue vertex_level_aligner_rollout #btn_apply_face_material_id == undefined then throw "VLevelA Test: polygon Material ID controls missing."
+    if getTestPropertyValue vertex_level_aligner_rollout #btn_paint_broken == undefined or getTestPropertyValue vertex_level_aligner_rollout #btn_clear_paint == undefined then throw "VLevelA Test: diagnostic paint controls missing."
     if getTestPropertyValue vertex_level_aligner_rollout #tv_levels == undefined then throw "VLevelA Test: TreeView missing."
     if getTestPropertyValue vertex_level_aligner_rollout #btn_tool_title == undefined then throw "VLevelA Test: .NET tool title restart button missing."
     if getTestPropertyValue vertex_level_aligner_rollout #btn_restart != undefined then throw "VLevelA Test: legacy native RESTART button still exists."
@@ -985,12 +991,12 @@ These checks are non-destructive and target the 0.819/0.820 safety fixes directl
 */
 function partOfTest19 =
 (
-    if vertex_level_aligner_test_project_version != 1.122 then throw "VLevelA Test 19: unexpected test project version."
-    if vertex_level_aligner_main_version != 0.392 then throw "VLevelA Test 19: unexpected main file version."
-    if vertex_level_aligner.file_version != 0.142 then throw "VLevelA Test 19: unexpected backend file version."
-    if vertex_level_aligner.project_version != 1.117 then throw "VLevelA Test 19: backend project version is not 1.117."
-    if vertex_level_aligner_ui.file_version != 0.501 then throw "VLevelA Test 19: unexpected UI file version."
-    if vertex_level_aligner_ui.project_version != 1.122 then throw "VLevelA Test 19: UI project version is not 1.122."
+    if vertex_level_aligner_test_project_version != 1.123 then throw "VLevelA Test 19: unexpected test project version."
+    if vertex_level_aligner_main_version != 0.393 then throw "VLevelA Test 19: unexpected main file version."
+    if vertex_level_aligner.file_version != 0.143 then throw "VLevelA Test 19: unexpected backend file version."
+    if vertex_level_aligner.project_version != 1.123 then throw "VLevelA Test 19: backend project version is not 1.123."
+    if vertex_level_aligner_ui.file_version != 0.502 then throw "VLevelA Test 19: unexpected UI file version."
+    if vertex_level_aligner_ui.project_version != 1.123 then throw "VLevelA Test 19: UI project version is not 1.123."
 
     failed_vertex_count = vertex_level_aligner.getContextVertexCount #(#editable_poly, undefined, undefined)
     if failed_vertex_count != -1 then throw "VLevelA Test 19: failed vertex-count read did not return -1."
@@ -1370,6 +1376,66 @@ function partOfTest27 =
 )
 
 
+/*
+Verifies broken-group diagnostic painting on both direct Editable Poly and Edit Poly topology.
+Only exclusive faces are painted, and cleanup restores/removes the painter-owned state without deleting the target Edit Poly modifier.
+*/
+function partOfTest28 =
+(
+    threshold_value = units.decodeValue "1mm"
+    level_offset = threshold_value * 0.5
+    test_object = undefined
+    test_modifier = undefined
+
+    undo "Vertex Level Aligner Test 28 - Broken Diagnostic Paint" on
+    (
+        test_object = plane length:100 width:100 lengthsegs:1 widthsegs:1 name:"VLevelA_TEST_DIAGNOSTIC_PAINT"
+        convertToPoly test_object
+
+        topology_value = test_object.baseObject
+        moved_position = polyop.getVert topology_value 1
+        moved_position.z += level_offset
+        polyop.setVert topology_value 1 moved_position
+        update test_object
+
+        original_map_support = polyop.getMapSupport topology_value 0
+
+        if not(vertex_level_aligner.scanNode test_object threshold:threshold_value world_axis_value:#z) then throw "VLevelA Test 28: Editable Poly diagnostic fixture scan failed."
+        if vertex_level_aligner.getBrokenGroupCount() != 1 then throw "VLevelA Test 28: Editable Poly fixture did not produce one broken group."
+
+        broken_face_bits = vertex_level_aligner.getBrokenDiagnosticFaceBits()
+        if broken_face_bits == undefined or broken_face_bits.numberSet != 1 then throw "VLevelA Test 28: Editable Poly exclusive broken face resolution failed."
+
+        if not(vertex_level_aligner.paintBrokenDiagnosticFaces color_value:(color 255 0 0)) then throw "VLevelA Test 28: Editable Poly diagnostic paint failed."
+        if vertex_level_aligner.diagnostic_painter == undefined then throw "VLevelA Test 28: Editable Poly diagnostic painter session was not retained."
+        if vertex_level_aligner.diagnostic_painter.backend_type != #baseObject then throw "VLevelA Test 28: Editable Poly diagnostic paint used the wrong painter backend."
+        if not(polyop.getMapSupport topology_value 0) then throw "VLevelA Test 28: Editable Poly diagnostic paint did not create/retain channel 0 support."
+
+        if not(vertex_level_aligner.clearDiagnosticPaint()) then throw "VLevelA Test 28: Editable Poly diagnostic clear failed."
+        if vertex_level_aligner.diagnostic_painter != undefined then throw "VLevelA Test 28: Editable Poly painter session survived clear."
+        if (polyop.getMapSupport topology_value 0) != original_map_support then throw "VLevelA Test 28: Editable Poly channel-0 support was not restored."
+
+        test_modifier = Edit_Poly()
+        test_modifier.name = "VLevelA TEST DIAGNOSTIC EDIT POLY"
+        addModifier test_object test_modifier
+
+        if not(vertex_level_aligner.scanNode test_object modifier_value:test_modifier threshold:threshold_value world_axis_value:#z) then throw "VLevelA Test 28: Edit Poly diagnostic fixture scan failed."
+        if vertex_level_aligner.getBrokenGroupCount() != 1 then throw "VLevelA Test 28: Edit Poly fixture did not produce one broken group."
+        if not(vertex_level_aligner.paintBrokenDiagnosticFaces color_value:(color 255 0 0)) then throw "VLevelA Test 28: Edit Poly diagnostic paint failed."
+        if vertex_level_aligner.diagnostic_painter == undefined then throw "VLevelA Test 28: Edit Poly diagnostic painter session was not retained."
+        if vertex_level_aligner.diagnostic_painter.backend_type != #vertexPaint then throw "VLevelA Test 28: Edit Poly diagnostic paint used the wrong painter backend."
+        if vertex_level_aligner.diagnostic_painter.getPaintLayerMod() == undefined then throw "VLevelA Test 28: Edit Poly diagnostic paint did not create its owned PaintLayerMod."
+
+        if not(vertex_level_aligner.clearDiagnosticPaint()) then throw "VLevelA Test 28: Edit Poly diagnostic clear failed."
+        if vertex_level_aligner.diagnostic_painter != undefined then throw "VLevelA Test 28: Edit Poly painter session survived clear."
+        if not(vertex_level_aligner.modifierBelongsToNode test_object test_modifier) then throw "VLevelA Test 28: diagnostic clear removed the target Edit Poly modifier."
+    )
+
+    true
+    -- return
+)
+
+
 partOfTest1()
 partOfTest2()
 partOfTest3()
@@ -1397,6 +1463,7 @@ partOfTest24()
 partOfTest25()
 partOfTest26()
 partOfTest27()
+partOfTest28()
 
 format "\nVERTEX LEVEL ALIGNER PACKAGE TEST PASSED\n"
-format "UNDO ORDER: Test 27 Edit Poly Dead-Sync Separation -> Test 26 Dead Cache Invalidation -> Test 25 Dead Before Scan -> Test 24 Edit Poly Material ID -> Test 23 Editable Poly Material ID -> Test 21 Failure Versus Empty -> Test 20 Same Count Topology Mutation -> Test 18 World Context Collapse -> Test 17 Two-Level XYZ Direct Align -> Test 14 Round Selected Level -> Test 13 XYZ World Axis -> Test 11 Unhide Selected Group -> Test 10 Edge Selection -> Test 8 Align HERE -> Test 5 Edit Poly Align DOWN -> Test 4 Editable Poly Align UP\n"
+format "UNDO ORDER: Test 28 Broken Diagnostic Paint -> Test 27 Edit Poly Dead-Sync Separation -> Test 26 Dead Cache Invalidation -> Test 25 Dead Before Scan -> Test 24 Edit Poly Material ID -> Test 23 Editable Poly Material ID -> Test 21 Failure Versus Empty -> Test 20 Same Count Topology Mutation -> Test 18 World Context Collapse -> Test 17 Two-Level XYZ Direct Align -> Test 14 Round Selected Level -> Test 13 XYZ World Axis -> Test 11 Unhide Selected Group -> Test 10 Edge Selection -> Test 8 Align HERE -> Test 5 Edit Poly Align DOWN -> Test 4 Editable Poly Align UP\n"

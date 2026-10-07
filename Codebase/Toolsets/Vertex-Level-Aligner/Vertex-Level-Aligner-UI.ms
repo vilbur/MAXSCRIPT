@@ -1,5 +1,5 @@
 /*
-Vertex Level Aligner UI 0.501
+Vertex Level Aligner UI 0.502
 Frontend-only module. Uses a .NET TreeView for level selection and a native RMB alignment menu while keeping the rollout title literal and static.
 */
 
@@ -17,9 +17,9 @@ global ToolTitleButton
 
 vertex_level_aligner_default_threshold = 0.0
 
-if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.122 then
+if epoly_tools_project_version == undefined or epoly_tools_project_version < 1.123 then
 (
-    epoly_tools_project_version = 1.122
+    epoly_tools_project_version = 1.123
 )
 
 vertexLevelAlignerWriteLog "100 UI file execution started"
@@ -29,8 +29,8 @@ vertexLevelAlignerWriteLog "105 UI frontend module loading"
 
 struct vertex_level_aligner_ui_v
 (
-    file_version = 0.501,
-    project_version = 1.122,
+    file_version = 0.502,
+    project_version = 1.123,
     source_path = vertex_level_aligner_ui_source_path,
     ini_path = (getDir #plugcfg + "\\Vertex-Level-Aligner.ini"),
     ini_section = "MainUI",
@@ -174,6 +174,11 @@ struct vertex_level_aligner_ui_v
     */
     function hideUI =
     (
+        if vertex_level_aligner != undefined then
+        (
+            if not(vertex_level_aligner.clearDiagnosticPaint update_message:false) then return false
+        )
+
         dialog_is_open = false
 
         try
@@ -313,7 +318,7 @@ rcmenu vertex_level_aligner_context_menu
     )
 )
 
-rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 height:576
+rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.123" width:320 height:576
 (
     local context_target_tag = ""
     local selected_tree_tags = #()
@@ -340,8 +345,10 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 heig
     label lbl_face_material_id "Mat ID:" pos:[8,124] width:64 height:18 align:#left
     dropdownlist ddl_face_material_id "" pos:[80,121] width:72 height:20 items:#("1") selection:1 tooltip:"Choose Material ID 1 through 100."
     button btn_apply_face_material_id "SET POLY MAT ID" pos:[160,119] width:152 height:24 tooltip:"LMB: Apply the chosen Material ID only to polygons whose every vertex belongs to the selected TreeView level(s)."
-    label lbl_status "Select one Editable Poly or Edit Poly object." pos:[8,149] width:304 height:18 align:#left
-    dotNetControl tv_levels "System.Windows.Forms.TreeView" pos:[8,170] width:304 height:340
+    button btn_paint_broken "PAINT BROKEN" pos:[8,147] width:148 height:24 tooltip:"Paint only polygons fully contained by BROKEN groups red using the shared Vertex Color Painter Operation. Valid groups are not changed."
+    button btn_clear_paint "CLEAR PAINT" pos:[164,147] width:148 height:24 tooltip:"Clear only this Vertex Level Aligner diagnostic paint session and restore the previous vertex-color/display state."
+    label lbl_status "Select one Editable Poly or Edit Poly object." pos:[8,177] width:304 height:18 align:#left
+    dotNetControl tv_levels "System.Windows.Forms.TreeView" pos:[8,198] width:304 height:312
     label lbl_definition "BBox: —" pos:[8,518] width:248 height:18 align:#left
     dropdownlist ddl_bbox_unit "" pos:[264,515] width:48 height:20 items:#("mm", "cm", "m") selection:1 tooltip:"Choose the display unit for the local bounding-box size."
     checkbox cb_debug "DEBUG" pos:[240,547] width:72 height:18 checked:false tooltip:"Enable Listener position diagnostics for TreeView selections."
@@ -1771,8 +1778,10 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 heig
         lbl_face_material_id.pos = [8, 124 + title_offset]
         ddl_face_material_id.pos = [80, 121 + title_offset]
         btn_apply_face_material_id.pos = [160, 119 + title_offset]
-        lbl_status.pos = [8, 149 + title_offset]
-        tv_levels.pos = [8, 170 + title_offset]
+        btn_paint_broken.pos = [8, 147 + title_offset]
+        btn_clear_paint.pos = [164, 147 + title_offset]
+        lbl_status.pos = [8, 177 + title_offset]
+        tv_levels.pos = [8, 198 + title_offset]
 
         true
         -- return
@@ -1785,9 +1794,9 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 heig
     (
         tree_width = 304
         title_offset = if use_standalone_title_layout then 20 else 0
-        tree_height = dialog_size.y - 236 - title_offset
+        tree_height = dialog_size.y - 264 - title_offset
 
-        if tree_height < 108 then tree_height = 108
+        if tree_height < 80 then tree_height = 80
 
         if use_standalone_title_layout and ToolTitleButton != undefined then
         (
@@ -2146,6 +2155,30 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 heig
     )
 
     /*
+    Paints all exclusive polygons belonging to currently broken groups red.
+    Classification stays in Vertex Level Aligner; color storage is delegated to Vertex Color Painter.
+    */
+    function paintBrokenDiagnostics =
+    (
+        paint_ok = vertex_level_aligner.paintBrokenDiagnosticFaces color_value:(color 255 0 0)
+        lbl_status.text = vertex_level_aligner.last_message
+        paint_ok
+        -- return
+    )
+
+    /*
+    Clears only the diagnostic paint session owned by this Vertex Level Aligner instance.
+    The Vertex Color Painter Operation restores the previous base channel or removes its exact owned PaintLayerMod.
+    */
+    function clearBrokenDiagnostics =
+    (
+        clear_ok = vertex_level_aligner.clearDiagnosticPaint()
+        lbl_status.text = vertex_level_aligner.last_message
+        clear_ok
+        -- return
+    )
+
+    /*
     Scans the first selected object using the current threshold spinner value and rebuilds the TreeView.
     This is shared by the threshold-change event and the explicit SCAN OBJECT button.
     */
@@ -2267,6 +2300,11 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 heig
 
     on vertex_level_aligner_rollout close do
     (
+        if vertex_level_aligner != undefined then
+        (
+            vertex_level_aligner.clearDiagnosticPaint update_message:false
+        )
+
         saveUiState()
     )
 
@@ -2365,6 +2403,16 @@ rollout vertex_level_aligner_rollout "Vertex Level Aligner 1.122" width:320 heig
     on btn_apply_face_material_id pressed do
     (
         applySelectedTreeMaterialId()
+    )
+
+    on btn_paint_broken pressed do
+    (
+        paintBrokenDiagnostics()
+    )
+
+    on btn_clear_paint pressed do
+    (
+        clearBrokenDiagnostics()
     )
 
     on ddl_round_precision selected precision_selection do

@@ -1,3 +1,65 @@
+## 2026-10-07 — Project 0.31
+
+- Fixed `VERTICAL\SKEWED CTRL+RMB` without changing the now-working ordinary RMB selection path.
+- Vertical CTRL+RMB now consumes the current Geometry Diagnostics RMB skewed-edge selection from the exact owned direction `Edit_Poly`; if CTRL+RMB is used first, it runs the same RMB detection once as a fallback.
+- Replaced the 0.30 vertical coordinate-anchor solver with connected selected-edge components. Each component uses its lowest world-space vertex as the stable XY anchor, aligns every component vertex to that XY, and preserves every original Z coordinate.
+- The repair restores the original vertex selection, restores the same RMB edge BitArray visibly, verifies every repaired selected edge against `postion preccision`, and leaves the Modify panel active at Edge level.
+- Horizontal CTRL+RMB remains on the 0.30 solver; this change is intentionally isolated to the reported vertical repair failure.
+- Updated regression Part 27 so vertical repair is tested as the real UI sequence: RMB selection first, then CTRL+RMB, with exact selection preservation, bottom-anchor preservation, XY alignment, and final Edge-level state.
+
+## 2026-10-07 — Project 0.30
+
+- Reworked `VERTICAL\SKEWED` and `HORIZONTAL SLOPED` `CTRL+RMB` instead of inheriting Wall-Fixer's selected-loop target bug. `CTRL+RMB` now self-detects the current beyond-precision direction edges before repair, so it no longer depends on a previous RMB selection or stale Edit Poly vertex-selection state.
+- Replaced the old single-target loop alignment with per-coordinate world-axis constraints. Vertical Z edges solve X/Y equality; horizontal X edges solve Y/Z equality; horizontal Y edges solve X/Z equality, matching the Geometry Diagnostics classifier exactly.
+- Exact unselected neighboring edges are used as coordinate anchors when available. If no reliable anchor exists, the selected constraint component uses its mean coordinate, minimizing total movement without an angle threshold.
+- Edit Poly vertex moves now follow the shared stable Select -> MoveSelection -> Commit pattern using object-space deltas derived from world targets, with explicit postion-preccision read-back diagnostics.
+- `CHECK ORTHO EDGES` RMB keeps the requested vertical-LMB/CTRL+RMB then horizontal-LMB/CTRL+RMB order; each CTRL+RMB step now initializes its own skewed selection before solving.
+- Strengthened regression coverage so CTRL+RMB is called directly with no preceding RMB, horizontal lateral drift is tested in addition to Z slope, and the ortho batch starts from true beyond-precision X/Y/Z displacement.
+
+## 2026-10-07 — Project 0.29
+
+- Ported Wall-Fixer's `CTRL+RMB` selected-direction loop repair to Geometry Diagnostics for both `VERTICAL\SKEWED` and `HORIZONTAL SLOPED`. The repair keeps the current selected edge set, resolves logical loop targets, moves only the selected loop vertices, restores the edge selection, and leaves the owned direction Edit Poly active at Edge level.
+- Kept the Geometry Diagnostics direction contract position-based: no edge angle is calculated. Principal-axis membership and repair verification use the selected `postion preccision`.
+- Bound `CTRL+RMB` on both direction `.NET` buttons to the new repair path; ordinary RMB still selects beyond-precision skewed/sloped edges and LMB still selects within-precision direction edges.
+- Added `CHECK ORTHO EDGES` RMB batch repair in the requested order: vertical LMB selection -> vertical CTRL+RMB repair -> horizontal LMB selection -> horizontal CTRL+RMB repair. LMB on `CHECK ORTHO EDGES` keeps the existing severity-paint diagnostic.
+- Added regression coverage for vertical and horizontal CTRL+RMB repair plus the ordered `CHECK ORTHO EDGES` RMB batch, including final Modify-panel / Edge-level state.
+
+## 2026-10-07 — Project 0.28
+
+- Added `CLEAR OBJECT` to the bottom of the `DEBUG` group as a dark `.NET` button with destructive warning text.
+- `CLEAR OBJECT` removes every modifier from each selected geometry object, including user modifiers and Geometry Diagnostics selection/paint modifiers.
+- For an Editable Poly base, `CLEAR OBJECT` removes map channel `0` support so stored base vertex paint is deleted, then disables vertex-color viewport display.
+- The shared `VertexColorPainter` session is safely cleared before stack deletion when it is bound to the target, ownership rows are pruned afterwards, and the operation finishes in the Modify panel at Object level.
+- Added regression coverage for Tessellate + PaintLayerMod + base channel-0 cleanup and final Modify-panel state.
+
+## 2026-10-07 — Project 0.27
+
+- Converted `CHECK ORTHO EDGES` to the same dark WinForms `.NET` button style used by the other `TESTS` actions.
+- All `TESTS` action buttons now use the shared `.NET` styling helper; the two direction buttons keep their orange foreground override.
+- Moved `1. CHECK AND MAKE WALLS PLANAR` to the bottom of the `TESTS` group without changing its LMB/RMB behavior.
+- Increased the dialog minimum/default height by one 12px UI grid step for the taller `.NET` ortho button.
+
+## 2026-10-07 — Project 0.26
+
+- Moved `postion preccision` and `ortho tolerance` to the first row of the `TESTS` group.
+- Placed both controls side by side on one row; diagnostic behavior and persisted values are unchanged.
+- Reduced the dialog minimum/default height to match the more compact layout.
+
+
+## 2026-10-07 — Project 0.25
+
+- Kept diagnostic controls in the `TESTS` group.
+- Wrapped the utility buttons `CREATE TEST BOX`, `PAINT FACE COLORS`, `RESTORE COLORS`, and `DUMP CHANNEL 0` into a separate `DEBUG` group and moved that group to the bottom of the dialog.
+- Increased the dialog minimum/default height to preserve the grouped layout; backend behavior is unchanged.
+
+
+## 2026-10-07 — Project 0.24
+
+- Renamed the Geometry Diagnostics `DEBUG` UI group to `TESTS`.
+- Moved `1. CHECK AND MAKE WALLS PLANAR` into `TESTS` as the first control; its LMB/RMB behavior is unchanged.
+- No backend or regression-test logic changed in this UI-only revision.
+
+
 ## 2026-10-07 — Project 0.23
 
 - Added the first Geometry Diagnostics action button, `1. CHECK AND MAKE WALLS PLANAR`, using the working Wall-Fixer planar-wall workflow.

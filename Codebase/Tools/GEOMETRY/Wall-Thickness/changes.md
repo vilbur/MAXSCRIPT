@@ -1,4 +1,90 @@
 2026-10-07
+- Wall Thickness 1.017: audit the remaining corner-special-case paths for the same N-level vertical-loop rule without adding any new corner classification.
+- Generalize ordinary / non-mirrored FIX T EDGE CORNERS cases to use the same directly connected anchor->continuation source-chain collector already used by segmented T-Corners, so one native ConnectEdges pass crosses every stacked strip level instead of stopping after two levels.
+- Generalize the existing FIX INNER CORNERS lower-opening boundary guard from exactly two stacked source members to any directly connected stack with two or more levels; preserve the same lowest-member protection while leaving the later 3+/2/1, exact-T-stack, and general stack repair rules unchanged.
+- Confirm by code audit that the rotation-invariant 3+/2/1 repair, exact vertical T-stack repair, and general vertical-stack alignment already iterate all stack members, while FIX OUTER CORNERS remains edge-driven and has no vertical-level count assumption.
+- Keep the genuinely two-member parallel-strip branch as a two-member rule; when additional levels exist the existing >=3 stack rules remain the authority.
+- Update Wall-Thickness-Test.ms to 0.021 / project 1.017 and add TEST PART 21 for the N-level corner-rule audit.
+
+2026-10-07
+- Wall Thickness 1.016: restore the confirmed 1.008 T-Corner topology rule and remove the 1.014/1.015 terminal-propagation experiment; no new corner classification or endpoint rule is introduced.
+- Generalize only the number of vertical strip segments inside the same detected T-Corner: follow the directly connected source anchor->continuation X/Y stack, select the branch plus every corresponding strip cross-edge in the same native ConnectEdges operation, and preserve the original source-chain order.
+- Preserve the stable two-level behavior exactly when the corner has only two source levels. For additional segmented levels, the same cut operation scales to N levels, with final per-case topology +N vertices / +(N-1) polygons / +(2N-1) edges after the existing upper-cut weld.
+- Restore correctness-critical T-edge Edit Poly binding before native ConnectEdges, DivideEdge, ConnectVertices, MoveSelection, and weld work instead of relying on the optimized cached modifier-panel state; broader UI/batch/QUIET behavior remains unchanged.
+- Treat EditPolyMod.DivideEdge return values as status only. Rebind the exact T-edge modifier after Commit and resolve the appended vertex from verified +1 vertex / +0 polygon / +1 edge topology deltas, avoiding the `OK` return-type failure.
+- Update Wall-Thickness-Test.ms to 0.020 / project 1.016 and replace the experimental terminal-propagation regressions with checks for stable segmented T-Corner scaling and per-operation Edit Poly rebinding.
+
+2026-10-07
+- Wall Thickness 1.015: fix FIX T EDGE CORNERS on multi-level T-Corners where the mirrored cut must continue beyond the first upper/lower strip pair to the terminal corner edge.
+- Re-synchronize the already-current T-edge Edit Poly after topology-changing commits by reasserting PrimaryNode / stack-selection / selectMode / cage / component-level state without reselecting the same modifier; this fixes live GetNum* collapsing to zero immediately after DivideEdge.
+- Walk the complete same-X/Y source corner stack from anchor through continuation to its terminal level. Divide every remaining source-to-generated cross-edge at 50 percent, connect each new cut vertex to the previous cut vertex, and log the live target edge IDs so cases like Object021 naturally propagate through the edge identified at runtime as E45 instead of hard-coding an edge number.
+- Move every propagated cut vertex onto the fixed anchor X/Y while preserving its own Z, and generalize the expected topology deltas by the number of extra propagated corner levels.
+- Keep the existing ordinary T-edge path, branch-anchor planning, weld contract, material correction, EXTRUDE, and FIX INNER CORNERS behavior unchanged.
+- Update Wall-Thickness-Test.ms to 0.019 / project 1.015 and add TEST PART 20 for post-topology context synchronization plus terminal corner-edge propagation.
+
+2026-10-07
+- Wall Thickness 1.014: fix the T-Corner mirror DivideEdge runtime contract exposed by `No ">" function for OK`; treat EditPolyMod.DivideEdge as a status-only native call, commit it, verify exact live topology deltas, and resolve the appended vertex from the post-commit vertex count.
+- Propagate the mirrored T-Corner cut through the full ordered local chain `branch anchor -> upper cut -> lower cut`; reuse existing segments, create every missing consecutive edge segment, and verify the chain live before move/weld continues.
+- Keep the established mirror pre-weld topology contract (+3 vertices / +2 polygons / +5 edges from case start) and the existing move/weld/material stages unchanged.
+- Revoke the attempted 1.013 STABLE designation after runtime failure; restore the versioned filename to `Wall-Thickness_1.013.ms`.
+- Update `Wall-Thickness-Test.ms` to 0.018 / project 1.014 and add TEST PART 19 for DivideEdge status handling and explicit T-Corner edge-chain propagation.
+
+2026-10-07
+- Wall Thickness 1.013: optimize Modify-panel stack activation by reusing the already-current exact stack item on the already-selected wall instead of reselecting/rebinding the same modifier repeatedly.
+- Centralize stack activation in `ensureWallThicknessStackItemCurrent()`: only switch to Modify mode, select the wall, call `SetPrimaryNode`, and call `modPanel.setCurrentObject` when the requested node/modifier context actually differs.
+- Reuse the guarded activation helper in shared Edit Poly preprocessing/component-selection paths and keep `subObjectLevel` unchanged when the requested level is already active.
+- Upgrade the existing persistent QUIET control to `QUIET MODE`: suppress routine Wall Thickness Listener trace, including FIX INNER CORNERS/T-edge progress diagnostics, while preserving required errors, exceptions, verification failures, and recovery warnings.
+- Update `Wall-Thickness-Test.ms` to 0.017 / project 1.013 and add TEST PART 18 for guarded modifier activation, sub-object-level reuse, QUIET MODE trace gating, and fatal-diagnostic preservation.
+
+2026-10-07
+- Wall Thickness 1.012: add a combined multi-object `EXTRUDE + FINISH` action in the EXTRUDE group.
+- Run each selected wall sequentially through `EXTRUDE / UPDATE` with automatic FIX INNER CORNERS, then run the existing FINISH WALLS / FIX T EDGE CORNERS backend only when extrusion succeeds.
+- Reuse the 1.011 batch contract: suppress intermediate modal dialogs for multi-object runs, collect failures, select all failed walls at completion, and show one final summary; when nothing fails, keep the last successful T-edge modifier active.
+- Render `EXTRUDE + FINISH` as a WinForms `.NET` button using the shared dark button style with semantic green foreground text.
+- Update `Wall-Thickness-Test.ms` to 0.016 / project 1.012 and add TEST PART 17 for the combined batch button, green .NET styling, sequential backend calls, and final failed-object handling.
+
+2026-10-07
+- Wall Thickness 1.011: suppress intermediate modal message boxes during multi-object EXTRUDE / UPDATE, FINISH WALLS, EXTRUDE ONLY, FIX INNER CORNERS, FIX T EDGE CORNERS, and FIX OUTER CORNERS batches.
+- Keep single-object modal behavior unchanged through one shared `showWallThicknessMessage()` gate; the automatic FIX INNER CORNERS failure message is now silent while a batch continues.
+- Collect failed nodes for every multi-object batch, select all failed objects at completion, and show one final summary dialog. When a T-edge batch has no failures, keep the previous last-successful T-edge modifier selection behavior.
+- Restore the batch-silent flag before rethrowing any unexpected batch exception so later dialogs cannot remain accidentally suppressed.
+- Update `Wall-Thickness-Test.ms` to 0.015 / project 1.011 and add TEST PART 16 for batch modal suppression and failed-object selection.
+
+2026-10-07
+- Wall Thickness 1.010: start Edit Poly interaction optimization for FIX T EDGE CORNERS without changing geometry/topology algorithms.
+- Bind `WALL THICKNESS FIX T EDGE CORNERS` to the Command Panel once per wall, then remove repeated `select` / `max modify mode` / `SetPrimaryNode` / `modPanel.setCurrentObject` calls from ConnectEdges and per-vertex move helpers.
+- Centralize T-edge component-level selection; `subObjectLevel` is now assigned only when the requested Vertex/Edge/Face level differs, so consecutive vertex moves no longer toggle the global sub-object state repeatedly.
+- Route the mirrored T-Corner ConnectVertices selection through the same already-bound T-edge selection helper. Preserve the original modifier activation at the compound-operation boundary and restore the prior UI state once at the end.
+- Update `Wall-Thickness-Test.ms` to 0.014 / project 1.010 and add TEST PART 15 guarding the single-bind T-edge Edit Poly session.
+
+2026-10-07
+- Wall Thickness 1.009: add a `FINISH WALLS` button directly below `EXTRUDE / UPDATE` in the EXTRUDE group.
+- `FINISH WALLS` is a UI copy of the existing multi-object `FIX T EDGE CORNERS` action and uses the same backend/selection behavior.
+- Keep the original manual `FIX T EDGE CORNERS` button unchanged in MANUAL-PROCESS; no geometry algorithm changed.
+- Update `Wall-Thickness-Test.ms` to 0.013 / project 1.009 and add TEST PART 14 for the duplicated finishing action and placement.
+
+2026-10-07
+- Wall Thickness 1.008 marked STABLE after runtime confirmation of the corrected FIX T EDGE CORNERS move/weld path on the 180-degree-Y / upside-down fixture. No code change and no version bump; canonical Wall-Thickness.ms remains 1.008.
+
+2026-10-07
+- Wall Thickness 1.008: fix FIX T EDGE CORNERS move/weld on walls rotated 180 degrees around Y by keeping Edit Poly `MoveSelection` deltas in the same local/object coordinate domain returned by `EditPolyMod.GetVertex`.
+- Remove the extra `objectTransform` conversion from `moveWallThicknessTEdgeVertexToPosition()`. The failing mirrored fixture proved that conversion reversed the required local X direction: the branch anchor moved `+0.01009` instead of the mirrored `-0.01009`, leaving the cut vertices separated so the weld could not execute.
+- Keep detector, topology creation, T-Corner planning, weld operation, extrusion, FIX INNER CORNERS, material handling, and multi-object wrappers unchanged; once the cut vertices reach the anchor, the existing weld path is reused unchanged.
+- Update `Wall-Thickness-Test.ms` to 0.012 / project 1.008 and add TEST PART 13 guarding the local/object-domain move-delta contract.
+
+2026-10-07
+- Wall Thickness 1.007: make the canonical `Wall-Thickness.ms` self-contained by embedding the existing `planWallThicknessInnerCorners()` implementation directly in the entry script.
+- Remove the startup dependency on sibling `Wall-Thickness-Inner-Corners.ms`, which could be absent from a local Google Drive mirror and abort launch before the UI opened.
+- Inner-corner planning behavior is unchanged; the embedded function is copied from the existing extracted module without geometry-algorithm edits.
+- Update `Wall-Thickness-Test.ms` to 0.011 / project 1.007 and add TEST PART 12 to ensure the canonical production script contains the planner and no longer loads/throws on the external module.
+
+2026-10-07
+- Wall Thickness 1.006: fix the final FIX T EDGE CORNERS cut-edge move on walls rotated 180 degrees around Y / upside down in local space.
+- Keep the proven transformed single-vertex Edit Poly move path and move the upper and lower cut vertices independently to the branch-anchor XY instead of relying on one shared two-vertex MoveSelection delta.
+- Preserve each cut vertex local Z exactly; no detector, planner, extrusion, inner-corner, T-Corner topology, material, or multi-object wrapper logic changed.
+- Update `Wall-Thickness-Test.ms` to 0.010 / project 1.006 and add TEST PART 11 for the 180-degree-Y live T-edge cut move.
+
+2026-10-07
 - Wall Thickness 1.005: make EXTRUDE / UPDATE, EXTRUDE ONLY, FIX INNER CORNERS, FIX T EDGE CORNERS, and FIX OUTER CORNERS process every selected wall sequentially, one object at a time.
 - Snapshot the selected node array before processing so per-object selection changes do not truncate the batch; snapshot thickness and CHANGE MATERIAL IDS UI values before EXTRUDE/FIX INNER loops so selection callbacks cannot change later-object inputs.
 - Keep every existing single-object geometry/fix function unchanged; each object retains its existing undo/error/recovery behavior.

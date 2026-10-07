@@ -1,5 +1,5 @@
 /*
-Vertex Level Aligner FN 0.142
+Vertex Level Aligner FN 0.143
 Backend-only functional module. Scans Editable Poly / Edit Poly vertex levels on a selected world X/Y/Z axis, groups nearby exact levels by threshold, and exposes selection data to the frontend.
 */
 
@@ -9,6 +9,7 @@ global vertex_level_aligner_log_path
 global vertexLevelAlignerWriteLog
 global vertexLevelAlignerStartLog
 global vertex_level_aligner_default_threshold
+global VertexColorPainter_v
 
 vertex_level_aligner_default_threshold = 0.0
 
@@ -69,7 +70,7 @@ function vertexLevelAlignerStartLog source_file =
         log_stream = createFile vertex_level_aligner_log_path
         if log_stream == undefined then throw "Could not create Vertex Level Aligner log."
 
-        format "000 START Vertex Level Aligner project 1.117\n" to:log_stream
+        format "000 START Vertex Level Aligner project 1.123\n" to:log_stream
         close log_stream
         log_stream = undefined
     )
@@ -99,8 +100,8 @@ function vertexLevelAlignerStartLog source_file =
 
 struct vertex_level_aligner_v
 (
-    file_version = 0.142,
-    project_version = 1.117,
+    file_version = 0.143,
+    project_version = 1.123,
     scan_node = undefined,
     scan_modifier = undefined,
     scan_kind = #none,
@@ -111,6 +112,8 @@ struct vertex_level_aligner_v
     world_axis = #z,
     exact_epsilon = 0.000001,
     level_groups = #(),
+    diagnostic_painter = undefined,
+    diagnostic_broken_color = (color 255 0 0),
     last_message = "Select one Editable Poly or Edit Poly object.",
 
     /*
@@ -129,6 +132,42 @@ struct vertex_level_aligner_v
         )
 
         false
+        -- return
+    ),
+
+    /*
+    Resolves the exact stack index consumed by Vertex Color Painter for the stored scan topology.
+    Editable Poly base returns 0; the exact stored Edit Poly modifier returns its current positive stack index.
+    */
+    function getDiagnosticPainterStackIndex =
+    (
+        if scan_node == undefined or not(isValidNode scan_node) then
+        (
+            vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT STACK ERROR: scanned node is invalid."
+            return -1
+        )
+
+        if scan_kind == #editable_poly then return 0
+
+        if scan_kind == #edit_poly then
+        (
+            if scan_modifier == undefined or not(this.modifierBelongsToNode scan_node scan_modifier) then
+            (
+                vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT STACK ERROR: stored Edit Poly modifier is missing from the scanned node."
+                return -1
+            )
+
+            for stack_index = 1 to scan_node.modifiers.count do
+            (
+                if scan_node.modifiers[stack_index] == scan_modifier then return stack_index
+            )
+
+            vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT STACK ERROR: could not resolve stored Edit Poly stack index."
+            return -1
+        )
+
+        vertexLevelAlignerWriteLog ("DIAGNOSTIC PAINT STACK ERROR: unsupported scan kind " + (scan_kind as string))
+        -1
         -- return
     ),
 
@@ -942,6 +981,15 @@ struct vertex_level_aligner_v
             world_axis = this.normalizeWorldAxis world_axis_value
         )
 
+        if diagnostic_painter != undefined then
+        (
+            if not(this.clearDiagnosticPaint update_message:false) then
+            (
+                last_message = "Could not clear existing diagnostic paint before scan."
+                return false
+            )
+        )
+
         context_data = this.resolveContext node_value modifier_value:modifier_value
         context_kind = context_data[1]
 
@@ -1334,6 +1382,210 @@ struct vertex_level_aligner_v
         if target_vertex_bits == undefined then return undefined
 
         this.getFullySelectedFacesFromVertexBits target_vertex_bits
+        -- return
+    ),
+
+    /*
+    Collects the union of exclusive polygon faces belonging to every currently broken threshold group.
+    A face is included only when all of its vertices belong to the same broken group; valid groups remain untouched.
+    */
+    function getBrokenDiagnosticFaceBits =
+    (
+        if not(this.isStoredContextCurrent()) then
+        (
+            last_message = "Topology changed. Scan the object again."
+            return undefined
+        )
+
+        broken_face_bits = #{}
+
+        for group_index = 1 to level_groups.count do
+        (
+            group_data = this.getGroupData group_index context_validated:true
+
+            if group_data == undefined then
+            (
+                vertexLevelAlignerWriteLog ("DIAGNOSTIC PAINT FACE ERROR: group data missing at index " + (group_index as string))
+                return undefined
+            )
+
+            if group_data[6] then
+            (
+                group_face_bits = this.getFullySelectedFacesFromVertexBits group_data[4]
+
+                if group_face_bits == undefined then
+                (
+                    vertexLevelAlignerWriteLog ("DIAGNOSTIC PAINT FACE ERROR: exclusive face resolution failed for broken group " + (group_index as string))
+                    return undefined
+                )
+
+                for face_id in group_face_bits do
+                (
+                    broken_face_bits[face_id] = true
+                )
+            )
+        )
+
+        broken_face_bits
+        -- return
+    ),
+
+    /*
+    Clears only the independent Vertex Color Painter session owned by this Vertex Level Aligner instance.
+    Original base channel/display state or the exact owned PaintLayerMod is restored by the Operation itself.
+    */
+    function clearDiagnosticPaint update_message:true =
+    (
+        if diagnostic_painter == undefined then
+        (
+            if update_message then last_message = "Diagnostic paint is already clear."
+            return true
+        )
+
+        clear_ok = diagnostic_painter.clearPaint()
+
+        if not(clear_ok) then
+        (
+            vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT CLEAR ERROR: Vertex Color Painter refused cleanup."
+            if update_message then last_message = "Could not clear diagnostic paint safely."
+            return false
+        )
+
+        diagnostic_painter = undefined
+        if update_message then last_message = "Diagnostic paint cleared."
+
+        true
+        -- return
+    ),
+
+    /*
+    Paints exclusive polygons from all broken groups with one diagnostic color through Vertex Color Painter.
+    The painter is bound to the exact same Editable Poly base or Edit Poly stack level used by the current scan.
+    */
+    function paintBrokenDiagnosticFaces color_value:(color 255 0 0) =
+    (
+        if classOf color_value != Color then
+        (
+            vertexLevelAlignerWriteLog ("DIAGNOSTIC PAINT ERROR: invalid color value " + (color_value as string))
+            last_message = "Diagnostic paint requires a Color value."
+            return false
+        )
+
+        if VertexColorPainter_v == undefined then
+        (
+            vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT ERROR: Vertex Color Painter Operation is unavailable."
+            last_message = "Vertex Color Painter Operation is unavailable."
+            return false
+        )
+
+        if not(this.isStoredContextCurrent()) then
+        (
+            last_message = "Topology changed. Scan the object again."
+            return false
+        )
+
+        broken_count = this.getBrokenGroupCount context_validated:true
+        broken_face_bits = this.getBrokenDiagnosticFaceBits()
+
+        if broken_face_bits == undefined then
+        (
+            last_message = "Could not resolve exclusive polygons for broken groups."
+            return false
+        )
+
+        if not(this.clearDiagnosticPaint update_message:false) then return false
+
+        if broken_count == 0 then
+        (
+            last_message = "No broken groups to paint."
+            return true
+        )
+
+        if broken_face_bits.numberSet == 0 then
+        (
+            last_message = (broken_count as string) + " broken groups | no exclusive polygons to paint."
+            return true
+        )
+
+        painter_stack_index = this.getDiagnosticPainterStackIndex()
+        if painter_stack_index < 0 then
+        (
+            last_message = "Could not resolve the diagnostic paint topology level."
+            return false
+        )
+
+        diagnostic_painter = VertexColorPainter_v()
+        if diagnostic_painter == undefined then
+        (
+            vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT ERROR: could not create independent Vertex Color Painter session."
+            last_message = "Could not create diagnostic painter session."
+            return false
+        )
+
+        if not(diagnostic_painter.setTarget scan_node painter_stack_index) then
+        (
+            vertexLevelAlignerWriteLog ("DIAGNOSTIC PAINT ERROR: setTarget failed | node:" + (scan_node as string) + " | stack:" + (painter_stack_index as string))
+            diagnostic_painter = undefined
+            last_message = "Vertex Color Painter rejected the scanned topology level."
+            return false
+        )
+
+        if not(diagnostic_painter.beginPaint()) then
+        (
+            vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT ERROR: beginPaint failed."
+            cleanup_ok = diagnostic_painter.clearPaint()
+
+            if cleanup_ok then
+            (
+                diagnostic_painter = undefined
+                last_message = "Could not begin diagnostic paint; temporary paint state was cleared."
+            )
+            else
+            (
+                vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT CLEANUP ERROR: beginPaint failure cleanup also failed."
+                last_message = "Could not begin diagnostic paint; cleanup also failed."
+            )
+
+            return false
+        )
+
+        paint_ok = true
+        failed_face_id = 0
+
+        for face_id in broken_face_bits while paint_ok do
+        (
+            if not(diagnostic_painter.paintFace face_id color_value) then
+            (
+                paint_ok = false
+                failed_face_id = face_id
+            )
+        )
+
+        end_ok = diagnostic_painter.endPaint()
+
+        if not(paint_ok) or not(end_ok) then
+        (
+            vertexLevelAlignerWriteLog ("DIAGNOSTIC PAINT ERROR: paint transaction failed | face:" + (failed_face_id as string) + " | endPaint:" + (end_ok as string))
+            cleanup_ok = diagnostic_painter.clearPaint()
+
+            if cleanup_ok then
+            (
+                diagnostic_painter = undefined
+                last_message = "Diagnostic paint failed and was rolled back."
+            )
+            else
+            (
+                vertexLevelAlignerWriteLog "DIAGNOSTIC PAINT CLEANUP ERROR: failed paint transaction could not be rolled back safely."
+                last_message = "Diagnostic paint failed; cleanup also failed."
+            )
+
+            return false
+        )
+
+        diagnostic_broken_color = color_value
+        last_message = (broken_count as string) + " broken groups | " + (broken_face_bits.numberSet as string) + " exclusive polygons painted red."
+
+        true
         -- return
     ),
 

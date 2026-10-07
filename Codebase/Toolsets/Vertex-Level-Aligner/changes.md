@@ -1,8 +1,14 @@
 # Changes
 
+## 2026-10-07
+
+- Project 1.123: adds first-pass Vertex Color Painter integration for visual level diagnostics while preserving user-confirmed stable project 1.122 as the protected baseline. Vertex Level Aligner now loads the canonical read-only `Codebase/Operations/Vertex-Color-Painter/Vertex-Color-Painter.ms`, creates its own independent `VertexColorPainter_v()` session, and can paint **only exclusive polygon faces from BROKEN groups** red. A polygon is painted only when every polygon vertex belongs to the same broken threshold group; valid groups are left unchanged. Editable Poly scans bind the painter at stack index 0, while Edit Poly scans resolve and bind the exact stored modifier stack index. `PAINT BROKEN` and `CLEAR PAINT` controls were added; rescanning or closing the Tool clears the owned diagnostic session so stale diagnostic color does not survive. No Vertex Color Painter source, tests, docs, or version history were modified. `Vertex-Level-Aligner-FN.ms` advances to 0.143 / project 1.123, `Vertex-Level-Aligner-UI.ms` to 0.502 / project 1.123, `Vertex-Level-Aligner.ms` to 0.393, and `debug/Vertex-Level-Aligner-Test.ms` to 0.255 / project 1.123 with direct regression coverage for both Editable Poly and Edit Poly painting/cleanup.
+
 ## 2026-10-06
 
 - Project 1.122: moves the row-2 Threshold spinner another 16 px to the right by increasing its X offset from 80 px to 96 px total; its effective runtime X position is now 104 px. Threshold values, scanning, Round Precision, Remove display trimming, docking, title/restart, TreeView, and geometry behavior are unchanged. `Vertex-Level-Aligner-UI.ms` advances to 0.501, `Vertex-Level-Aligner.ms` to 0.392, and `debug/Vertex-Level-Aligner-Test.ms` to 0.254 with shared project version 1.122; `Vertex-Level-Aligner-FN.ms` remains unchanged at 0.142 / project 1.117.
+
+- STABLE BASELINE: **Project 1.122** is user-confirmed stable. Preserve this build as the protected baseline for further development, including its current geometry/alignment behavior, selection and rounding behavior, docking/title-restart behavior, and the row-2 Threshold spinner layout with 96 px total X offset / effective runtime X 104 px.
 
 - Project 1.121: moves the row-2 Threshold spinner another 56 px to the right by increasing its X offset from 24 px to 80 px total; its effective runtime X position is now 88 px. Threshold values, scanning, Round Precision, Remove display trimming, docking, title/restart, TreeView, and geometry behavior are unchanged. `Vertex-Level-Aligner-UI.ms` advances to 0.500, `Vertex-Level-Aligner.ms` to 0.391, and `debug/Vertex-Level-Aligner-Test.ms` to 0.253 with shared project version 1.121; `Vertex-Level-Aligner-FN.ms` remains unchanged at 0.142 / project 1.117.
 

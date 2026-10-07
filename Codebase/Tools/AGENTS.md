@@ -1,4 +1,21 @@
-﻿\\\\\\\# Tools Layer
+\\\\\\\# Tools Layer
+
+
+## SHARED CODEBASE WRITE LOCK — READ ONLY BY DEFAULT
+
+This entire layer and every descendant file/folder are canonical shared source of truth and are **READ-ONLY by default in every chat**.
+
+Reading, searching, auditing, referencing, and consuming this layer are allowed. Modifying it is not.
+
+Do not create, edit, replace, upload, delete, rename, move, version, refactor, reformat, or otherwise change anything in this layer unless the **current user prompt explicitly instructs you to modify this shared layer or the specific shared item being changed**.
+
+A dependency on this layer, a bug discovered while using it, memory from another chat, a prior source/development chat, or a generic request to continue/fix a downstream project does not grant write permission.
+
+When a downstream project needs different behavior, modify the downstream project to consume the canonical shared source unless the user explicitly authorizes an upstream shared-source change.
+
+Authorization is temporary and scoped only to the requested change set and named target(s). After that change is complete, this layer automatically returns to READ-ONLY.
+
+Before every write in this layer, verify explicit current-prompt permission for the exact protected target. If permission is absent or ambiguous, stop and do not write.
 
 
 \\\\\\\#\\\\\\\# Purpose

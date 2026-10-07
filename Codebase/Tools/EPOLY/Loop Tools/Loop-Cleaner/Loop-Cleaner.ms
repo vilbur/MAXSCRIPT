@@ -1,5 +1,5 @@
 /*
-    Loop-Cleaner 1.202
+    Loop-Cleaner 1.210
     Clean rewrite development build.
 */
 
@@ -111,8 +111,8 @@ catch
 
 struct RedundantLoopFixer1168_v
 (
-    file_version = 1.202,
-    project_version = 1.202,
+    file_version = 1.210,
+    project_version = 1.210,
     quiet_mode = true,
     straight_angle_threshold = 5.0,
     geometry_corner_angle_threshold = 1.0,
@@ -4403,6 +4403,149 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
+    Reasserts the required Broken-T Edit Poly Edge/Vertex context without selecting the node or reactivating the modifier stack.
+    The exact SELECT BROKEN T JUNCTIONS modifier must already be current.
+    */
+    function syncBrokenTEditPolyLevel node edit_poly_mod target_level =
+    (
+        if node == undefined or not isValidNode node then
+        (
+            format "Loop-Cleaner BROKEN T CONTEXT SYNC FAILED | stage:node | value:%\n" node
+            return false
+        )
+
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then
+        (
+            format "Loop-Cleaner BROKEN T CONTEXT SYNC FAILED | node:% | stage:Edit Poly | value:%\n" node.name edit_poly_mod
+            return false
+        )
+
+        if modPanel.getCurrentObject() != edit_poly_mod then
+        (
+            format "Loop-Cleaner BROKEN T CONTEXT SYNC FAILED | node:% | stage:current modifier | expected:% | actual:%\n" \
+                node.name edit_poly_mod (modPanel.getCurrentObject())
+            return false
+        )
+
+        local target_subobject_level = 0
+
+        if target_level == #Vertex then
+        (
+            target_subobject_level = 1
+        )
+        else if target_level == #Edge then
+        (
+            target_subobject_level = 2
+        )
+        else
+        (
+            format "Loop-Cleaner BROKEN T CONTEXT SYNC FAILED | node:% | stage:target level | value:% | required:#Vertex or #Edge\n" node.name target_level
+            return false
+        )
+
+        edit_poly_mod.SetPrimaryNode node
+        edit_poly_mod.useStackSelection = false
+        edit_poly_mod.selectMode = 0
+        edit_poly_mod.showCage = off
+        edit_poly_mod.SetEPolySelLevel target_level
+        subObjectLevel = target_subobject_level
+
+        true
+        -- return
+    ),
+
+    /*
+    Forces a fresh binding of the exact working Broken-T Edit Poly after a topology-changing Commit.
+    This is a synchronization boundary: the same modifier stays in use, but 3ds Max must refresh its live topology before ID-dependent reads continue.
+    */
+    function rebindBrokenTEditPolyContext node edit_poly_mod target_level =
+    (
+        if node == undefined or not isValidNode node then
+        (
+            format "Loop-Cleaner BROKEN T REBIND FAILED | stage:node | value:%\n" node
+            return false
+        )
+
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then
+        (
+            format "Loop-Cleaner BROKEN T REBIND FAILED | node:% | stage:Edit Poly | value:%\n" node.name edit_poly_mod
+            return false
+        )
+
+        local modifier_is_live = false
+
+        for stack_mod in node.modifiers while not modifier_is_live do
+        (
+            if stack_mod == edit_poly_mod then modifier_is_live = true
+        )
+
+        if not modifier_is_live then
+        (
+            format "Loop-Cleaner BROKEN T REBIND FAILED | node:% | stage:modifier stack | editPoly:%\n" node.name edit_poly_mod
+            return false
+        )
+
+        select node
+        max modify mode
+
+        edit_poly_mod.SetPrimaryNode node
+        edit_poly_mod.useStackSelection = false
+        edit_poly_mod.selectMode = 0
+        edit_poly_mod.showCage = off
+        modPanel.setCurrentObject edit_poly_mod node:node
+
+        this.syncBrokenTEditPolyLevel node edit_poly_mod target_level
+        -- return
+    ),
+
+    /*
+    Activates the exact working Broken-T Edit Poly only when another stack object is current.
+    Once active, later batch stages keep this same modifier current and synchronize only its required Edge/Vertex context.
+    */
+    function prepareBrokenTEditPolyContext node edit_poly_mod target_level =
+    (
+        if node == undefined or not isValidNode node then
+        (
+            format "Loop-Cleaner BROKEN T CONTEXT FAILED | stage:node | value:%\n" node
+            return false
+        )
+
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then
+        (
+            format "Loop-Cleaner BROKEN T CONTEXT FAILED | node:% | stage:Edit Poly | value:%\n" node.name edit_poly_mod
+            return false
+        )
+
+        local modifier_is_live = false
+
+        for stack_mod in node.modifiers while not modifier_is_live do
+        (
+            if stack_mod == edit_poly_mod then modifier_is_live = true
+        )
+
+        if not modifier_is_live then
+        (
+            format "Loop-Cleaner BROKEN T CONTEXT FAILED | node:% | stage:modifier stack | editPoly:%\n" node.name edit_poly_mod
+            return false
+        )
+
+        if modPanel.getCurrentObject() != edit_poly_mod then
+        (
+            select node
+            max modify mode
+
+            edit_poly_mod.SetPrimaryNode node
+            edit_poly_mod.useStackSelection = false
+            edit_poly_mod.selectMode = 0
+            edit_poly_mod.showCage = off
+            modPanel.setCurrentObject edit_poly_mod node:node
+        )
+
+        this.syncBrokenTEditPolyLevel node edit_poly_mod target_level
+        -- return
+    ),
+
+    /*
     Runs only the missing-target DivideEdge stage and returns source/inserted pairs for a later move pass.
     No vertex is moved or welded here; each target-edge group performs exactly N committed splits and preserves pair order from one original edge direction.
     */
@@ -4455,13 +4598,10 @@ struct RedundantLoopFixer1168_v
         move_records = #()
         divide_error = undefined
 
-        select node
-        max modify mode
-        edit_poly_mod.SetPrimaryNode node
-        edit_poly_mod.useStackSelection = false
-        edit_poly_mod.selectMode = 0
-        edit_poly_mod.showCage = off
-        modPanel.setCurrentObject edit_poly_mod node:node
+        if not(this.syncBrokenTEditPolyLevel node edit_poly_mod #Edge) then
+        (
+            return #(false, 0, #(), "Could not synchronize the Broken-T Edit Poly Edge context.")
+        )
 
         for target_group in target_groups while divide_error == undefined do
         (
@@ -4627,7 +4767,7 @@ struct RedundantLoopFixer1168_v
     Runs only the Broken-T missing-target DivideEdge stage and stores ordered source/inserted pairs for MOVE VERTICES.
     The operation intentionally stops before any MoveSelection or weld call.
     */
-    function divideBrokenTJunctionEdges show_dialogs:true =
+    function divideBrokenTJunctionEdges show_dialogs:true reuse_current_modifier:false =
     (
         this.clearPendingBrokenTMoveState()
 
@@ -4652,7 +4792,16 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        if not this.activateSelectionModifier node selection_mod then
+        local context_ok = if reuse_current_modifier then
+        (
+            this.syncBrokenTEditPolyLevel node selection_mod #Edge
+        )
+        else
+        (
+            this.prepareBrokenTEditPolyContext node selection_mod #Edge
+        )
+
+        if not context_ok then
         (
             if show_dialogs then messageBox "Could not activate SELECT BROKEN T JUNCTIONS." title:"Loop-Cleaner"
             return false
@@ -5179,7 +5328,7 @@ struct RedundantLoopFixer1168_v
     By default the pending handoff is cleared only after every move verifies successfully.
     The combined Broken-T fix can preserve the same verified handoff for the following weld stage.
     */
-    function moveBrokenTJunctionVertices clear_pending:true show_dialogs:true =
+    function moveBrokenTJunctionVertices clear_pending:true show_dialogs:true reuse_current_modifier:false =
     (
         local node = undefined
         local edit_poly_mod = undefined
@@ -5241,16 +5390,20 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        select node
-        max modify mode
+        local context_ok = if reuse_current_modifier then
+        (
+            this.rebindBrokenTEditPolyContext node edit_poly_mod #Vertex
+        )
+        else
+        (
+            this.prepareBrokenTEditPolyContext node edit_poly_mod #Vertex
+        )
 
-        edit_poly_mod.SetPrimaryNode node
-        edit_poly_mod.useStackSelection = false
-        edit_poly_mod.selectMode = 0
-        edit_poly_mod.showCage = off
-        modPanel.setCurrentObject edit_poly_mod node:node
-        edit_poly_mod.SetEPolySelLevel #Vertex
-        subObjectLevel = 1
+        if not context_ok then
+        (
+            format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:Edit Poly context\n" node.name
+            return false
+        )
 
         local vertex_count = edit_poly_mod.GetNumVertices node:node
 
@@ -5407,7 +5560,7 @@ struct RedundantLoopFixer1168_v
     Original source vertices are preserved. Inserted disposable IDs are processed in descending order so remaining stored IDs stay stable.
     No base Editable Poly cleanup is performed inside this Edit Poly compound topology operation.
     */
-    function weldBrokenTJunctionVertices show_dialogs:true =
+    function weldBrokenTJunctionVertices show_dialogs:true reuse_current_modifier:false =
     (
         local node = undefined
         local edit_poly_mod = undefined
@@ -5467,16 +5620,20 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        select node
-        max modify mode
+        local context_ok = if reuse_current_modifier then
+        (
+            this.syncBrokenTEditPolyLevel node edit_poly_mod #Vertex
+        )
+        else
+        (
+            this.prepareBrokenTEditPolyContext node edit_poly_mod #Vertex
+        )
 
-        edit_poly_mod.SetPrimaryNode node
-        edit_poly_mod.useStackSelection = false
-        edit_poly_mod.selectMode = 0
-        edit_poly_mod.showCage = off
-        modPanel.setCurrentObject edit_poly_mod node:node
-        edit_poly_mod.SetEPolySelLevel #Vertex
-        subObjectLevel = 1
+        if not context_ok then
+        (
+            format "Loop-Cleaner BROKEN T WELD FAILED | node:% | stage:Edit Poly context\n" node.name
+            return false
+        )
 
         local initial_vertex_count = edit_poly_mod.GetNumVertices node:node
 
@@ -5597,17 +5754,6 @@ struct RedundantLoopFixer1168_v
             local target_vertex_id = weld_record[1]
             local source_vertex_id = weld_record[2]
 
-            select node
-            max modify mode
-
-            edit_poly_mod.SetPrimaryNode node
-            edit_poly_mod.useStackSelection = false
-            edit_poly_mod.selectMode = 0
-            edit_poly_mod.showCage = off
-            modPanel.setCurrentObject edit_poly_mod node:node
-            edit_poly_mod.SetEPolySelLevel #Vertex
-            subObjectLevel = 1
-
             local before_vertex_count = edit_poly_mod.GetNumVertices node:node
 
             if target_vertex_id < 1 or target_vertex_id > before_vertex_count or source_vertex_id < 1 or source_vertex_id > before_vertex_count then
@@ -5640,15 +5786,13 @@ struct RedundantLoopFixer1168_v
             edit_poly_mod.RefreshScreen()
             completeRedraw()
 
-            select node
-            max modify mode
-            edit_poly_mod.SetPrimaryNode node
-            edit_poly_mod.useStackSelection = false
-            edit_poly_mod.selectMode = 0
-            edit_poly_mod.showCage = off
-            modPanel.setCurrentObject edit_poly_mod node:node
-            edit_poly_mod.SetEPolySelLevel #Vertex
-            subObjectLevel = 1
+            if not(this.rebindBrokenTEditPolyContext node edit_poly_mod #Vertex) then
+            (
+                format "Loop-Cleaner BROKEN T WELD FAILED | node:% | stage:post-weld Edit Poly context | targetVertex:% | disposableVertex:% | weldedSoFar:%\n" \
+                    node.name target_vertex_id source_vertex_id welded_count
+                this.clearPendingBrokenTMoveState()
+                return false
+            )
 
             local after_vertex_count = edit_poly_mod.GetNumVertices node:node
             local expected_vertex_count = before_vertex_count - 1
@@ -5690,7 +5834,7 @@ struct RedundantLoopFixer1168_v
 
     /*
     Runs the user-verified Broken-T repair stages in one action: DivideEdge, MoveSelection, then WeldVertices.
-    The move handoff is intentionally preserved between MOVE and WELD, then cleared only after the complete weld stage succeeds.
+    The move handoff is preserved between MOVE and WELD. The same SELECT BROKEN T JUNCTIONS modifier is reused for the whole batch. A full same-modifier rebind is performed only at topology-change synchronization boundaries before MOVE and after each WELD Commit.
     */
     function fixBrokenTJunctionStable =
     (
@@ -5698,10 +5842,11 @@ struct RedundantLoopFixer1168_v
 
         local completed_cycles = 0
         local total_pairs = 0
+        local modifier_locked = false
 
         while true do
         (
-            local divide_ok = this.divideBrokenTJunctionEdges show_dialogs:false
+            local divide_ok = this.divideBrokenTJunctionEdges show_dialogs:false reuse_current_modifier:modifier_locked
             local pending_records = this.pending_broken_t_move_records
             local pair_count = if classOf pending_records == Array then pending_records.count else 0
 
@@ -5723,13 +5868,15 @@ struct RedundantLoopFixer1168_v
                 format "Loop-Cleaner BROKEN T FIX PARTIAL DIVIDE CONTINUE | cycle:% | pairs:%\n" (completed_cycles + 1) pair_count
             )
 
-            if not(this.moveBrokenTJunctionVertices clear_pending:false show_dialogs:false) then
+            modifier_locked = true
+
+            if not(this.moveBrokenTJunctionVertices clear_pending:false show_dialogs:false reuse_current_modifier:true) then
             (
                 format "Loop-Cleaner BROKEN T FIX FAILED | stage:MOVE VERTICES | cycle:% | pairs:%\n" (completed_cycles + 1) pair_count
                 return false
             )
 
-            if not(this.weldBrokenTJunctionVertices show_dialogs:false) then
+            if not(this.weldBrokenTJunctionVertices show_dialogs:false reuse_current_modifier:true) then
             (
                 format "Loop-Cleaner BROKEN T FIX FAILED | stage:WELD VERTICES | cycle:% | pairs:%\n" (completed_cycles + 1) pair_count
                 return false
@@ -5742,6 +5889,48 @@ struct RedundantLoopFixer1168_v
         )
 
         false
+        -- return
+    ),
+
+    /*
+    Runs a non-modal Broken-T selection followed immediately by the stable batch repair.
+    Returns true when the select stage succeeds and either no Broken-T holes remain or the complete repair succeeds.
+    */
+    function fixTBorderHoles =
+    (
+        if selection.count != 1 then
+        (
+            format "Loop-Cleaner FIX T BORDER HOLES FAILED | stage:selection | selectionCount:% | required:1\n" selection.count
+            return false
+        )
+
+        local target_node = selection[1]
+
+        format "Loop-Cleaner FIX T BORDER HOLES START | node:%\n" target_node.name
+
+        if not(this.selectBrokenTJunctionBorders show_dialogs:false) then
+        (
+            format "Loop-Cleaner FIX T BORDER HOLES FAILED | node:% | stage:BROKEN T SELECT\n" target_node.name
+            return false
+        )
+
+        local selection_mod = this.findBrokenTJunctionSelectionModifier target_node
+
+        if selection_mod == undefined then
+        (
+            format "Loop-Cleaner FIX T BORDER HOLES COMPLETE | node:% | result:no Broken-T holes\n" target_node.name
+            return true
+        )
+
+        if not(this.fixBrokenTJunctionStable()) then
+        (
+            format "Loop-Cleaner FIX T BORDER HOLES FAILED | node:% | stage:BATCH BROKEN T FIX\n" target_node.name
+            return false
+        )
+
+        format "Loop-Cleaner FIX T BORDER HOLES COMPLETE | node:%\n" target_node.name
+
+        true
         -- return
     ),
 
@@ -6746,7 +6935,7 @@ if epoly_tools_project_version == undefined or epoly_tools_project_version < Red
 
 RedundantLoopFixer_Title = "Loop-Cleaner | v" + (epoly_tools_project_version as string)
 
-rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:620
+rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:488
 (
     dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:264 height:32
     button btn_select_remove "USELESS LOOPS SELECT \\ REMOVE" pos:[24,56] width:240 height:32 tooltip:"LMB: Select visible internal edges after subtracting border-corner and wall-corner loop masks.\n\nRMB: Remove the exact stored redundant-edge selection and its redundant vertices."
@@ -6756,20 +6945,17 @@ rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:620
     button btn_t_junction_all "T JUNCTIONS" pos:[24,144] width:72 height:32 tooltip:"LMB: Select all visible internal loops traced from exact T-junction stems."
     button btn_t_junction_border "T BORDER" pos:[108,144] width:72 height:32 tooltip:"LMB: Select only the T-stem edges at broken inner-border seams. Parallel continuation edges along the traced loop are not selected."
     button btn_t_junction_mesh "T MESH" pos:[192,144] width:72 height:32 tooltip:"LMB: Select complete traced T-junction loops that have no broken inner-border seam endpoint."
-    button btn_broken_t_select "BROKEN T SELECT" pos:[24,188] width:240 height:32 tooltip:"LMB: Select complete broken inner-border components using the position precision below."
-    button btn_broken_t_fix "BATCH BROKEN T FIX" pos:[24,232] width:240 height:32 tooltip:"LMB: Repeatedly run DIVIDE EDGE, MOVE VERTICES, and WELD VERTICES until no Broken-T cases remain. No modal stage dialogs are shown."
-    button btn_test_vertex_move "TEST MOVE VERTEX" pos:[24,276] width:240 height:32 tooltip:"Creates a Plane, adds Edit Poly, selects vertex 1, and moves vertex 1 onto vertex 2."
-    button btn_test_selected_vertex_move "TEST MOVE SELECTED VERTEX" pos:[24,320] width:240 height:32 tooltip:"Moves one vertex from the current Edit Poly vertex selection exactly 1000 mm on Z."
-    button btn_test_selected_vertex_weld "TEST WELD SELECTED VERTICES" pos:[24,364] width:240 height:32 tooltip:"Welds exactly two vertices selected in the current Edit Poly. The lower vertex ID is preserved."
-    button btn_debug_border "2  SELECT BORDER CORNER LOOPS" pos:[24,408] width:240 height:32 tooltip:"LMB: Select border-corner loop edges in SELECT REDUNDANT LOOPS."
-    button btn_debug_wall_corner "3  SELECT WALL CORNER LOOP" pos:[24,452] width:240 height:32 tooltip:"LMB: Select wall-corner loop edges in SELECT REDUNDANT LOOPS."
-    button btn_debug_angle "4  SELECT ANGLED LOOPS" pos:[24,496] width:240 height:32 enabled:false tooltip:"Unused in the clean rewrite."
-    checkbox chk_quiet "QUIET" pos:[24,540] width:48 height:24 checked:true tooltip:"Reserved for the clean detector diagnostics."
-    label lbl_position_precision "postion preccision" pos:[78,540] width:108 height:16
-    dropdownlist ddl_position_precision "" pos:[192,536] width:72 height:24 items:#("1mm", "0.1mm", "0.01mm") selection:3 tooltip:"Position precision used for Broken-T position matching and edge re-resolution. Default: 0.01mm."
-    spinner spn_straight_angle "ANGLE:" pos:[24,576] width:108 range:[0.0,45.0,5.0] type:#float scale:0.1 fieldwidth:60 enabled:false tooltip:"Not used by SELECT in this build."
-    label lbl_straight_units "deg" pos:[144,580] width:24 height:16
-    button btn_get_angle "GET ANGLE" pos:[180,572] width:84 height:32 enabled:false tooltip:"Unused in the clean rewrite."
+    button btn_broken_t_select "BROKEN T JUNCTIONS SELECT \\ FIX" pos:[24,188] width:240 height:32 tooltip:"LMB: Select complete broken inner-border components using the position precision below.\n\nRMB: Refresh the Broken-T selection, then run the complete Divide, Move, and Weld repair with no modal stage dialogs."
+    button btn_fix_t_border_holes "FIX T BORDER HOLES" pos:[24,232] width:240 height:32 tooltip:"LMB: Run Broken-T selection, then the complete Divide, Move, and Weld repair with no modal stage dialogs."
+    button btn_debug_border "2  SELECT BORDER CORNER LOOPS" pos:[24,276] width:240 height:32 tooltip:"LMB: Select border-corner loop edges in SELECT REDUNDANT LOOPS."
+    button btn_debug_wall_corner "3  SELECT WALL CORNER LOOP" pos:[24,320] width:240 height:32 tooltip:"LMB: Select wall-corner loop edges in SELECT REDUNDANT LOOPS."
+    button btn_debug_angle "4  SELECT ANGLED LOOPS" pos:[24,364] width:240 height:32 enabled:false tooltip:"Unused in the clean rewrite."
+    checkbox chk_quiet "QUIET" pos:[24,408] width:48 height:24 checked:true tooltip:"Reserved for the clean detector diagnostics."
+    label lbl_position_precision "postion preccision" pos:[78,408] width:108 height:16
+    dropdownlist ddl_position_precision "" pos:[192,404] width:72 height:24 items:#("1mm", "0.1mm", "0.01mm") selection:3 tooltip:"Position precision used for Broken-T position matching and edge re-resolution. Default: 0.01mm."
+    spinner spn_straight_angle "ANGLE:" pos:[24,444] width:108 range:[0.0,45.0,5.0] type:#float scale:0.1 fieldwidth:60 enabled:false tooltip:"Not used by SELECT in this build."
+    label lbl_straight_units "deg" pos:[144,448] width:24 height:16
+    button btn_get_angle "GET ANGLE" pos:[180,440] width:84 height:32 enabled:false tooltip:"Unused in the clean rewrite."
 
     on RedundantLoopFixer_UI open do
     (
@@ -6863,24 +7049,14 @@ rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:620
         RedundantLoopFixer.selectBrokenTJunctionBorders()
     )
 
-    on btn_broken_t_fix pressed do
+    on btn_broken_t_select rightClick do
     (
-        RedundantLoopFixer.fixBrokenTJunctionStable()
+        RedundantLoopFixer.fixTBorderHoles()
     )
 
-    on btn_test_vertex_move pressed do
+    on btn_fix_t_border_holes pressed do
     (
-        RedundantLoopFixer.testEditPolyVertexMove (RedundantLoopFixer.getBrokenTJunctionPositionPrecision())
-    )
-
-    on btn_test_selected_vertex_move pressed do
-    (
-        RedundantLoopFixer.testMoveOneSelectedEditPolyVertex (RedundantLoopFixer.getBrokenTJunctionPositionPrecision())
-    )
-
-    on btn_test_selected_vertex_weld pressed do
-    (
-        RedundantLoopFixer.testWeldSelectedEditPolyVertices()
+        RedundantLoopFixer.fixTBorderHoles()
     )
 
     on btn_debug_border pressed do
