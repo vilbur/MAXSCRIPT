@@ -1,5 +1,5 @@
 /*
-    Vertex Welder Main 0.016
+    Vertex Welder Main 0.017
     Canonical Tool entry. Loads shared UI helpers, backend FN, frontend UI, then opens the standalone dialog.
 */
 
@@ -7,8 +7,8 @@ global VertexWelder
 global VertexWelder_UI
 global vertexWelderOpenUi
 global vertex_welder_project_version
-global vertex_welder_file_version = 0.016
-global vertex_welder_stored_project_version = 0.016
+global vertex_welder_file_version = 0.017
+global vertex_welder_stored_project_version = 0.018
 global vertex_welder_script_path = getSourceFileName()
 global vertex_welder_script_directory
 global vertex_welder_tool_title

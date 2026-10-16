@@ -1,3 +1,9 @@
+## 2026-10-09 — v0.066
+
+- Updated the `.NET` tool title/restart button to the current shared style: `18 px` height and the pre-style button font size increased by `2.0`.
+- Preserved the existing RGB `45,45,48` normal/hover/pressed background, RGB `62,158,255` title text, zero border, full-width layout, and LMB `restartTool` behavior.
+- `Material-ID-Manager_0.065.ms` remains unchanged; `Material-ID-Manager_0.066.ms` is the new versioned release and `Material-ID-Manager.ms` mirrors it.
+
 # Material ID Manager changes
 
 ## 2026-10-05 — v0.065

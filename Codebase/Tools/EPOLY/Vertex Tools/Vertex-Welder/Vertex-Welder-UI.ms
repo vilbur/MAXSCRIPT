@@ -1,5 +1,5 @@
 /*
-    Vertex Welder UI 0.011
+    Vertex Welder UI 0.012
     Frontend-only rollout for Vertex Welder. The main entry owns dependency loading and dialog execution.
 */
 
@@ -7,8 +7,8 @@ global VertexWelder
 global VertexWelder_UI
 global vertexWelderOpenUi
 global vertex_welder_project_version
-global vertex_welder_ui_file_version = 0.011
-global vertex_welder_ui_stored_project_version = 0.017
+global vertex_welder_ui_file_version = 0.012
+global vertex_welder_ui_stored_project_version = 0.018
 global vertex_welder_script_path
 global vertex_welder_ui_ini_path
 global vertex_welder_ui_ini_section
@@ -34,7 +34,7 @@ rollout VertexWelder_UI vertex_welder_tool_title width:336 height:240
 (
     local ui_is_loading = false
 
-    dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:312 height:16
+    dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:312 height:18
 
     label lbl_threshold "Threshold" pos:[12,48] width:72 height:24 align:#left
     spinner spn_threshold_mm "" pos:[96,48] width:180 height:24 range:[0.0,1000000.0,0.1] type:#float scale:0.01

@@ -1,4 +1,54 @@
+﻿2026-10-08
+- Wall Thickness 1.025: repair the 1.024 FIX T EDGE CORNERS / FINISH WALLS zero-case detection regression. First-face surface regions must be connected through polygon-boundary edges incident to the anchor, not merged solely because their face normals are equal. Independent parallel wall faces in complex walls now remain separate regions.
+- Keep the requested first-face-only locality and the separate nearby-vertical-loop distance exception. No changes to inner-corner deformation, T-edge topology authoring, weld order, material correction, or source geometry.
+- Strengthen embedded testWallThicknessTEdgeFirstFaces() to check a connected planar pair, disconnected equal-normal faces, ignored remote faces, and T-corner two-region/one-region classification. Log explicit no-match status when FINISH WALLS detects no T-edge case.
+
+2026-10-08
+- Wall Thickness 1.024: make FIX OUTER CORNERS and the shared local miter path detect each vertical corner from only its first two adjacent source faces. Stop re-reading every face incident to the corner endpoints or deriving the miter from unrelated wall regions.
+- Add a conservative exception: skip that corner when a distinct vertical source edge overlaps its height and lies at a raw XY distance strictly less than the wall thickness. Source-loop XY identity uses the existing 0.01 mm position-precision contract; no rounding is applied to the distance or the resulting miter geometry.
+- Apply the same locality rule to FIX T EDGE CORNERS: derive surface IDs only from the first faces touching the anchor edges, not a flood-fill of remote coplanar wall surfaces. Block only a candidate whose vertical corner has another distinct overlapping vertical source edge strictly closer than the wall thickness.
+- Embed testWallThicknessFirstFaceCornerLocality() and testWallThicknessTEdgeFirstFaces() in the canonical script to verify isolated-vs-complex first-face equivalence and near/far vertical-loop behavior without adding another downloadable test file.
+
+2026-10-08
+- Wall Thickness 1.022: fix the remaining T-Corner mirror redundant branch-split vertex/edge reported as V25 / E42 after 1.021 synchronized the move-to-weld boundary.
+- Keep the existing ordinary T-edge and T-Corner-primary weld direction unchanged. For `#t_corner_mirror` only, reverse the coincident weld survivor so the real cut-chain vertex survives and the temporary `DivideEdge` branch anchor is consumed.
+- Preserve the same mirror topology operation sequence, topology-count contract, N-level segmentation, material correction, and performance optimizations; do not add a post-process RemoveVertex/RemoveEdge cleanup heuristic.
+- Update Wall-Thickness-Test.ms to 0.026 / project 1.022 and add TEST PART 26 for the mirror weld-survivor contract.
+
+2026-10-08
+- Wall Thickness 1.021: fix T-Corner redundant split vertices exposed by the 1.020 performance pass without changing any T-Corner detection, N-level loop, or topology-authoring rule.
+- Restore one `RefreshScreen()` synchronization boundary after the complete branch-anchor + N-level cut MoveSelection sequence and immediately before weld verification. The 1.020 per-vertex RefreshScreen removal is retained, so the hot path still refreshes once per repaired case instead of once per moved vertex.
+- Re-ensure the already-current T-edge Vertex context after that refresh, then perform the existing position verification and weld unchanged. This prevents the following topology-changing weld from consuming stale pre-move Edit Poly evaluation state and leaving midpoint/branch split debris.
+- Update Wall-Thickness-Test.ms to 0.025 / project 1.021 and add TEST PART 25 guarding one shared move-to-weld refresh with no per-vertex refresh regression.
+
 2026-10-07
+- Wall Thickness 1.020: finish the performance pass from the 1.019 codebase without changing extrusion, inner-corner, T-edge/T-Corner, N-level loop, or outer-corner geometry rules.
+- In EXTRUDE + FINISH, reuse the already validated automatic FIX INNER CORNERS state instead of rebuilding the lower WALL THICKNESS + FIX INNER CORNERS stack a second time before T-edge planning. Manual FINISH/FIX T EDGE calls keep the existing safety rebuild by default.
+- Defer the final T-edge `completeRedraw()` during multi-object FINISH/FIX T EDGE/EXTRUDE + FINISH batches and perform one full redraw when the complete batch finishes. Single-object behavior keeps its final redraw.
+- Skip per-object final `selectWallThicknessTEdgeFixModifier()` during multi-object T-edge batches; select the last successful T-edge modifier exactly once when the batch finishes. Single-object behavior remains unchanged.
+- Remove `RefreshScreen()` from pure T-edge vertex MoveSelection and Material ID commits; topology-changing ConnectEdges / DivideEdge / ConnectVertices / weld stages keep their existing RefreshScreen + forced context refresh.
+- Replace whole-mesh T-edge material adjacency reconstruction with direct `GetFaceEdge` / `GetEdgeFace` traversal of the four edges of the newly created target quad.
+- Replace FIX INNER/OUTER CORNERS string-key edge deduplication with BitArray edge/reverse-edge bookkeeping, avoiding repeated string allocation and linear `findItem` scans while preserving the same unique source-edge traversal.
+- Update Wall-Thickness-Test.ms to 0.024 / project 1.020 and add TEST PART 24 for lower-stack reuse, batch redraw deferral, local material adjacency, non-topology refresh removal, and retained topology refresh boundaries.
+
+2026-10-07
+- Wall Thickness 1.019: optimize the remaining T-edge hot path from the 1.018 stable baseline without changing extrusion or any corner geometry/topology rule.
+- Remove per-operation `completeRedraw()` calls from T-edge ConnectEdges, DivideEdge, ConnectVertices, bound vertex moves, weld, and material correction. Keep the lighter `RefreshScreen()` calls and correctness-critical post-topology rebinding, then keep one existing final `completeRedraw()` at the end of the complete FIX T EDGE CORNERS run.
+- Add one topology-state-local T-edge lookup that snapshots live vertex positions plus edge adjacency once. Reuse it for branch/generated/cross-edge mapping, N-level source-chain walking, post-ConnectEdges new-vertex resolution, and consecutive cut-edge verification instead of repeatedly scanning every Edit Poly edge/vertex.
+- Treat each topology-changing commit as a cache invalidation boundary: discard the previous lookup after ConnectEdges / DivideEdge / ConnectVertices / weld and rebuild only when fresh IDs/positions are required. Vertex-move position caches are never reused after moves.
+- Wall Thickness 1.018 marked STABLE after runtime confirmation of the Command Panel context-reuse optimization. No code change and no version bump to that stable snapshot; `Wall-Thickness_1.018-STABLE.ms` remains the protected performance baseline.
+- Update Wall-Thickness-Test.ms to 0.023 / project 1.019 and add TEST PART 23 for redraw batching, topology-state lookup reuse, and cache invalidation boundaries.
+
+2026-10-07
+- Wall Thickness 1.018: optimize FIX T EDGE CORNERS Command Panel context reuse without changing the stable 1.017 extrusion or corner geometry/topology rules.
+- Keep the correctness-critical forced `bindWallThicknessTEdgeOperationContext()` refresh after topology-changing ConnectEdges / DivideEdge / ConnectVertices commits, but use a guarded `ensureWallThicknessTEdgeOperationContext()` before operations so the same already-current node/Edit Poly is not selected/rebound twice.
+- Split vertex movement into a bound hot-path helper. One T-edge case now ensures Vertex context once, then moves the branch anchor and every N-level cut vertex through selection + MoveSelection + Commit without repeating `select`, `max modify mode`, `SetPrimaryNode`, or `modPanel.setCurrentObject` for every vertex.
+- Start the final weld from the already-current ensured Vertex context instead of forcing another full modifier-stack activation. Fatal verification and topology-count checks remain unchanged.
+- Update Wall-Thickness-Test.ms to 0.022 / project 1.018 and add TEST PART 22 for guarded pre-operation context reuse, retained forced post-topology refresh, bound multi-vertex moves, and weld-context reuse.
+
+2026-10-07
+- Wall Thickness 1.017 marked STABLE for EXTRUDE + ALL CORNER FIXES. No code change and no version bump; canonical Wall-Thickness.ms remains 1.017 and the tagged release is the byte-identical tested build.
+
 - Wall Thickness 1.017: audit the remaining corner-special-case paths for the same N-level vertical-loop rule without adding any new corner classification.
 - Generalize ordinary / non-mirrored FIX T EDGE CORNERS cases to use the same directly connected anchor->continuation source-chain collector already used by segmented T-Corners, so one native ConnectEdges pass crosses every stacked strip level instead of stopping after two levels.
 - Generalize the existing FIX INNER CORNERS lower-opening boundary guard from exactly two stacked source members to any directly connected stack with two or more levels; preserve the same lowest-member protection while leaving the later 3+/2/1, exact-T-stack, and general stack repair rules unchanged.

@@ -1,5 +1,96 @@
 # Loop-Cleaner Changes
 
+## 2026-10-08 — select successfully repaired Broken-T vertices 1.218
+
+- Updated `Loop-Cleaner` to `1.218`; `1.214` remains the current user-confirmed stable checkpoint for `T BORDER HOLES SELECT \ FIX`.
+- After each complete successful WELD cycle, the batch records only the preserved T-junction vertex from each pending `#(sourceVertexID, insertedVertexID)` pair. A failed MOVE/WELD cycle contributes nothing to this repaired-vertex set.
+- The accumulated repaired IDs remain stable because the existing weld contract requires every preserved source ID to be below every disposable appended ID and welds disposable IDs in descending order; only appended vertices are removed.
+- After the final fresh Divide cycle reports zero pending repair pairs, the working `SELECT BROKEN T JUNCTIONS` Edit Poly enters Vertex context once and replaces its Vertex selection with exactly the accumulated successfully repaired T-junction vertices.
+- The final selection uses the existing 1.217 state-diff/live-context path: no modifier reselection or `modPanel.setCurrentObject` call occurs when the same node/modifier/Vertex state is already valid, and the historical full rebind remains only the stale-context fallback.
+- The production batch still performs one final `RefreshScreen()` / `completeRedraw()` after the final repaired-vertex selection. No per-pair selection writes or redraws were added.
+- `DivideEdge`, `MoveSelection`, `WeldVertices`, target/disposable ordering, partial-Divide recovery, topology invalidation, position precision, and base Editable Poly cleanup behavior are unchanged.
+- Added `Loop-Cleaner-repaired-vertex-test_1.218.ms`. It captures the initial missing-target source IDs from the same insert plan, runs the production RMB repair, then requires the final current modifier/Vertex level and exact selected Vertex BitArray to match those repaired source IDs.
+- Static delimiter, prohibited-syntax, version, touched-path, and final-selection call-order checks passed locally. 3ds Max runtime verification is still required before promoting `1.218`.
+
+## 2026-10-08 — Broken-T state lock + conditional topology rebind 1.217
+
+- Updated `Loop-Cleaner` to `1.217`; `1.214` remains the current user-confirmed stable checkpoint for `T BORDER HOLES SELECT \ FIX`.
+- Changed Broken-T context synchronization to state-diff behavior. When the same selected node, the exact same `SELECT BROKEN T JUNCTIONS` Edit Poly, and the requested Edge/Vertex level are already active, the tool performs no node reselection, `SetPrimaryNode`, `modPanel.setCurrentObject`, `SetEPolySelLevel`, or `subObjectLevel` write.
+- Common Edit Poly state (`useStackSelection`, `selectMode`, `showCage`) is now written only when its current value differs.
+- Reused an already-active Broken-T selector directly when refreshing its Edge selection. The non-modal RMB select-before-fix path no longer forces `RefreshScreen()` / `completeRedraw()` merely to display an intermediate selection; visible LMB selection still refreshes normally.
+- Batched the complete Divide stage in Edge context. Independent target groups no longer alternate `Edge -> Vertex -> Edge`; successful groups store their appended vertex IDs and source-order data while all possible `DivideEdge` work finishes first, then the stage switches to Vertex context once to construct all move pairs.
+- Preserved partial-Divide behavior: if a later original target edge becomes stale after earlier groups split, every completed group is still converted into the pending source/inserted move handoff before the Divide stage returns failure.
+- Replaced unconditional post-Divide/post-Weld same-modifier rebinds with a live-topology probe. MOVE accepts the current binding when all required pending vertex IDs are visible. WELD accepts it only when the live vertex count is exactly `before - 1`. On a stale first read, the tool retries through `RefreshScreen()` / `update node` without changing node/modifier/level; only a still-stale second read uses the proven full `select node -> Modify mode -> SetPrimaryNode -> setCurrentObject -> Vertex level` fallback rebind.
+- `DivideEdge`, `MoveSelection`, `WeldVertices`, descending disposable-ID order, exact per-weld count verification, position precision, topology invalidation between batch cycles, and base Editable Poly dead-topology handling are unchanged.
+- Static delimiter, prohibited-syntax, version, native-operation-count, fallback-rebind presence, and topology-boundary checks passed locally. 3ds Max runtime verification is required before promoting `1.217`.
+
+## 2026-10-08 — Broken-T quiet logging + adjacency child-edge resolver 1.216
+
+- Updated `Loop-Cleaner` to `1.216`; `1.214` remains the current user-confirmed stable checkpoint for `T BORDER HOLES SELECT \ FIX`.
+- Routed successful per-pair Broken-T MOVE/WELD start and verification diagnostics through the existing persistent `QUIET` setting. Fatal/precondition/verification failure diagnostics remain unconditional, and stage/final summaries remain visible.
+- Applied the same QUIET gating to the equivalent legacy Broken-T move helper success chatter so diagnostic-only paths do not regain per-pair Listener overhead.
+- Optimized `findEditPolyEdgeByVertexPair()` with verified native Edit Poly vertex-edge adjacency: query `GetVertexEdgeCount` / `GetVertexEdge` from `vertex_a`, verify candidate endpoints by exact vertex IDs, and return immediately on one unique local match.
+- Preserved the previous ambiguity contract: more than one exact local endpoint-pair match returns zero. If the adjacency path finds no exact match, the helper falls back to the complete 1.215 whole-edge scan so transient/unsupported adjacency reads retain the previous recovery behavior.
+- The optimization applies both to the first exact target-edge re-resolution for a group and to the repeated post-`DivideEdge` child-segment lookup. In the normal child-edge path, lookup cost now scales with the inserted vertex's local edge degree instead of total live edge count.
+- No `DivideEdge`, `MoveSelection`, `WeldVertices`, same-modifier rebind, source/inserted pair ordering, topology invalidation boundary, position precision, or base `collapseDeadStructs` behavior changed.
+- Added `Loop-Cleaner-performance-test_1.216.ms` to compare the new resolver against the exact 1.215 whole-edge resolver on production-relevant/live edge pairs and benchmark both paths without changing geometry topology.
+- Static delimiter, prohibited-syntax, version, native-operation-count, rebind-count, and dead-topology-boundary checks passed locally. 3ds Max runtime verification is required before promoting `1.216`.
+
+## 2026-10-07 — final Broken-T redundant-analysis optimization 1.215
+
+- Updated `Loop-Cleaner` to `1.215`; the user runtime-confirmed `1.214` as stable, so `1.214` is now the stable checkpoint for `T BORDER HOLES SELECT \ FIX`.
+- Removed the second connected-border component traversal from `getBrokenTJunctionBorderSelection()`. One component Array is now built, used for outer/inner border classification, then reused to expand Broken-T problem edges to complete degenerate inner-border components.
+- Kept the public `classifyBorderEdges()` return contract unchanged. A new internal classifier accepts prebuilt border components, and component seed selection now iterates the BitArray directly instead of materializing the complete remaining/component BitArray as an Array only to read its first ID.
+- `buildBrokenTInsertPlan()` now classifies inner borders once per unchanged topology snapshot instead of calling `classifyBorderEdges()` independently from every Broken-T case through `findExistingBrokenTTargetVertex()`.
+- The same insert-plan pass builds one inner-border Vertex BitArray and reuses it for all existing-target searches. Candidate order remains ascending native vertex ID, but vertices that are not incident to any inner-border edge are skipped without entering the positional resolver.
+- The non-destructive selection analysis now carries its already-classified inner-border Edge/Vertex BitArrays into the first Divide cycle whenever the existing live vertex/edge/face count reuse check succeeds, eliminating the remaining first-cycle reclassification. Fresh post-topology-change Divide cycles likewise pass their new inner-border sets into the insert-plan stage, so each unchanged topology snapshot classifies borders at most once before splitting.
+- No inner-border set survives a `DivideEdge` or weld topology change. The existing topology snapshot invalidation, same-modifier rebind boundaries, Divide/Move/Weld order, source/inserted pair ordering, target ambiguity rules, and explicit `postion preccision` behavior are unchanged.
+- Added `Loop-Cleaner-performance-test_1.215.ms`, a non-destructive legacy-vs-current comparison covering border-component order, border classification, complete Broken-T selection records, every existing-target resolver result, and the complete insert plan before reporting timing.
+- Static delimiter, prohibited-syntax, protected-identifier, version, changed-path, and new-helper call-order checks passed locally. 3ds Max runtime verification is still required before promoting `1.215` over stable `1.214`.
+
+## 2026-10-07 — Broken-T topology + candidate broad-phase optimization 1.214
+
+- Updated `Loop-Cleaner` to `1.214`; `1.211` remains the user-confirmed stable reference for `T BORDER HOLES SELECT \ FIX`.
+- Optimized `buildEditPolyBorderTopology()` by removing the global `edge_keys` string Array and repeated whole-array `findItem` lookups. The builder now keeps per-vertex neighbor IDs paired with their exact native edge IDs, so duplicate endpoint-edge validation and face-boundary edge resolution scale with local vertex degree instead of total edge count.
+- Preserved the existing topology snapshot layout and downstream border-classification contract; no caller-facing topology record indices changed.
+- Replaced the Broken-T detector's nested `inner-border vertices × all inner-border edges` candidate loop with a conservative sweep-line broad phase. The sweep uses the largest inner-border coordinate extent and keeps only edges whose interval expanded by the existing explicit position tolerance contains the source vertex.
+- Added a conservative XYZ tolerance-expanded edge-bounds check before the existing exact point-to-segment projection test. No new epsilon, grid size, quantization, or geometry tolerance was introduced.
+- Preserved case semantics and ordering: exact projection/strict-interior tests, parallel-source-edge qualification, nearest-distance then shorter-edge tie rule, ascending target edge IDs, and ascending final source vertex IDs remain unchanged.
+- The 1.213 first-cycle analysis reuse, 1.212 redraw/rebind optimizations, Divide/Move/Weld topology boundaries, and later-cycle fresh detection remain unchanged.
+- Static delimiter, prohibited-syntax, protected-identifier, version, and changed-path checks passed locally. A separate 1.214 runtime comparison test benchmarks legacy-vs-current topology building and Broken-T case detection and verifies result equivalence; 3ds Max runtime verification is still required before promoting 1.214 over the 1.211 stable checkpoint.
+
+## 2026-10-07 — Broken-T first-cycle detection reuse 1.213
+
+- Updated `Loop-Cleaner` to `1.213`; `1.211` remains the user-confirmed stable reference for `T BORDER HOLES SELECT \ FIX`.
+- Removed the duplicated Broken-T analysis at the start of the RMB repair path. The non-modal selection stage now returns the exact topology snapshot, case records, position precision, selector, and selected broken-border edges that it just computed.
+- `fixTBorderHoles()` passes that pre-topology-change analysis directly into the first `BATCH BROKEN T FIX` Divide cycle instead of immediately rebuilding Edit Poly topology and calling `findBrokenTJunctionCases()` again.
+- The precomputed first-cycle analysis is reused only when the working `SELECT BROKEN T JUNCTIONS` Edit Poly still has the same live vertex, edge, and face counts. If those counts differ, reuse is skipped and the previous fresh topology + fresh case-detection path runs.
+- The precomputed analysis is never reused after a topology-changing `DivideEdge` or weld commit. Every later Divide cycle continues to rebuild live topology and redetect cases, preserving the existing ID-safety boundary.
+- `getBrokenTJunctionBorderSelection()` now performs border classification once and passes its inner-border Edge BitArray into `findBrokenTJunctionCases()`; direct callers that do not supply preclassified inner borders retain the previous self-classifying behavior.
+- Standalone `DIVIDE EDGE` also consumes the selection analysis it creates when no Broken-T selector exists, avoiding the same immediate detect-twice pattern.
+- DivideEdge, MoveSelection, WeldVertices, rebind boundaries, redraw optimization, position precision, case geometry rules, and later-cycle fresh detection are otherwise unchanged.
+- Static delimiter, prohibited-syntax, version, and changed-path checks passed locally; 3ds Max runtime verification is required before promoting 1.213 over the 1.211 stable checkpoint.
+
+## 2026-10-07 — Broken-T redraw + rebind optimization 1.212
+
+- Updated `Loop-Cleaner` to `1.212`; `1.211` remains the user-confirmed stable reference for `T BORDER HOLES SELECT \ FIX`.
+- Removed explicit `RefreshScreen()` / `completeRedraw()` from every individual Broken-T MOVE pair and WELD pair. MOVE and WELD still perform the same native `Commit()` operations and all existing post-operation verification.
+- Non-modal production batch stages now defer visible refresh/redraw; after all Divide -> Move -> Weld cycles finish successfully, the exact working Edit Poly is refreshed once and `completeRedraw()` runs once. Direct standalone MOVE/WELD calls can still refresh once at the end of their stage.
+- Preserved the required live-topology synchronization boundaries proven by 1.210: one fresh same-modifier rebind before MOVE reads post-Divide IDs, and one fresh rebind after every `WeldVertices -> Commit` before the next live count/ID read.
+- Slimmed those rebind/activation paths by allowing the level synchronizer to skip common state that the caller already applied immediately before `modPanel.setCurrentObject`; `SetPrimaryNode`, `useStackSelection = false`, `selectMode = 0`, `showCage = off`, and the required Edit Poly selection level still remain in the activation contract, but are no longer redundantly written twice during the same activation.
+- DivideEdge, MoveSelection delta math, WeldVertices order, descending disposable-ID safety, position precision, case detection, and topology classification are unchanged. No base `Editable_Poly` cleanup was added.
+- Static source checks passed locally; 3ds Max runtime verification is required before promoting 1.212 over the 1.211 stable checkpoint.
+
+## 2026-10-07 — merge T Border Holes controls 1.211
+
+- Updated `Loop-Cleaner` to `1.211`.
+- Replaced `BROKEN T JUNCTIONS SELECT \ FIX` and `FIX T BORDER HOLES` with one `T BORDER HOLES SELECT \ FIX` production control.
+- LMB keeps the existing Broken-T non-destructive selection path through `selectBrokenTJunctionBorders()`.
+- RMB keeps the existing complete repair path through `fixTBorderHoles()`, which refreshes selection before running the batch Divide, Move, and Weld chain.
+- Removed the redundant dedicated `FIX T BORDER HOLES` button and its LMB callback, shifted the controls below it up by one 44 px row, and reduced the rollout height by the same amount.
+- No Broken-T detection, Divide, Move, Weld, modifier synchronization, topology-ID, or position-precision backend logic changed.
+- Static delimiter, version, prohibited-syntax, protected-identifier, and callback-wiring checks passed. Runtime verification in 3ds Max is still required.
+
 ## 2026-10-07 — restore required Broken-T topology rebind boundaries 1.210
 
 - Updated `Loop-Cleaner` to `1.210`.

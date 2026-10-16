@@ -1,5 +1,5 @@
 /*
-    Loop-Cleaner 1.210
+    Loop-Cleaner 1.218
     Clean rewrite development build.
 */
 
@@ -111,8 +111,8 @@ catch
 
 struct RedundantLoopFixer1168_v
 (
-    file_version = 1.210,
-    project_version = 1.210,
+    file_version = 1.218,
+    project_version = 1.218,
     quiet_mode = true,
     straight_angle_threshold = 5.0,
     geometry_corner_angle_threshold = 1.0,
@@ -1602,8 +1602,19 @@ struct RedundantLoopFixer1168_v
 
         while remaining_edges.numberSet > 0 do
         (
-            seed_array = remaining_edges as array
-            seed_edge = seed_array[1]
+            seed_edge = 0
+
+            for edge_index in remaining_edges while seed_edge == 0 do
+            (
+                seed_edge = edge_index
+            )
+
+            if seed_edge == 0 then
+            (
+                format "Loop-Cleaner BORDER COMPONENT FAILED | remainingEdgeCount:% | expected:>0 seed edge\n" remaining_edges.numberSet
+                return border_components
+            )
+
             component_edges = #{}
             edge_stack = #(seed_edge)
             remaining_edges[seed_edge] = false
@@ -1732,22 +1743,85 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
-    Classifies true border components as all, outer, and inner.
-    For each connected surface shell, the border component with the greatest exact world-space perimeter
-    is the outer border; all other border components on that shell are inner-hole borders.
-    Returns #(allBorders, outerBorders, innerBorders, componentCount, shellCount).
+    Collects every vertex incident to one topology Edge BitArray.
+    Returns a BitArray in native vertex-ID order without changing topology or geometry.
     */
-    function classifyBorderEdges topology_data =
+    function getTopologyVerticesFromEdges topology_data edge_bits =
     (
-        if topology_data == undefined then return undefined
+        if topology_data == undefined then
+        (
+            format "Loop-Cleaner TOPOLOGY VERTEX SET FAILED | topology:undefined\n"
+            return undefined
+        )
+
+        if classOf edge_bits != BitArray then
+        (
+            format "Loop-Cleaner TOPOLOGY VERTEX SET FAILED | edgeBitsType:% | expected:BitArray\n" (classOf edge_bits)
+            return undefined
+        )
+
+        edge_vertices = topology_data[6]
+        vertex_bits = #{}
+        vertex_bits.count = topology_data[1]
+
+        for edge_index in edge_bits do
+        (
+            if edge_index < 1 or edge_index > edge_vertices.count then
+            (
+                format "Loop-Cleaner TOPOLOGY VERTEX SET FAILED | edge:% | edgeCount:% | expectedRange:1..%\n" edge_index edge_vertices.count edge_vertices.count
+                return undefined
+            )
+
+            edge_pair = edge_vertices[edge_index]
+
+            if edge_pair == undefined or edge_pair.count != 2 then
+            (
+                format "Loop-Cleaner TOPOLOGY VERTEX SET FAILED | edge:% | pair:% | expectedPairCount:2\n" edge_index edge_pair
+                return undefined
+            )
+
+            if edge_pair[1] < 1 or edge_pair[1] > vertex_bits.count or edge_pair[2] < 1 or edge_pair[2] > vertex_bits.count then
+            (
+                format "Loop-Cleaner TOPOLOGY VERTEX SET FAILED | edge:% | vertexA:% | vertexB:% | vertexCount:%\n" edge_index edge_pair[1] edge_pair[2] vertex_bits.count
+                return undefined
+            )
+
+            vertex_bits[edge_pair[1]] = true
+            vertex_bits[edge_pair[2]] = true
+        )
+
+        vertex_bits
+        -- return
+    ),
+
+    /*
+    Classifies true border components using an already-built connected-component Array.
+    This keeps classifyBorderEdges() caller output unchanged while allowing Broken-T analysis to reuse the same components.
+    */
+    function classifyBorderEdgesFromComponents topology_data border_components =
+    (
+        if topology_data == undefined then
+        (
+            format "Loop-Cleaner BORDER CLASSIFY FAILED | topology:undefined\n"
+            return undefined
+        )
+
+        if classOf border_components != Array then
+        (
+            format "Loop-Cleaner BORDER CLASSIFY FAILED | componentType:% | expected:Array\n" (classOf border_components)
+            return undefined
+        )
 
         all_border_edges = copy topology_data[8]
         outer_border_edges = #{}
         inner_border_edges = #{}
-        border_components = this.buildBorderComponents topology_data
         face_shell_ids = this.buildFaceShellIds topology_data
 
-        if face_shell_ids == undefined then return undefined
+        if face_shell_ids == undefined then
+        (
+            format "Loop-Cleaner BORDER CLASSIFY FAILED | faceShellIds:undefined | faceCount:%\n" topology_data[3]
+            return undefined
+        )
 
         edge_faces = topology_data[7]
         component_shell_ids = #()
@@ -1758,13 +1832,17 @@ struct RedundantLoopFixer1168_v
         for component_index = 1 to border_components.count do
         (
             component_edges = border_components[component_index]
-            component_array = component_edges as array
             component_shell_id = 0
             component_perimeter = this.getBorderComponentPerimeter component_edges topology_data
+            seed_edge = 0
 
-            if component_array.count > 0 then
+            for component_edge_id in component_edges while seed_edge == 0 do
             (
-                seed_edge = component_array[1]
+                seed_edge = component_edge_id
+            )
+
+            if seed_edge > 0 then
+            (
                 face_pair = edge_faces[seed_edge]
 
                 if face_pair != undefined and face_pair.count == 2 then
@@ -1811,6 +1889,21 @@ struct RedundantLoopFixer1168_v
         )
 
         #(all_border_edges, outer_border_edges, inner_border_edges, border_components.count, shell_ids.count)
+        -- return
+    ),
+
+    /*
+    Classifies true border components as all, outer, and inner.
+    For each connected surface shell, the border component with the greatest exact world-space perimeter
+    is the outer border; all other border components on that shell are inner-hole borders.
+    Returns #(allBorders, outerBorders, innerBorders, componentCount, shellCount).
+    */
+    function classifyBorderEdges topology_data =
+    (
+        if topology_data == undefined then return undefined
+
+        border_components = this.buildBorderComponents topology_data
+        this.classifyBorderEdgesFromComponents topology_data border_components
         -- return
     ),
 
@@ -2665,7 +2758,7 @@ struct RedundantLoopFixer1168_v
     A zero result never creates a new selector; an existing selector is cleared.
     Returns #(success, selector, created).
     */
-    function writeBrokenTJunctionSelection node broken_edges before_index:0 =
+    function writeBrokenTJunctionSelection node broken_edges before_index:0 refresh_viewport:true =
     (
         if node == undefined or not isValidNode node then return #(false, undefined, false)
         if broken_edges == undefined then return #(false, undefined, false)
@@ -2676,7 +2769,24 @@ struct RedundantLoopFixer1168_v
         if broken_edges.numberSet == 0 then
         (
             if selection_mod == undefined then return #(true, undefined, false)
-            if not this.activateSelectionModifier node selection_mod then return #(false, selection_mod, false)
+
+            local same_empty_selector_context = \
+                selection.count == 1 and \
+                selection[1] == node and \
+                modPanel.getCurrentObject() == selection_mod
+
+            if same_empty_selector_context then
+            (
+                if selection_mod.useStackSelection != false then selection_mod.useStackSelection = false
+                if selection_mod.selectMode != 0 then selection_mod.selectMode = 0
+                if selection_mod.showCage != off then selection_mod.showCage = off
+                if selection_mod.GetEPolySelLevel() != #Edge then selection_mod.SetEPolySelLevel #Edge
+                if subObjectLevel != 2 then subObjectLevel = 2
+            )
+            else
+            (
+                if not this.activateSelectionModifier node selection_mod then return #(false, selection_mod, false)
+            )
 
             old_edges = selection_mod.GetSelection #Edge node:node
 
@@ -2685,8 +2795,11 @@ struct RedundantLoopFixer1168_v
                 selection_mod.Select #Edge old_edges select:false node:node
             )
 
-            selection_mod.RefreshScreen()
-            completeRedraw()
+            if refresh_viewport then
+            (
+                selection_mod.RefreshScreen()
+                completeRedraw()
+            )
 
             stored_edges = selection_mod.GetSelection #Edge node:node
             return #(stored_edges.numberSet == 0, selection_mod, false)
@@ -2697,7 +2810,24 @@ struct RedundantLoopFixer1168_v
         created = selection_data[2]
 
         if selection_mod == undefined then return #(false, undefined, created)
-        if not this.activateSelectionModifier node selection_mod then return #(false, selection_mod, created)
+
+        local same_filled_selector_context = \
+            selection.count == 1 and \
+            selection[1] == node and \
+            modPanel.getCurrentObject() == selection_mod
+
+        if same_filled_selector_context then
+        (
+            if selection_mod.useStackSelection != false then selection_mod.useStackSelection = false
+            if selection_mod.selectMode != 0 then selection_mod.selectMode = 0
+            if selection_mod.showCage != off then selection_mod.showCage = off
+            if selection_mod.GetEPolySelLevel() != #Edge then selection_mod.SetEPolySelLevel #Edge
+            if subObjectLevel != 2 then subObjectLevel = 2
+        )
+        else
+        (
+            if not this.activateSelectionModifier node selection_mod then return #(false, selection_mod, created)
+        )
 
         old_edges = selection_mod.GetSelection #Edge node:node
 
@@ -2707,8 +2837,12 @@ struct RedundantLoopFixer1168_v
         )
 
         selection_mod.Select #Edge broken_edges node:node
-        selection_mod.RefreshScreen()
-        completeRedraw()
+
+        if refresh_viewport then
+        (
+            selection_mod.RefreshScreen()
+            completeRedraw()
+        )
 
         stored_edges = selection_mod.GetSelection #Edge node:node
         missing_edges = broken_edges - stored_edges
@@ -2807,25 +2941,43 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
-    Returns a deterministic unordered vertex-pair key for one topology edge.
+    Returns one Point3 coordinate by 1-based axis index.
+    Used only for conservative Broken-T sweep broad-phase ordering.
     */
-    function makeVertexPairKey vertex_a vertex_b =
+    function getPointAxisValue point_value axis_index =
     (
-        if vertex_a < vertex_b then
+        if classOf point_value != Point3 then return undefined
+
+        case axis_index of
         (
-            (vertex_a as string) + ":" + (vertex_b as string)
+            1: point_value.x
+            2: point_value.y
+            3: point_value.z
+            default: undefined
         )
-        else
-        (
-            (vertex_b as string) + ":" + (vertex_a as string)
-        )
+        -- return
+    ),
+
+    /*
+    Compares Broken-T sweep events by coordinate, then START -> VERTEX -> END, then component ID.
+    Inclusive event ordering keeps edges active at exact tolerance-expanded interval boundaries.
+    */
+    function compareBrokenTSweepEvents event_a event_b =
+    (
+        if event_a[1] < event_b[1] then -1
+        else if event_a[1] > event_b[1] then 1
+        else if event_a[2] < event_b[2] then -1
+        else if event_a[2] > event_b[2] then 1
+        else if event_a[3] < event_b[3] then -1
+        else if event_a[3] > event_b[3] then 1
+        else 0
         -- return
     ),
 
     /*
     Builds a live polygon-topology snapshot directly from one Edit Poly modifier.
     The result uses the same array layout as buildEditablePolyTopology so border classifiers can be reused.
-    Native edge IDs are resolved from face boundary vertex pairs; ambiguous duplicate endpoint edges abort.
+    Native face-boundary edge lookup uses per-vertex neighbor tables, avoiding global linear string-key searches.
     */
     function buildEditPolyBorderTopology node edit_poly_mod =
     (
@@ -2840,6 +2992,8 @@ struct RedundantLoopFixer1168_v
 
         vertex_points = #()
         vertex_edges = #()
+        vertex_neighbor_vertices = #()
+        vertex_neighbor_edges = #()
 
         for vertex_index = 1 to vertex_count do
         (
@@ -2850,10 +3004,11 @@ struct RedundantLoopFixer1168_v
             vertex_bits = #{}
             vertex_bits.count = edge_count
             append vertex_edges vertex_bits
+            append vertex_neighbor_vertices #()
+            append vertex_neighbor_edges #()
         )
 
         edge_vertices = #()
-        edge_keys = #()
         edge_face_lists = #()
 
         for edge_index = 1 to edge_count do
@@ -2863,12 +3018,16 @@ struct RedundantLoopFixer1168_v
 
             if vertex_a < 1 or vertex_a > vertex_count or vertex_b < 1 or vertex_b > vertex_count or vertex_a == vertex_b then return undefined
 
-            edge_key = this.makeVertexPairKey vertex_a vertex_b
-            if findItem edge_keys edge_key > 0 then return undefined
+            existing_neighbor_index = findItem vertex_neighbor_vertices[vertex_a] vertex_b
+            if existing_neighbor_index > 0 then return undefined
 
             append edge_vertices #(vertex_a, vertex_b)
-            append edge_keys edge_key
             append edge_face_lists #()
+
+            append vertex_neighbor_vertices[vertex_a] vertex_b
+            append vertex_neighbor_edges[vertex_a] edge_index
+            append vertex_neighbor_vertices[vertex_b] vertex_a
+            append vertex_neighbor_edges[vertex_b] edge_index
 
             vertex_edges[vertex_a][edge_index] = true
             vertex_edges[vertex_b][edge_index] = true
@@ -2891,10 +3050,14 @@ struct RedundantLoopFixer1168_v
             for corner_index = 1 to face_degree do
             (
                 next_corner_index = if corner_index < face_degree then corner_index + 1 else 1
-                face_edge_key = this.makeVertexPairKey face_vertices[corner_index] face_vertices[next_corner_index]
-                native_edge_index = findItem edge_keys face_edge_key
+                face_vertex_a = face_vertices[corner_index]
+                face_vertex_b = face_vertices[next_corner_index]
+                neighbor_index = findItem vertex_neighbor_vertices[face_vertex_a] face_vertex_b
 
-                if native_edge_index < 1 then return undefined
+                if neighbor_index < 1 or neighbor_index > vertex_neighbor_edges[face_vertex_a].count then return undefined
+
+                native_edge_index = vertex_neighbor_edges[face_vertex_a][neighbor_index]
+                if native_edge_index < 1 or native_edge_index > edge_count then return undefined
 
                 if findItem edge_face_lists[native_edge_index] face_index == 0 then
                 (
@@ -2989,20 +3152,24 @@ struct RedundantLoopFixer1168_v
 
     /*
     Finds inner-border vertex-on-edge T seams on overlapping parallel border runs.
-    A case exists when an inner-border vertex lies within the configured position tolerance of the strict interior
-    of another non-incident inner-border edge and at least one source border edge lies on the same target line
-    within that same tolerance. Returns records:
-    #(sourceVertex, targetEdge, targetFraction, distanceToTarget, sourceInnerEdges).
+    A sweep-line broad phase keeps only target edges whose tolerance-expanded axis interval contains the source vertex,
+    then conservative XYZ bounds filter candidates before the unchanged exact projection/parallel-source tests.
+    Returns records: #(sourceVertex, targetEdge, targetFraction, distanceToTarget, sourceInnerEdges).
     */
-    function findBrokenTJunctionCases topology_data position_tolerance =
+    function findBrokenTJunctionCases topology_data position_tolerance inner_border_edges:undefined =
     (
         if topology_data == undefined then return undefined
         if position_tolerance < 0.0 then return undefined
 
-        classification = this.classifyBorderEdges topology_data
-        if classification == undefined then return undefined
+        if inner_border_edges == undefined then
+        (
+            local classification = this.classifyBorderEdges topology_data
+            if classification == undefined then return undefined
 
-        inner_border_edges = classification[3]
+            inner_border_edges = classification[3]
+        )
+
+        if classOf inner_border_edges != BitArray then return undefined
         if inner_border_edges.numberSet == 0 then return #()
 
         vertex_points = topology_data[4]
@@ -3021,94 +3188,230 @@ struct RedundantLoopFixer1168_v
             inner_vertices[edge_pair[2]] = true
         )
 
-        case_records = #()
+        if inner_vertices.numberSet == 0 then return #()
+
+        first_inner_vertex = 0
+        for vertex_index in inner_vertices while first_inner_vertex == 0 do
+        (
+            first_inner_vertex = vertex_index
+        )
+
+        if first_inner_vertex < 1 or first_inner_vertex > vertex_points.count then return undefined
+
+        first_point = vertex_points[first_inner_vertex]
+        min_x = first_point.x
+        max_x = first_point.x
+        min_y = first_point.y
+        max_y = first_point.y
+        min_z = first_point.z
+        max_z = first_point.z
+
+        for vertex_index in inner_vertices do
+        (
+            vertex_point = vertex_points[vertex_index]
+
+            if vertex_point.x < min_x then min_x = vertex_point.x
+            if vertex_point.x > max_x then max_x = vertex_point.x
+            if vertex_point.y < min_y then min_y = vertex_point.y
+            if vertex_point.y > max_y then max_y = vertex_point.y
+            if vertex_point.z < min_z then min_z = vertex_point.z
+            if vertex_point.z > max_z then max_z = vertex_point.z
+        )
+
+        extent_x = max_x - min_x
+        extent_y = max_y - min_y
+        extent_z = max_z - min_z
+        sweep_axis = 1
+        sweep_extent = extent_x
+
+        if extent_y > sweep_extent then
+        (
+            sweep_axis = 2
+            sweep_extent = extent_y
+        )
+
+        if extent_z > sweep_extent then
+        (
+            sweep_axis = 3
+        )
+
+        inner_edge_data = #()
+        inner_edge_data.count = topology_data[2]
+        sweep_events = #()
+
+        for target_edge_id in inner_border_edges do
+        (
+            target_pair = edge_vertices[target_edge_id]
+            if target_pair == undefined or target_pair.count != 2 then return undefined
+
+            point_a = vertex_points[target_pair[1]]
+            point_b = vertex_points[target_pair[2]]
+            target_length = distance point_a point_b
+
+            edge_min_x = if point_a.x < point_b.x then point_a.x else point_b.x
+            edge_max_x = if point_a.x > point_b.x then point_a.x else point_b.x
+            edge_min_y = if point_a.y < point_b.y then point_a.y else point_b.y
+            edge_max_y = if point_a.y > point_b.y then point_a.y else point_b.y
+            edge_min_z = if point_a.z < point_b.z then point_a.z else point_b.z
+            edge_max_z = if point_a.z > point_b.z then point_a.z else point_b.z
+
+            inner_edge_data[target_edge_id] = #(
+                edge_min_x,
+                edge_max_x,
+                edge_min_y,
+                edge_max_y,
+                edge_min_z,
+                edge_max_z,
+                target_length
+            )
+
+            point_a_axis = this.getPointAxisValue point_a sweep_axis
+            point_b_axis = this.getPointAxisValue point_b sweep_axis
+            if point_a_axis == undefined or point_b_axis == undefined then return undefined
+
+            edge_axis_min = if point_a_axis < point_b_axis then point_a_axis else point_b_axis
+            edge_axis_max = if point_a_axis > point_b_axis then point_a_axis else point_b_axis
+
+            append sweep_events #(edge_axis_min - position_tolerance, 1, target_edge_id)
+            append sweep_events #(edge_axis_max + position_tolerance, 3, target_edge_id)
+        )
 
         for source_vertex_id in inner_vertices do
         (
-            source_point = vertex_points[source_vertex_id]
-            source_inner_edges = vertex_edges[source_vertex_id] * inner_border_edges
+            source_axis = this.getPointAxisValue vertex_points[source_vertex_id] sweep_axis
+            if source_axis == undefined then return undefined
 
-            if source_inner_edges.numberSet > 0 then
+            append sweep_events #(source_axis, 2, source_vertex_id)
+        )
+
+        sweep_compare_function = this.compareBrokenTSweepEvents
+        qsort sweep_events sweep_compare_function
+
+        active_target_edges = #{}
+        active_target_edges.count = topology_data[2]
+        case_record_by_vertex = #()
+        case_record_by_vertex.count = topology_data[1]
+
+        for sweep_event in sweep_events do
+        (
+            event_type = sweep_event[2]
+            event_id = sweep_event[3]
+
+            if event_type == 1 then
             (
-                best_target_edge = 0
-                best_target_fraction = 0.0
-                best_target_distance = undefined
-                best_target_length = undefined
+                active_target_edges[event_id] = true
+            )
+            else if event_type == 3 then
+            (
+                active_target_edges[event_id] = false
+            )
+            else
+            (
+                source_vertex_id = event_id
+                source_point = vertex_points[source_vertex_id]
+                source_inner_edges = vertex_edges[source_vertex_id] * inner_border_edges
 
-                for target_edge_id in inner_border_edges do
+                if source_inner_edges.numberSet > 0 then
                 (
-                    if not source_inner_edges[target_edge_id] then
+                    best_target_edge = 0
+                    best_target_fraction = 0.0
+                    best_target_distance = undefined
+                    best_target_length = undefined
+
+                    for target_edge_id in active_target_edges do
                     (
-                        target_pair = edge_vertices[target_edge_id]
-
-                        if target_pair != undefined and target_pair.count == 2 then
+                        if not source_inner_edges[target_edge_id] then
                         (
-                            point_a = vertex_points[target_pair[1]]
-                            point_b = vertex_points[target_pair[2]]
-                            target_length = distance point_a point_b
+                            target_data = inner_edge_data[target_edge_id]
 
-                            if target_length > 0.0 then
+                            if target_data != undefined and target_data.count == 7 then
                             (
-                                projection_data = this.getPointSegmentProjectionData source_point point_a point_b
-                                projection_distance = projection_data[1]
-                                projection_fraction = projection_data[2]
-                                endpoint_fraction = position_tolerance / target_length
+                                inside_x_bounds = source_point.x >= (target_data[1] - position_tolerance) and source_point.x <= (target_data[2] + position_tolerance)
+                                inside_y_bounds = source_point.y >= (target_data[3] - position_tolerance) and source_point.y <= (target_data[4] + position_tolerance)
+                                inside_z_bounds = source_point.z >= (target_data[5] - position_tolerance) and source_point.z <= (target_data[6] + position_tolerance)
+                                inside_bounds = inside_x_bounds and inside_y_bounds and inside_z_bounds
 
-                                if projection_distance <= position_tolerance and projection_fraction > endpoint_fraction and projection_fraction < (1.0 - endpoint_fraction) then
+                                if inside_bounds then
                                 (
-                                    has_parallel_source_edge = false
+                                    target_length = target_data[7]
 
-                                    for source_edge_id in source_inner_edges while not has_parallel_source_edge do
+                                    if target_length > 0.0 then
                                     (
-                                        source_other_vertex = this.getOtherEdgeVertex source_edge_id source_vertex_id topology_data
+                                        target_pair = edge_vertices[target_edge_id]
+                                        point_a = vertex_points[target_pair[1]]
+                                        point_b = vertex_points[target_pair[2]]
+                                        projection_data = this.getPointSegmentProjectionData source_point point_a point_b
+                                        projection_distance = projection_data[1]
+                                        projection_fraction = projection_data[2]
+                                        endpoint_fraction = position_tolerance / target_length
 
-                                        if source_other_vertex >= 1 and source_other_vertex <= vertex_points.count then
+                                        if projection_distance <= position_tolerance and projection_fraction > endpoint_fraction and projection_fraction < (1.0 - endpoint_fraction) then
                                         (
-                                            source_other_point = vertex_points[source_other_vertex]
-                                            source_line_data = this.getPointSegmentProjectionData source_other_point point_a point_b
+                                            has_parallel_source_edge = false
 
-                                            if source_line_data[1] <= position_tolerance then
+                                            for source_edge_id in source_inner_edges while not has_parallel_source_edge do
                                             (
-                                                has_parallel_source_edge = true
+                                                source_other_vertex = this.getOtherEdgeVertex source_edge_id source_vertex_id topology_data
+
+                                                if source_other_vertex >= 1 and source_other_vertex <= vertex_points.count then
+                                                (
+                                                    source_other_point = vertex_points[source_other_vertex]
+                                                    source_line_data = this.getPointSegmentProjectionData source_other_point point_a point_b
+
+                                                    if source_line_data[1] <= position_tolerance then
+                                                    (
+                                                        has_parallel_source_edge = true
+                                                    )
+                                                )
                                             )
-                                        )
-                                    )
 
-                                    if has_parallel_source_edge then
-                                    (
-                                        choose_target = false
+                                            if has_parallel_source_edge then
+                                            (
+                                                choose_target = false
 
-                                        if best_target_edge == 0 then
-                                        (
-                                            choose_target = true
-                                        )
-                                        else if projection_distance < best_target_distance then
-                                        (
-                                            choose_target = true
-                                        )
-                                        else if projection_distance == best_target_distance and target_length < best_target_length then
-                                        (
-                                            choose_target = true
-                                        )
+                                                if best_target_edge == 0 then
+                                                (
+                                                    choose_target = true
+                                                )
+                                                else if projection_distance < best_target_distance then
+                                                (
+                                                    choose_target = true
+                                                )
+                                                else if projection_distance == best_target_distance and target_length < best_target_length then
+                                                (
+                                                    choose_target = true
+                                                )
 
-                                        if choose_target then
-                                        (
-                                            best_target_edge = target_edge_id
-                                            best_target_fraction = projection_fraction
-                                            best_target_distance = projection_distance
-                                            best_target_length = target_length
+                                                if choose_target then
+                                                (
+                                                    best_target_edge = target_edge_id
+                                                    best_target_fraction = projection_fraction
+                                                    best_target_distance = projection_distance
+                                                    best_target_length = target_length
+                                                )
+                                            )
                                         )
                                     )
                                 )
                             )
                         )
                     )
-                )
 
-                if best_target_edge > 0 then
-                (
-                    append case_records #(source_vertex_id, best_target_edge, best_target_fraction, best_target_distance, copy source_inner_edges)
+                    if best_target_edge > 0 then
+                    (
+                        case_record_by_vertex[source_vertex_id] = #(source_vertex_id, best_target_edge, best_target_fraction, best_target_distance, copy source_inner_edges)
+                    )
                 )
+            )
+        )
+
+        case_records = #()
+
+        for source_vertex_id in inner_vertices do
+        (
+            if case_record_by_vertex[source_vertex_id] != undefined then
+            (
+                append case_records case_record_by_vertex[source_vertex_id]
             )
         )
 
@@ -3117,22 +3420,25 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
-    Expands local broken-T case edges to their complete degenerate inner-border components.
+    Builds complete Broken-T border analysis once for one unchanged topology snapshot.
     Valid closed inner borders with no vertex-on-edge T seam are not selected.
-    Returns #(selectedDegenerateBorderEdges, caseRecords, componentCount).
+    Returns #(selectedDegenerateBorderEdges, caseRecords, componentCount, innerBorderEdges, innerBorderVertices).
     */
-    function getBrokenTJunctionBorderSelection topology_data position_tolerance =
+    function getBrokenTJunctionBorderAnalysis topology_data position_tolerance =
     (
         if topology_data == undefined then return undefined
 
-        case_records = this.findBrokenTJunctionCases topology_data position_tolerance
-        if case_records == undefined then return undefined
-
-        classification = this.classifyBorderEdges topology_data
+        border_components = this.buildBorderComponents topology_data
+        classification = this.classifyBorderEdgesFromComponents topology_data border_components
         if classification == undefined then return undefined
 
         inner_border_edges = classification[3]
-        border_components = this.buildBorderComponents topology_data
+        inner_border_vertices = this.getTopologyVerticesFromEdges topology_data inner_border_edges
+        if inner_border_vertices == undefined then return undefined
+
+        case_records = this.findBrokenTJunctionCases topology_data position_tolerance inner_border_edges:inner_border_edges
+        if case_records == undefined then return undefined
+
         problem_edges = #{}
         problem_edges.count = topology_data[2]
 
@@ -3160,7 +3466,91 @@ struct RedundantLoopFixer1168_v
             )
         )
 
-        #(selected_edges, case_records, broken_component_count)
+        #(selected_edges, case_records, broken_component_count, inner_border_edges, inner_border_vertices)
+        -- return
+    ),
+
+    /*
+    Expands local broken-T case edges to their complete degenerate inner-border components.
+    Preserves the established three-field result contract while the internal analysis helper also carries reusable inner-border sets.
+    Returns #(selectedDegenerateBorderEdges, caseRecords, componentCount).
+    */
+    function getBrokenTJunctionBorderSelection topology_data position_tolerance =
+    (
+        analysis_result = this.getBrokenTJunctionBorderAnalysis topology_data position_tolerance
+        if analysis_result == undefined then return undefined
+
+        #(analysis_result[1], analysis_result[2], analysis_result[3])
+        -- return
+    ),
+
+    /*
+    Detects and stores the Broken-T border selection once, retaining the same pre-topology-change analysis for the first Divide cycle.
+    Returns #(success, node, selector, topologyData, caseRecords, positionTolerance, componentCount, selectedEdges, errorText, innerBorderEdges, innerBorderVertices).
+    */
+    function prepareBrokenTJunctionSelectionData show_dialogs:true =
+    (
+        local empty_cases = #()
+        local empty_edges = #{}
+        local empty_inner_edges = #{}
+        local empty_inner_vertices = #{}
+        local error_text = ""
+
+        if selection.count != 1 then
+        (
+            error_text = "Select exactly one Editable Poly or active Edit Poly object."
+            if show_dialogs then messageBox error_text title:"Loop-Cleaner"
+            return #(false, undefined, undefined, undefined, empty_cases, undefined, 0, empty_edges, error_text, empty_inner_edges, empty_inner_vertices)
+        )
+
+        node = selection[1]
+        analysis_data = this.getBorderSelectionAnalysis node
+
+        if not analysis_data[1] then
+        (
+            error_text = analysis_data[4]
+            if show_dialogs then messageBox error_text title:"Loop-Cleaner"
+            return #(false, node, undefined, undefined, empty_cases, undefined, 0, empty_edges, error_text, empty_inner_edges, empty_inner_vertices)
+        )
+
+        topology_data = analysis_data[2]
+        selector_before_index = analysis_data[3]
+        position_tolerance = this.getBrokenTJunctionPositionPrecision()
+
+        if position_tolerance == undefined or position_tolerance <= 0.0 then
+        (
+            error_text = "Invalid Broken-T position precision."
+            format "Loop-Cleaner BROKEN T SELECT FAILED | node:% | positionPrecision:% | error:%\n" node.name this.position_precision_text error_text
+            if show_dialogs then messageBox error_text title:"Loop-Cleaner"
+            return #(false, node, undefined, topology_data, empty_cases, position_tolerance, 0, empty_edges, error_text, empty_inner_edges, empty_inner_vertices)
+        )
+
+        broken_data = this.getBrokenTJunctionBorderAnalysis topology_data position_tolerance
+
+        if broken_data == undefined then
+        (
+            error_text = "Could not classify broken inner-border T junctions."
+            if show_dialogs then messageBox error_text title:"Loop-Cleaner"
+            return #(false, node, undefined, topology_data, empty_cases, position_tolerance, 0, empty_edges, error_text, empty_inner_edges, empty_inner_vertices)
+        )
+
+        broken_edges = broken_data[1] * topology_data[12]
+        case_records = broken_data[2]
+        broken_component_count = broken_data[3]
+        inner_border_edges = broken_data[4]
+        inner_border_vertices = broken_data[5]
+        write_result = this.writeBrokenTJunctionSelection node broken_edges before_index:selector_before_index refresh_viewport:show_dialogs
+
+        if not write_result[1] then
+        (
+            error_text = "Could not store the broken-T border selection in SELECT BROKEN T JUNCTIONS."
+            if show_dialogs then messageBox (error_text + " See Listener for verification details.") title:"Loop-Cleaner"
+            return #(false, node, write_result[2], topology_data, case_records, position_tolerance, broken_component_count, broken_edges, error_text, inner_border_edges, inner_border_vertices)
+        )
+
+        format "Loop-Cleaner BROKEN T SELECT | node:% | positionPrecision:% | cases:% | components:% | selected:% | edges:%\n" node.name this.position_precision_text case_records.count broken_component_count broken_edges.numberSet broken_edges
+
+        #(true, node, write_result[2], topology_data, case_records, position_tolerance, broken_component_count, broken_edges, "", inner_border_edges, inner_border_vertices)
         -- return
     ),
 
@@ -3170,46 +3560,8 @@ struct RedundantLoopFixer1168_v
     */
     function selectBrokenTJunctionBorders show_dialogs:true =
     (
-        if selection.count != 1 then
-        (
-            if show_dialogs then messageBox "Select exactly one Editable Poly or active Edit Poly object." title:"Loop-Cleaner"
-            return false
-        )
-
-        node = selection[1]
-        analysis_data = this.getBorderSelectionAnalysis node
-
-        if not analysis_data[1] then
-        (
-            if show_dialogs then messageBox analysis_data[4] title:"Loop-Cleaner"
-            return false
-        )
-
-        topology_data = analysis_data[2]
-        selector_before_index = analysis_data[3]
-        position_tolerance = this.getBrokenTJunctionPositionPrecision()
-        broken_data = this.getBrokenTJunctionBorderSelection topology_data position_tolerance
-
-        if broken_data == undefined then
-        (
-            if show_dialogs then messageBox "Could not classify broken inner-border T junctions." title:"Loop-Cleaner"
-            return false
-        )
-
-        broken_edges = broken_data[1] * topology_data[12]
-        case_records = broken_data[2]
-        broken_component_count = broken_data[3]
-        write_result = this.writeBrokenTJunctionSelection node broken_edges before_index:selector_before_index
-
-        if not write_result[1] then
-        (
-            if show_dialogs then messageBox "Could not store the broken-T border selection in SELECT BROKEN T JUNCTIONS. See Listener for verification details." title:"Loop-Cleaner"
-            return false
-        )
-
-        format "Loop-Cleaner BROKEN T SELECT | node:% | positionPrecision:% | cases:% | components:% | selected:% | edges:%\n" node.name this.position_precision_text case_records.count broken_component_count broken_edges.numberSet broken_edges
-
-        true
+        local selection_data = this.prepareBrokenTJunctionSelectionData show_dialogs:show_dialogs
+        selection_data[1]
         -- return
     ),
 
@@ -3449,7 +3801,10 @@ struct RedundantLoopFixer1168_v
                     else
                     (
                         move_delta = source_position - inserted_position
-                        format "Loop-Cleaner BROKEN T MOVE | sourceVertex:% | insertedVertex:% | sourcePosition:% | insertedPosition:% | delta:%\n" source_vertex_id inserted_vertex_id source_position inserted_position move_delta
+                        if not this.quiet_mode then
+                        (
+                            format "Loop-Cleaner BROKEN T MOVE | sourceVertex:% | insertedVertex:% | sourcePosition:% | insertedPosition:% | delta:%\n" source_vertex_id inserted_vertex_id source_position inserted_position move_delta
+                        )
 
                         if move_delta != [0,0,0] then
                         (
@@ -3483,13 +3838,19 @@ struct RedundantLoopFixer1168_v
                                 )
                                 else
                                 (
-                                    format "Loop-Cleaner BROKEN T MOVE VERIFIED | sourceVertex:% | insertedVertex:% | before:% | after:% | positionPrecision:%\n" source_vertex_id inserted_vertex_id inserted_position moved_position this.position_precision_text
+                                    if not this.quiet_mode then
+                                    (
+                                        format "Loop-Cleaner BROKEN T MOVE VERIFIED | sourceVertex:% | insertedVertex:% | before:% | after:% | positionPrecision:%\n" source_vertex_id inserted_vertex_id inserted_position moved_position this.position_precision_text
+                                    )
                                 )
                             )
                         )
                         else
                         (
-                            format "Loop-Cleaner BROKEN T MOVE ALREADY ALIGNED | sourceVertex:% | insertedVertex:% | position:%\n" source_vertex_id inserted_vertex_id source_position
+                            if not this.quiet_mode then
+                            (
+                                format "Loop-Cleaner BROKEN T MOVE ALREADY ALIGNED | sourceVertex:% | insertedVertex:% | position:%\n" source_vertex_id inserted_vertex_id source_position
+                            )
                         )
                     )
                 )
@@ -3549,9 +3910,10 @@ struct RedundantLoopFixer1168_v
     Finds one existing opposite-side inner-border vertex at the broken-T source position.
     The candidate must be a non-neighbor inner-border vertex within the explicit position tolerance
     and must lie on the detected target-edge segment line. Ambiguous coincident candidates fail.
+    Optional preclassified inner-border edge/vertex sets avoid repeating unchanged border analysis.
     Returns #(#found, targetVertexID, errorText), #(#missing, 0, ""), or #(#error, 0, errorText).
     */
-    function findExistingBrokenTTargetVertex topology_data source_vertex_id target_edge_id position_tolerance =
+    function findExistingBrokenTTargetVertex topology_data source_vertex_id target_edge_id position_tolerance inner_border_edges:undefined inner_border_vertices:undefined =
     (
         if topology_data == undefined then return #(#error, 0, "Missing broken-T topology.")
         if position_tolerance < 0.0 then return #(#error, 0, "Invalid broken-T position tolerance.")
@@ -3566,10 +3928,23 @@ struct RedundantLoopFixer1168_v
         target_pair = edge_vertices[target_edge_id]
         if target_pair == undefined or target_pair.count != 2 then return #(#error, 0, "Broken-T target edge has invalid endpoints.")
 
-        classification = this.classifyBorderEdges topology_data
-        if classification == undefined then return #(#error, 0, "Could not classify inner borders while resolving an existing weld vertex.")
+        if inner_border_edges == undefined then
+        (
+            classification = this.classifyBorderEdges topology_data
+            if classification == undefined then return #(#error, 0, "Could not classify inner borders while resolving an existing weld vertex.")
 
-        inner_border_edges = classification[3]
+            inner_border_edges = classification[3]
+        )
+
+        if classOf inner_border_edges != BitArray then return #(#error, 0, "Invalid inner-border edge set while resolving an existing weld vertex.")
+
+        if inner_border_vertices == undefined then
+        (
+            inner_border_vertices = this.getTopologyVerticesFromEdges topology_data inner_border_edges
+        )
+
+        if classOf inner_border_vertices != BitArray then return #(#error, 0, "Could not resolve inner-border vertices while resolving an existing weld vertex.")
+
         source_point = vertex_points[source_vertex_id]
         target_point_a = vertex_points[target_pair[1]]
         target_point_b = vertex_points[target_pair[2]]
@@ -3590,46 +3965,41 @@ struct RedundantLoopFixer1168_v
         best_distance = undefined
         ambiguous_best = false
 
-        for candidate_vertex_id = 1 to vertex_points.count do
+        for candidate_vertex_id in inner_border_vertices do
         (
             if candidate_vertex_id != source_vertex_id and not source_neighbor_vertices[candidate_vertex_id] then
             (
-                candidate_inner_edges = vertex_edges[candidate_vertex_id] * inner_border_edges
+                candidate_point = vertex_points[candidate_vertex_id]
+                source_distance = distance source_point candidate_point
 
-                if candidate_inner_edges.numberSet > 0 then
+                if source_distance <= position_tolerance then
                 (
-                    candidate_point = vertex_points[candidate_vertex_id]
-                    source_distance = distance source_point candidate_point
+                    target_line_data = this.getPointSegmentProjectionData candidate_point target_point_a target_point_b
+                    target_line_distance = target_line_data[1]
+                    target_line_fraction = target_line_data[2]
 
-                    if source_distance <= position_tolerance then
+                    if target_line_distance <= position_tolerance and target_line_fraction >= 0.0 and target_line_fraction <= 1.0 then
                     (
-                        target_line_data = this.getPointSegmentProjectionData candidate_point target_point_a target_point_b
-                        target_line_distance = target_line_data[1]
-                        target_line_fraction = target_line_data[2]
+                        choose_candidate = false
 
-                        if target_line_distance <= position_tolerance and target_line_fraction >= 0.0 and target_line_fraction <= 1.0 then
+                        if best_vertex_id == 0 then
                         (
-                            choose_candidate = false
+                            choose_candidate = true
+                        )
+                        else if source_distance < best_distance then
+                        (
+                            choose_candidate = true
+                        )
 
-                            if best_vertex_id == 0 then
-                            (
-                                choose_candidate = true
-                            )
-                            else if source_distance < best_distance then
-                            (
-                                choose_candidate = true
-                            )
-
-                            if choose_candidate then
-                            (
-                                best_vertex_id = candidate_vertex_id
-                                best_distance = source_distance
-                                ambiguous_best = false
-                            )
-                            else if source_distance == best_distance then
-                            (
-                                ambiguous_best = true
-                            )
+                        if choose_candidate then
+                        (
+                            best_vertex_id = candidate_vertex_id
+                            best_distance = source_distance
+                            ambiguous_best = false
+                        )
+                        else if source_distance == best_distance then
+                        (
+                            ambiguous_best = true
                         )
                     )
                 )
@@ -3653,17 +4023,36 @@ struct RedundantLoopFixer1168_v
     /*
     Builds topology-independent insertion records for all currently missing Broken-T targets.
     Component IDs are converted to world-space source/neighbor/target geometry before any split.
+    One preclassified inner-border edge/vertex set is reused across all case resolvers when supplied.
     Returns #(success, insertPlan, errorText).
     */
-    function buildBrokenTInsertPlan topology_data case_records position_tolerance =
+    function buildBrokenTInsertPlan topology_data case_records position_tolerance inner_border_edges:undefined inner_border_vertices:undefined =
     (
         if topology_data == undefined then return #(false, #(), "Missing broken-T topology.")
         if case_records == undefined then return #(false, #(), "Missing broken-T case records.")
         if position_tolerance < 0.0 then return #(false, #(), "Invalid broken-T position tolerance.")
+        if case_records.count == 0 then return #(true, #(), "")
 
         vertex_points = topology_data[4]
         edge_vertices = topology_data[6]
         insert_plan = #()
+        if inner_border_edges == undefined then
+        (
+            classification = this.classifyBorderEdges topology_data
+
+            if classification == undefined then return #(false, #(), "Could not classify inner borders while building the Broken-T insert plan.")
+
+            inner_border_edges = classification[3]
+        )
+
+        if classOf inner_border_edges != BitArray then return #(false, #(), "Invalid inner-border edge set while building the Broken-T insert plan.")
+
+        if inner_border_vertices == undefined then
+        (
+            inner_border_vertices = this.getTopologyVerticesFromEdges topology_data inner_border_edges
+        )
+
+        if classOf inner_border_vertices != BitArray then return #(false, #(), "Could not resolve inner-border vertices while building the Broken-T insert plan.")
 
         for case_record in case_records do
         (
@@ -3671,7 +4060,14 @@ struct RedundantLoopFixer1168_v
             target_edge_id = case_record[2]
             source_inner_edges = case_record[5]
 
-            existing_target_result = this.findExistingBrokenTTargetVertex topology_data source_vertex_id target_edge_id position_tolerance
+            existing_target_result = this.findExistingBrokenTTargetVertex \
+                topology_data \
+                source_vertex_id \
+                target_edge_id \
+                position_tolerance \
+                inner_border_edges:inner_border_edges \
+                inner_border_vertices:inner_border_vertices
+
             existing_target_status = existing_target_result[1]
 
             if existing_target_status == #error then
@@ -3957,7 +4353,7 @@ struct RedundantLoopFixer1168_v
 
     /*
     Resolves one live Edit Poly edge from an exact vertex pair.
-    This is used after DivideEdge because the newly appended vertex ID and untouched far endpoint ID remain stable within the insert group.
+    Uses native vertex-edge adjacency first, then falls back to the legacy full edge scan only when the local adjacency path finds no match.
     */
     function findEditPolyEdgeByVertexPair edit_poly_mod obj vertex_a vertex_b =
     (
@@ -3965,16 +4361,49 @@ struct RedundantLoopFixer1168_v
         if obj == undefined or not isValidNode obj then return 0
         if vertex_a < 1 or vertex_b < 1 or vertex_a == vertex_b then return 0
 
-        current_edge_count = edit_poly_mod.GetNumEdges node:obj
+        local current_vertex_count = edit_poly_mod.GetNumVertices node:obj
+
+        if vertex_a > current_vertex_count or vertex_b > current_vertex_count then return 0
+
+        local current_edge_count = edit_poly_mod.GetNumEdges node:obj
+        local adjacent_edge_count = edit_poly_mod.GetVertexEdgeCount vertex_a node:obj
+        local found_edge_id = 0
+        local match_count = 0
+
+        if classOf adjacent_edge_count == Integer and adjacent_edge_count > 0 then
+        (
+            for adjacent_index = 1 to adjacent_edge_count do
+            (
+                local adjacent_edge_id = edit_poly_mod.GetVertexEdge vertex_a adjacent_index node:obj
+
+                if adjacent_edge_id >= 1 and adjacent_edge_id <= current_edge_count then
+                (
+                    local edge_vertex_a = edit_poly_mod.GetEdgeVertex adjacent_edge_id 1 node:obj
+                    local edge_vertex_b = edit_poly_mod.GetEdgeVertex adjacent_edge_id 2 node:obj
+                    local forward_match = edge_vertex_a == vertex_a and edge_vertex_b == vertex_b
+                    local reverse_match = edge_vertex_a == vertex_b and edge_vertex_b == vertex_a
+
+                    if forward_match or reverse_match then
+                    (
+                        found_edge_id = adjacent_edge_id
+                        match_count += 1
+                    )
+                )
+            )
+        )
+
+        if match_count == 1 then return found_edge_id
+        if match_count > 1 then return 0
+
         found_edge_id = 0
         match_count = 0
 
         for edge_id = 1 to current_edge_count do
         (
-            edge_vertex_a = edit_poly_mod.GetEdgeVertex edge_id 1 node:obj
-            edge_vertex_b = edit_poly_mod.GetEdgeVertex edge_id 2 node:obj
-            forward_match = edge_vertex_a == vertex_a and edge_vertex_b == vertex_b
-            reverse_match = edge_vertex_a == vertex_b and edge_vertex_b == vertex_a
+            local edge_vertex_a = edit_poly_mod.GetEdgeVertex edge_id 1 node:obj
+            local edge_vertex_b = edit_poly_mod.GetEdgeVertex edge_id 2 node:obj
+            local forward_match = edge_vertex_a == vertex_a and edge_vertex_b == vertex_b
+            local reverse_match = edge_vertex_a == vertex_b and edge_vertex_b == vertex_a
 
             if forward_match or reverse_match then
             (
@@ -4403,10 +4832,10 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
-    Reasserts the required Broken-T Edit Poly Edge/Vertex context without selecting the node or reactivating the modifier stack.
-    The exact SELECT BROKEN T JUNCTIONS modifier must already be current.
+    Synchronizes the required Broken-T Edge/Vertex context by changing only state that is actually different.
+    When the same node, Edit Poly, and sub-object level are already active, this function performs no Command Panel writes.
     */
-    function syncBrokenTEditPolyLevel node edit_poly_mod target_level =
+    function syncBrokenTEditPolyLevel node edit_poly_mod target_level apply_common_state:true =
     (
         if node == undefined or not isValidNode node then
         (
@@ -4443,20 +4872,30 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        edit_poly_mod.SetPrimaryNode node
-        edit_poly_mod.useStackSelection = false
-        edit_poly_mod.selectMode = 0
-        edit_poly_mod.showCage = off
-        edit_poly_mod.SetEPolySelLevel target_level
-        subObjectLevel = target_subobject_level
+        if apply_common_state then
+        (
+            if edit_poly_mod.useStackSelection != false then edit_poly_mod.useStackSelection = false
+            if edit_poly_mod.selectMode != 0 then edit_poly_mod.selectMode = 0
+            if edit_poly_mod.showCage != off then edit_poly_mod.showCage = off
+        )
+
+        if edit_poly_mod.GetEPolySelLevel() != target_level then
+        (
+            edit_poly_mod.SetEPolySelLevel target_level
+        )
+
+        if subObjectLevel != target_subobject_level then
+        (
+            subObjectLevel = target_subobject_level
+        )
 
         true
         -- return
     ),
 
     /*
-    Forces a fresh binding of the exact working Broken-T Edit Poly after a topology-changing Commit.
-    This is a synchronization boundary: the same modifier stays in use, but 3ds Max must refresh its live topology before ID-dependent reads continue.
+    Forces a fresh binding of the exact working Broken-T Edit Poly when a post-Commit live-topology probe proves the current binding is stale.
+    This is the recovery path for the historical zero-count Edit Poly state; normal same-state batches avoid it.
     */
     function rebindBrokenTEditPolyContext node edit_poly_mod target_level =
     (
@@ -4494,13 +4933,13 @@ struct RedundantLoopFixer1168_v
         edit_poly_mod.showCage = off
         modPanel.setCurrentObject edit_poly_mod node:node
 
-        this.syncBrokenTEditPolyLevel node edit_poly_mod target_level
+        this.syncBrokenTEditPolyLevel node edit_poly_mod target_level apply_common_state:false
         -- return
     ),
 
     /*
-    Activates the exact working Broken-T Edit Poly only when another stack object is current.
-    Once active, later batch stages keep this same modifier current and synchronize only its required Edge/Vertex context.
+    Activates the exact working Broken-T Edit Poly only when the requested node/modifier is not already current.
+    When it is already current, only genuinely different modifier/sub-object state is changed.
     */
     function prepareBrokenTEditPolyContext node edit_poly_mod target_level =
     (
@@ -4529,16 +4968,23 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        if modPanel.getCurrentObject() != edit_poly_mod then
+        local same_selected_node = selection.count == 1 and selection[1] == node
+        local same_current_modifier = modPanel.getCurrentObject() == edit_poly_mod
+
+        if not same_selected_node or not same_current_modifier then
         (
-            select node
+            if not same_selected_node then select node
             max modify mode
 
             edit_poly_mod.SetPrimaryNode node
-            edit_poly_mod.useStackSelection = false
-            edit_poly_mod.selectMode = 0
-            edit_poly_mod.showCage = off
-            modPanel.setCurrentObject edit_poly_mod node:node
+            if edit_poly_mod.useStackSelection != false then edit_poly_mod.useStackSelection = false
+            if edit_poly_mod.selectMode != 0 then edit_poly_mod.selectMode = 0
+            if edit_poly_mod.showCage != off then edit_poly_mod.showCage = off
+
+            if modPanel.getCurrentObject() != edit_poly_mod then
+            (
+                modPanel.setCurrentObject edit_poly_mod node:node
+            )
         )
 
         this.syncBrokenTEditPolyLevel node edit_poly_mod target_level
@@ -4546,10 +4992,78 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
+    Keeps the current Broken-T Vertex context when committed topology is already readable.
+    A full same-modifier rebind is used only as a fallback when the live count proves the current binding is stale.
+    Returns #(success, liveVertexCount, usedFallbackRebind).
+    */
+    function ensureBrokenTLiveVertexContext node edit_poly_mod minimum_vertex_id:1 expected_vertex_count:undefined =
+    (
+        if minimum_vertex_id < 1 then minimum_vertex_id = 1
+
+        if not(this.prepareBrokenTEditPolyContext node edit_poly_mod #Vertex) then
+        (
+            return #(false, 0, false)
+        )
+
+        local live_vertex_count = edit_poly_mod.GetNumVertices node:node
+        local live_count_ok = classOf live_vertex_count == Integer and live_vertex_count >= minimum_vertex_id
+
+        if expected_vertex_count != undefined then
+        (
+            live_count_ok = live_count_ok and live_vertex_count == expected_vertex_count
+        )
+
+        if live_count_ok then
+        (
+            return #(true, live_vertex_count, false)
+        )
+
+        edit_poly_mod.RefreshScreen()
+        update node
+
+        live_vertex_count = edit_poly_mod.GetNumVertices node:node
+        live_count_ok = classOf live_vertex_count == Integer and live_vertex_count >= minimum_vertex_id
+
+        if expected_vertex_count != undefined then
+        (
+            live_count_ok = live_count_ok and live_vertex_count == expected_vertex_count
+        )
+
+        if live_count_ok then
+        (
+            return #(true, live_vertex_count, false)
+        )
+
+        if not(this.rebindBrokenTEditPolyContext node edit_poly_mod #Vertex) then
+        (
+            return #(false, live_vertex_count, true)
+        )
+
+        live_vertex_count = edit_poly_mod.GetNumVertices node:node
+        live_count_ok = classOf live_vertex_count == Integer and live_vertex_count >= minimum_vertex_id
+
+        if expected_vertex_count != undefined then
+        (
+            live_count_ok = live_count_ok and live_vertex_count == expected_vertex_count
+        )
+
+        if not live_count_ok then
+        (
+            format "Loop-Cleaner BROKEN T LIVE CONTEXT FAILED | node:% | minimumVertexID:% | expectedVertexCount:% | actualVertexCount:%\n" \
+                node.name minimum_vertex_id expected_vertex_count live_vertex_count
+            return #(false, live_vertex_count, true)
+        )
+
+        #(true, live_vertex_count, true)
+        -- return
+    ),
+
+    /*
     Runs only the missing-target DivideEdge stage and returns source/inserted pairs for a later move pass.
+    Preclassified inner-border sets may be reused only before the first split of this unchanged topology snapshot.
     No vertex is moved or welded here; each target-edge group performs exactly N committed splits and preserves pair order from one original edge direction.
     */
-    function prepareBrokenTDivideStage node edit_poly_mod topology_data case_records position_tolerance =
+    function prepareBrokenTDivideStage node edit_poly_mod topology_data case_records position_tolerance inner_border_edges:undefined inner_border_vertices:undefined =
     (
         if node == undefined or not isValidNode node then return #(false, 0, #(), "Invalid target node.")
         if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then return #(false, 0, #(), "Invalid Edit Poly target.")
@@ -4557,7 +5071,12 @@ struct RedundantLoopFixer1168_v
         if case_records == undefined then return #(false, 0, #(), "Missing Broken-T case records.")
         if position_tolerance == undefined or position_tolerance <= 0.0 then return #(false, 0, #(), "Invalid Broken-T position precision.")
 
-        plan_result = this.buildBrokenTInsertPlan topology_data case_records position_tolerance
+        plan_result = this.buildBrokenTInsertPlan \
+            topology_data \
+            case_records \
+            position_tolerance \
+            inner_border_edges:inner_border_edges \
+            inner_border_vertices:inner_border_vertices
         if not plan_result[1] then return #(false, 0, #(), plan_result[3])
 
         insert_plan = plan_result[2]
@@ -4596,6 +5115,7 @@ struct RedundantLoopFixer1168_v
 
         inserted_count = 0
         move_records = #()
+        completed_group_records = #()
         divide_error = undefined
 
         if not(this.syncBrokenTEditPolyLevel node edit_poly_mod #Edge) then
@@ -4612,9 +5132,6 @@ struct RedundantLoopFixer1168_v
             original_target_vertex_b = target_group[5]
             group_plans = target_group[6]
             ordered_sources = #()
-
-            edit_poly_mod.SetEPolySelLevel #Edge
-            subObjectLevel = 2
 
             target_edge_id = original_target_edge_id
             current_edge_count = EditPolyMod.GetNumEdges edit_poly_mod node:node
@@ -4695,59 +5212,98 @@ struct RedundantLoopFixer1168_v
                     else
                     (
                         inserted_count += vertices_to_add
-                        edit_poly_mod.RefreshScreen()
-                        update node
-                        edit_poly_mod.SetEPolySelLevel #Vertex
-                        subObjectLevel = 1
-                        inserted_vertex_records = #()
+                        append completed_group_records #(original_target_a, original_target_b, ordered_sources, inserted_vertex_ids)
+                    )
+                )
+            )
+        )
 
-                        for inserted_vertex_id in inserted_vertex_ids while divide_error == undefined do
+        if completed_group_records.count > 0 then
+        (
+            edit_poly_mod.RefreshScreen()
+            update node
+
+            if not(this.syncBrokenTEditPolyLevel node edit_poly_mod #Vertex apply_common_state:false) then
+            (
+                if divide_error == undefined then
+                (
+                    divide_error = "Could not synchronize the Broken-T Edit Poly Vertex context after the Divide stage."
+                )
+                else
+                (
+                    divide_error = divide_error + " | Could not synchronize the Broken-T Edit Poly Vertex context for the completed-group handoff."
+                )
+            )
+            else
+            (
+                local pair_error = undefined
+
+                for completed_group_record in completed_group_records while pair_error == undefined do
+                (
+                    original_target_a = completed_group_record[1]
+                    original_target_b = completed_group_record[2]
+                    ordered_sources = completed_group_record[3]
+                    inserted_vertex_ids = completed_group_record[4]
+                    inserted_vertex_records = #()
+
+                    for inserted_vertex_id in inserted_vertex_ids while pair_error == undefined do
+                    (
+                        inserted_position = edit_poly_mod.GetVertex inserted_vertex_id node:node
+
+                        if inserted_position == undefined then
                         (
-                            inserted_position = edit_poly_mod.GetVertex inserted_vertex_id node:node
-
-                            if inserted_position == undefined then
-                            (
-                                divide_error = "Could not read one newly inserted Broken-T vertex."
-                            )
-                            else
-                            (
-                                inserted_projection = this.getPointSegmentProjectionData inserted_position original_target_a original_target_b
-                                append inserted_vertex_records #(inserted_projection[2], inserted_vertex_id)
-                            )
+                            pair_error = "Could not read one newly inserted Broken-T vertex."
                         )
-
-                        if divide_error == undefined and inserted_vertex_records.count != ordered_sources.count then
+                        else
                         (
-                            divide_error = "The appended Broken-T vertex count does not match the stored source count."
+                            inserted_projection = this.getPointSegmentProjectionData inserted_position original_target_a original_target_b
+                            append inserted_vertex_records #(inserted_projection[2], inserted_vertex_id)
                         )
+                    )
 
-                        if divide_error == undefined and inserted_vertex_records.count > 1 then
+                    if pair_error == undefined and inserted_vertex_records.count != ordered_sources.count then
+                    (
+                        pair_error = "The appended Broken-T vertex count does not match the stored source count."
+                    )
+
+                    if pair_error == undefined and inserted_vertex_records.count > 1 then
+                    (
+                        for sort_index = 2 to inserted_vertex_records.count do
                         (
-                            for sort_index = 2 to inserted_vertex_records.count do
+                            sorted_item = inserted_vertex_records[sort_index]
+                            compare_index = sort_index - 1
+
+                            while compare_index >= 1 and inserted_vertex_records[compare_index][1] > sorted_item[1] do
                             (
-                                sorted_item = inserted_vertex_records[sort_index]
-                                compare_index = sort_index - 1
-
-                                while compare_index >= 1 and inserted_vertex_records[compare_index][1] > sorted_item[1] do
-                                (
-                                    inserted_vertex_records[compare_index + 1] = inserted_vertex_records[compare_index]
-                                    compare_index -= 1
-                                )
-
-                                inserted_vertex_records[compare_index + 1] = sorted_item
+                                inserted_vertex_records[compare_index + 1] = inserted_vertex_records[compare_index]
+                                compare_index -= 1
                             )
-                        )
 
-                        if divide_error == undefined then
+                            inserted_vertex_records[compare_index + 1] = sorted_item
+                        )
+                    )
+
+                    if pair_error == undefined then
+                    (
+                        for source_order_index = 1 to ordered_sources.count do
                         (
-                            for source_order_index = 1 to ordered_sources.count do
-                            (
-                                source_plan = ordered_sources[source_order_index][2]
-                                source_vertex_id = source_plan[5]
-                                inserted_vertex_id = inserted_vertex_records[source_order_index][2]
-                                append move_records #(source_vertex_id, inserted_vertex_id)
-                            )
+                            source_plan = ordered_sources[source_order_index][2]
+                            source_vertex_id = source_plan[5]
+                            inserted_vertex_id = inserted_vertex_records[source_order_index][2]
+                            append move_records #(source_vertex_id, inserted_vertex_id)
                         )
+                    )
+                )
+
+                if pair_error != undefined then
+                (
+                    if divide_error == undefined then
+                    (
+                        divide_error = pair_error
+                    )
+                    else
+                    (
+                        divide_error = divide_error + " | Completed-group handoff failed: " + pair_error
                     )
                 )
             )
@@ -4767,7 +5323,7 @@ struct RedundantLoopFixer1168_v
     Runs only the Broken-T missing-target DivideEdge stage and stores ordered source/inserted pairs for MOVE VERTICES.
     The operation intentionally stops before any MoveSelection or weld call.
     */
-    function divideBrokenTJunctionEdges show_dialogs:true reuse_current_modifier:false =
+    function divideBrokenTJunctionEdges show_dialogs:true reuse_current_modifier:false precomputed_topology_data:undefined precomputed_case_records:undefined precomputed_position_tolerance:undefined precomputed_inner_border_edges:undefined precomputed_inner_border_vertices:undefined =
     (
         this.clearPendingBrokenTMoveState()
 
@@ -4782,8 +5338,19 @@ struct RedundantLoopFixer1168_v
 
         if selection_mod == undefined then
         (
-            if not(this.selectBrokenTJunctionBorders show_dialogs:show_dialogs) then return false
-            selection_mod = this.findBrokenTJunctionSelectionModifier node
+            local selection_data = this.prepareBrokenTJunctionSelectionData show_dialogs:show_dialogs
+            if not selection_data[1] then return false
+
+            selection_mod = selection_data[3]
+
+            if precomputed_topology_data == undefined and precomputed_case_records == undefined and precomputed_position_tolerance == undefined then
+            (
+                precomputed_topology_data = selection_data[4]
+                precomputed_case_records = selection_data[5]
+                precomputed_position_tolerance = selection_data[6]
+                precomputed_inner_border_edges = selection_data[10]
+                precomputed_inner_border_vertices = selection_data[11]
+            )
         )
 
         if selection_mod == undefined then
@@ -4807,7 +5374,13 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        position_tolerance = this.getBrokenTJunctionPositionPrecision()
+        local use_precomputed_analysis = \
+            classOf precomputed_topology_data == Array and \
+            classOf precomputed_case_records == Array and \
+            precomputed_position_tolerance != undefined and \
+            precomputed_position_tolerance > 0.0
+
+        position_tolerance = if use_precomputed_analysis then precomputed_position_tolerance else this.getBrokenTJunctionPositionPrecision()
 
         if position_tolerance == undefined or position_tolerance <= 0.0 then
         (
@@ -4815,20 +5388,75 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        topology_data = this.buildEditPolyBorderTopology node selection_mod
+        topology_data = undefined
+        case_records = undefined
+        inner_border_edges = undefined
+        inner_border_vertices = undefined
+
+        if use_precomputed_analysis then
+        (
+            local live_vertex_count = selection_mod.GetNumVertices node:node
+            local live_edge_count = selection_mod.GetNumEdges node:node
+            local live_face_count = selection_mod.GetNumFaces node:node
+            local expected_vertex_count = if precomputed_topology_data.count >= 3 then precomputed_topology_data[1] else 0
+            local expected_edge_count = if precomputed_topology_data.count >= 3 then precomputed_topology_data[2] else 0
+            local expected_face_count = if precomputed_topology_data.count >= 3 then precomputed_topology_data[3] else 0
+
+            if live_vertex_count == expected_vertex_count and live_edge_count == expected_edge_count and live_face_count == expected_face_count then
+            (
+                topology_data = precomputed_topology_data
+                case_records = precomputed_case_records
+
+                if classOf precomputed_inner_border_edges == BitArray and classOf precomputed_inner_border_vertices == BitArray then
+                (
+                    inner_border_edges = precomputed_inner_border_edges
+                    inner_border_vertices = precomputed_inner_border_vertices
+                )
+
+                format "Loop-Cleaner BROKEN T DIVIDE REUSE ANALYSIS | node:% | cases:% | verts:% | edges:% | faces:%\n" \
+                    node.name case_records.count live_vertex_count live_edge_count live_face_count
+            )
+            else
+            (
+                format "Loop-Cleaner BROKEN T DIVIDE REUSE SKIPPED | node:% | expectedVerts:% | liveVerts:% | expectedEdges:% | liveEdges:% | expectedFaces:% | liveFaces:%\n" \
+                    node.name expected_vertex_count live_vertex_count expected_edge_count live_edge_count expected_face_count live_face_count
+            )
+        )
 
         if topology_data == undefined then
         (
-            format "Loop-Cleaner BROKEN T DIVIDE FAILED | node:% | stage:read topology | error:undefined topology\n" node.name
-            return false
-        )
+            topology_data = this.buildEditPolyBorderTopology node selection_mod
 
-        case_records = this.findBrokenTJunctionCases topology_data position_tolerance
+            if topology_data == undefined then
+            (
+                format "Loop-Cleaner BROKEN T DIVIDE FAILED | node:% | stage:read topology | error:undefined topology\n" node.name
+                return false
+            )
 
-        if case_records == undefined then
-        (
-            format "Loop-Cleaner BROKEN T DIVIDE FAILED | node:% | stage:find cases | error:undefined case list\n" node.name
-            return false
+            classification = this.classifyBorderEdges topology_data
+
+            if classification == undefined then
+            (
+                format "Loop-Cleaner BROKEN T DIVIDE FAILED | node:% | stage:classify inner borders | error:undefined classification\n" node.name
+                return false
+            )
+
+            inner_border_edges = classification[3]
+            inner_border_vertices = this.getTopologyVerticesFromEdges topology_data inner_border_edges
+
+            if inner_border_vertices == undefined then
+            (
+                format "Loop-Cleaner BROKEN T DIVIDE FAILED | node:% | stage:collect inner-border vertices | error:undefined vertex set\n" node.name
+                return false
+            )
+
+            case_records = this.findBrokenTJunctionCases topology_data position_tolerance inner_border_edges:inner_border_edges
+
+            if case_records == undefined then
+            (
+                format "Loop-Cleaner BROKEN T DIVIDE FAILED | node:% | stage:find cases | error:undefined case list\n" node.name
+                return false
+            )
         )
 
         if case_records.count == 0 then
@@ -4841,7 +5469,14 @@ struct RedundantLoopFixer1168_v
 
         undo "Broken T Divide Edge" on
         (
-            divide_result = this.prepareBrokenTDivideStage node selection_mod topology_data case_records position_tolerance
+            divide_result = this.prepareBrokenTDivideStage \
+                node \
+                selection_mod \
+                topology_data \
+                case_records \
+                position_tolerance \
+                inner_border_edges:inner_border_edges \
+                inner_border_vertices:inner_border_vertices
         )
 
         if divide_result == undefined or not divide_result[1] then
@@ -5390,28 +6025,7 @@ struct RedundantLoopFixer1168_v
             return false
         )
 
-        local context_ok = if reuse_current_modifier then
-        (
-            this.rebindBrokenTEditPolyContext node edit_poly_mod #Vertex
-        )
-        else
-        (
-            this.prepareBrokenTEditPolyContext node edit_poly_mod #Vertex
-        )
-
-        if not context_ok then
-        (
-            format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:Edit Poly context\n" node.name
-            return false
-        )
-
-        local vertex_count = edit_poly_mod.GetNumVertices node:node
-
-        if vertex_count < 1 then
-        (
-            format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:vertex count | actual:% | required:>=1\n" node.name vertex_count
-            return false
-        )
+        local required_max_vertex_id = 1
 
         for move_record in move_records do
         (
@@ -5430,9 +6044,46 @@ struct RedundantLoopFixer1168_v
                 return false
             )
 
-            if source_vertex_id < 1 or source_vertex_id > vertex_count or inserted_vertex_id < 1 or inserted_vertex_id > vertex_count or source_vertex_id == inserted_vertex_id then
+            if source_vertex_id < 1 or inserted_vertex_id < 1 or source_vertex_id == inserted_vertex_id then
             (
-                format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:vertex range | sourceVertex:% | insertedVertex:% | liveVertexCount:%\n" node.name source_vertex_id inserted_vertex_id vertex_count
+                format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:record ID range | sourceVertex:% | insertedVertex:% | required:positive distinct IDs\n" \
+                    node.name source_vertex_id inserted_vertex_id
+                return false
+            )
+
+            if source_vertex_id > required_max_vertex_id then required_max_vertex_id = source_vertex_id
+            if inserted_vertex_id > required_max_vertex_id then required_max_vertex_id = inserted_vertex_id
+        )
+
+        local vertex_count = 0
+
+        if reuse_current_modifier then
+        (
+            local live_context = this.ensureBrokenTLiveVertexContext node edit_poly_mod minimum_vertex_id:required_max_vertex_id
+
+            if not live_context[1] then
+            (
+                format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:post-Divide live context | requiredMaxVertexID:% | liveVertexCount:%\n" \
+                    node.name required_max_vertex_id live_context[2]
+                return false
+            )
+
+            vertex_count = live_context[2]
+        )
+        else
+        (
+            if not(this.prepareBrokenTEditPolyContext node edit_poly_mod #Vertex) then
+            (
+                format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:Edit Poly context\n" node.name
+                return false
+            )
+
+            vertex_count = edit_poly_mod.GetNumVertices node:node
+
+            if vertex_count < required_max_vertex_id then
+            (
+                format "Loop-Cleaner BROKEN T MOVE FAILED | node:% | stage:vertex count | actual:% | requiredMaxVertexID:%\n" \
+                    node.name vertex_count required_max_vertex_id
                 return false
             )
         )
@@ -5482,15 +6133,16 @@ struct RedundantLoopFixer1168_v
 
             local move_delta = source_position - inserted_position
 
-            format "Loop-Cleaner BROKEN T MOVE | node:% | sourceVertex:% | insertedVertex:% | sourcePosition:% | insertedPosition:% | delta:%\n" \
-                node.name source_vertex_id inserted_vertex_id source_position inserted_position move_delta
+            if not this.quiet_mode then
+            (
+                format "Loop-Cleaner BROKEN T MOVE | node:% | sourceVertex:% | insertedVertex:% | sourcePosition:% | insertedPosition:% | delta:%\n" \
+                    node.name source_vertex_id inserted_vertex_id source_position inserted_position move_delta
+            )
 
             if move_delta != [0,0,0] then
             (
                 edit_poly_mod.MoveSelection move_delta
                 edit_poly_mod.Commit()
-                edit_poly_mod.RefreshScreen()
-                completeRedraw()
                 moved_count += 1
             )
             else
@@ -5533,13 +6185,20 @@ struct RedundantLoopFixer1168_v
                 return false
             )
 
-            format "Loop-Cleaner BROKEN T MOVE VERIFIED | node:% | sourceVertex:% | insertedVertex:% | before:% | after:% | source:% | delta:%\n" \
-                node.name source_vertex_id inserted_vertex_id inserted_position moved_position source_after_position (moved_position - inserted_position)
+            if not this.quiet_mode then
+            (
+                format "Loop-Cleaner BROKEN T MOVE VERIFIED | node:% | sourceVertex:% | insertedVertex:% | before:% | after:% | source:% | delta:%\n" \
+                    node.name source_vertex_id inserted_vertex_id inserted_position moved_position source_after_position (moved_position - inserted_position)
+            )
         )
 
         edit_poly_mod.showCage = off
-        edit_poly_mod.RefreshScreen()
-        completeRedraw()
+
+        if show_dialogs then
+        (
+            edit_poly_mod.RefreshScreen()
+            completeRedraw()
+        )
 
         local pair_count = move_records.count
 
@@ -5777,25 +6436,31 @@ struct RedundantLoopFixer1168_v
                 return false
             )
 
-            format "Loop-Cleaner BROKEN T WELD | node:% | targetVertex:% | disposableVertex:% | targetPosition:% | disposablePosition:% | vertsBefore:%\n" \
-                node.name target_vertex_id source_vertex_id target_position source_position before_vertex_count
+            if not this.quiet_mode then
+            (
+                format "Loop-Cleaner BROKEN T WELD | node:% | targetVertex:% | disposableVertex:% | targetPosition:% | disposablePosition:% | vertsBefore:%\n" \
+                    node.name target_vertex_id source_vertex_id target_position source_position before_vertex_count
+            )
 
             EditPolyMod.WeldVertices edit_poly_mod target_vertex_id source_vertex_id node:node
             EditPolyMod.Commit edit_poly_mod
-            edit_poly_mod.showCage = off
-            edit_poly_mod.RefreshScreen()
-            completeRedraw()
+            if edit_poly_mod.showCage != off then edit_poly_mod.showCage = off
 
-            if not(this.rebindBrokenTEditPolyContext node edit_poly_mod #Vertex) then
+            local expected_vertex_count = before_vertex_count - 1
+            local live_context = this.ensureBrokenTLiveVertexContext \
+                node \
+                edit_poly_mod \
+                expected_vertex_count:expected_vertex_count
+
+            if not live_context[1] then
             (
-                format "Loop-Cleaner BROKEN T WELD FAILED | node:% | stage:post-weld Edit Poly context | targetVertex:% | disposableVertex:% | weldedSoFar:%\n" \
-                    node.name target_vertex_id source_vertex_id welded_count
+                format "Loop-Cleaner BROKEN T WELD FAILED | node:% | stage:post-weld live context | targetVertex:% | disposableVertex:% | expectedVertexCount:% | actualVertexCount:% | weldedSoFar:%\n" \
+                    node.name target_vertex_id source_vertex_id expected_vertex_count live_context[2] welded_count
                 this.clearPendingBrokenTMoveState()
                 return false
             )
 
-            local after_vertex_count = edit_poly_mod.GetNumVertices node:node
-            local expected_vertex_count = before_vertex_count - 1
+            local after_vertex_count = live_context[2]
 
             if after_vertex_count != expected_vertex_count then
             (
@@ -5808,8 +6473,11 @@ struct RedundantLoopFixer1168_v
 
             welded_count += 1
 
-            format "Loop-Cleaner BROKEN T WELD VERIFIED | node:% | targetVertex:% | disposableVertex:% | vertsBefore:% | vertsAfter:%\n" \
-                node.name target_vertex_id source_vertex_id before_vertex_count after_vertex_count
+            if not this.quiet_mode then
+            (
+                format "Loop-Cleaner BROKEN T WELD VERIFIED | node:% | targetVertex:% | disposableVertex:% | vertsBefore:% | vertsAfter:%\n" \
+                    node.name target_vertex_id source_vertex_id before_vertex_count after_vertex_count
+            )
         )
 
         local final_vertex_count = edit_poly_mod.GetNumVertices node:node
@@ -5825,6 +6493,12 @@ struct RedundantLoopFixer1168_v
 
         this.clearPendingBrokenTMoveState()
 
+        if show_dialogs then
+        (
+            edit_poly_mod.RefreshScreen()
+            completeRedraw()
+        )
+
         format "Loop-Cleaner BROKEN T WELD COMPLETE | node:% | weldPairs:% | vertsBefore:% | vertsAfter:%\n" \
             node.name welded_count initial_vertex_count final_vertex_count
 
@@ -5833,20 +6507,105 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
-    Runs the user-verified Broken-T repair stages in one action: DivideEdge, MoveSelection, then WeldVertices.
-    The move handoff is preserved between MOVE and WELD. The same SELECT BROKEN T JUNCTIONS modifier is reused for the whole batch. A full same-modifier rebind is performed only at topology-change synchronization boundaries before MOVE and after each WELD Commit.
+    Leaves exactly the successfully repaired preserved T-junction vertices selected on the working Broken-T Edit Poly.
+    The caller supplies stable preserved vertex IDs collected only after complete successful weld cycles.
     */
-    function fixBrokenTJunctionStable =
+    function selectRepairedBrokenTVertices node edit_poly_mod repaired_vertex_ids =
+    (
+        if node == undefined or not isValidNode node then
+        (
+            format "Loop-Cleaner BROKEN T REPAIRED VERTEX SELECT FAILED | stage:node | value:%\n" node
+            return false
+        )
+
+        if edit_poly_mod == undefined or classOf edit_poly_mod != Edit_Poly then
+        (
+            format "Loop-Cleaner BROKEN T REPAIRED VERTEX SELECT FAILED | node:% | stage:Edit Poly | value:%\n" node.name edit_poly_mod
+            return false
+        )
+
+        if classOf repaired_vertex_ids != Array then
+        (
+            format "Loop-Cleaner BROKEN T REPAIRED VERTEX SELECT FAILED | node:% | stage:vertex ID list | value:% | type:%\n" \
+                node.name repaired_vertex_ids (classOf repaired_vertex_ids)
+            return false
+        )
+
+        local live_context = this.ensureBrokenTLiveVertexContext node edit_poly_mod
+
+        if not live_context[1] then
+        (
+            format "Loop-Cleaner BROKEN T REPAIRED VERTEX SELECT FAILED | node:% | stage:Vertex context | liveVertexCount:%\n" \
+                node.name live_context[2]
+            return false
+        )
+
+        local live_vertex_count = live_context[2]
+        local repaired_vertex_bits = #{}
+        repaired_vertex_bits.count = live_vertex_count
+
+        for repaired_vertex_id in repaired_vertex_ids do
+        (
+            if classOf repaired_vertex_id != Integer or repaired_vertex_id < 1 or repaired_vertex_id > live_vertex_count then
+            (
+                format "Loop-Cleaner BROKEN T REPAIRED VERTEX SELECT FAILED | node:% | stage:vertex range | vertex:% | liveVertexCount:%\n" \
+                    node.name repaired_vertex_id live_vertex_count
+                return false
+            )
+
+            repaired_vertex_bits[repaired_vertex_id] = true
+        )
+
+        if not(this.setExactBrokenTVertexSelection node edit_poly_mod repaired_vertex_bits) then
+        (
+            format "Loop-Cleaner BROKEN T REPAIRED VERTEX SELECT FAILED | node:% | stage:write selection | requested:%\n" \
+                node.name repaired_vertex_bits
+            return false
+        )
+
+        format "Loop-Cleaner BROKEN T REPAIRED VERTEX SELECT | node:% | vertices:% | selection:%\n" \
+            node.name repaired_vertex_bits.numberSet repaired_vertex_bits
+
+        true
+        -- return
+    ),
+
+    /*
+    Runs the user-verified Broken-T repair stages in one action: DivideEdge, MoveSelection, then WeldVertices.
+    The same node/modifier/level is kept unchanged whenever live topology is already readable; full same-modifier rebind is a stale-context fallback after topology commits.
+    Successfully repaired preserved T-junction vertex IDs are accumulated per completed weld cycle and selected once after the full batch succeeds.
+    */
+    function fixBrokenTJunctionStable initial_topology_data:undefined initial_case_records:undefined initial_position_tolerance:undefined initial_inner_border_edges:undefined initial_inner_border_vertices:undefined =
     (
         format "Loop-Cleaner BROKEN T FIX START\n"
 
         local completed_cycles = 0
         local total_pairs = 0
         local modifier_locked = false
+        local batch_node = undefined
+        local batch_edit_poly_mod = undefined
+        local first_cycle = true
+        local repaired_vertex_ids = #()
 
         while true do
         (
-            local divide_ok = this.divideBrokenTJunctionEdges show_dialogs:false reuse_current_modifier:modifier_locked
+            local divide_ok = if first_cycle then
+            (
+                this.divideBrokenTJunctionEdges \
+                    show_dialogs:false \
+                    reuse_current_modifier:modifier_locked \
+                    precomputed_topology_data:initial_topology_data \
+                    precomputed_case_records:initial_case_records \
+                    precomputed_position_tolerance:initial_position_tolerance \
+                    precomputed_inner_border_edges:initial_inner_border_edges \
+                    precomputed_inner_border_vertices:initial_inner_border_vertices
+            )
+            else
+            (
+                this.divideBrokenTJunctionEdges show_dialogs:false reuse_current_modifier:modifier_locked
+            )
+
+            first_cycle = false
             local pending_records = this.pending_broken_t_move_records
             local pair_count = if classOf pending_records == Array then pending_records.count else 0
 
@@ -5854,13 +6613,44 @@ struct RedundantLoopFixer1168_v
             (
                 if divide_ok then
                 (
-                    format "Loop-Cleaner BROKEN T FIX COMPLETE | cycles:% | pairs:%\n" completed_cycles total_pairs
+                    if total_pairs > 0 then
+                    (
+                        if batch_node == undefined or not isValidNode batch_node or batch_edit_poly_mod == undefined or classOf batch_edit_poly_mod != Edit_Poly then
+                        (
+                            format "Loop-Cleaner BROKEN T FIX FAILED | stage:final repaired vertex selection context | node:% | editPoly:% | repairedVertices:%\n" \
+                                batch_node batch_edit_poly_mod repaired_vertex_ids
+                            return false
+                        )
+
+                        if not(this.selectRepairedBrokenTVertices batch_node batch_edit_poly_mod repaired_vertex_ids) then
+                        (
+                            format "Loop-Cleaner BROKEN T FIX FAILED | stage:final repaired vertex selection | repairedVertices:%\n" repaired_vertex_ids
+                            return false
+                        )
+
+                        if batch_edit_poly_mod.showCage != off then batch_edit_poly_mod.showCage = off
+                        batch_edit_poly_mod.RefreshScreen()
+                        completeRedraw()
+                    )
+
+                    format "Loop-Cleaner BROKEN T FIX COMPLETE | cycles:% | pairs:% | selectedRepairedVertices:%\n" \
+                        completed_cycles total_pairs repaired_vertex_ids.count
                     return true
                 )
 
                 format "Loop-Cleaner BROKEN T FIX FAILED | stage:DIVIDE EDGE | cycles:% | pairs:% | pending:% | type:%\n" \
                     completed_cycles total_pairs pending_records (classOf pending_records)
                 return false
+            )
+
+            if this.pending_broken_t_node != undefined and isValidNode this.pending_broken_t_node then
+            (
+                batch_node = this.pending_broken_t_node
+            )
+
+            if this.pending_broken_t_edit_poly_mod != undefined and classOf this.pending_broken_t_edit_poly_mod == Edit_Poly then
+            (
+                batch_edit_poly_mod = this.pending_broken_t_edit_poly_mod
             )
 
             if not divide_ok then
@@ -5880,6 +6670,16 @@ struct RedundantLoopFixer1168_v
             (
                 format "Loop-Cleaner BROKEN T FIX FAILED | stage:WELD VERTICES | cycle:% | pairs:%\n" (completed_cycles + 1) pair_count
                 return false
+            )
+
+            for pending_record in pending_records do
+            (
+                local repaired_vertex_id = pending_record[1]
+
+                if findItem repaired_vertex_ids repaired_vertex_id == 0 then
+                (
+                    append repaired_vertex_ids repaired_vertex_id
+                )
             )
 
             completed_cycles += 1
@@ -5908,13 +6708,15 @@ struct RedundantLoopFixer1168_v
 
         format "Loop-Cleaner FIX T BORDER HOLES START | node:%\n" target_node.name
 
-        if not(this.selectBrokenTJunctionBorders show_dialogs:false) then
+        local selection_data = this.prepareBrokenTJunctionSelectionData show_dialogs:false
+
+        if not selection_data[1] then
         (
-            format "Loop-Cleaner FIX T BORDER HOLES FAILED | node:% | stage:BROKEN T SELECT\n" target_node.name
+            format "Loop-Cleaner FIX T BORDER HOLES FAILED | node:% | stage:BROKEN T SELECT | error:%\n" target_node.name selection_data[9]
             return false
         )
 
-        local selection_mod = this.findBrokenTJunctionSelectionModifier target_node
+        local selection_mod = selection_data[3]
 
         if selection_mod == undefined then
         (
@@ -5922,7 +6724,12 @@ struct RedundantLoopFixer1168_v
             return true
         )
 
-        if not(this.fixBrokenTJunctionStable()) then
+        if not(this.fixBrokenTJunctionStable \
+            initial_topology_data:selection_data[4] \
+            initial_case_records:selection_data[5] \
+            initial_position_tolerance:selection_data[6] \
+            initial_inner_border_edges:selection_data[10] \
+            initial_inner_border_vertices:selection_data[11]) then
         (
             format "Loop-Cleaner FIX T BORDER HOLES FAILED | node:% | stage:BATCH BROKEN T FIX\n" target_node.name
             return false
@@ -6639,8 +7446,8 @@ struct RedundantLoopFixer1168_v
     ),
 
     /*
-    Saves QUIET mode for future detector functions.
-    The clean rewrite keeps the current UI state behavior.
+    Saves QUIET mode for routine detector and Broken-T success diagnostics.
+    Fatal diagnostics and stage/final summaries remain visible.
     */
     function saveQuietMode quiet_value =
     (
@@ -6935,7 +7742,7 @@ if epoly_tools_project_version == undefined or epoly_tools_project_version < Red
 
 RedundantLoopFixer_Title = "Loop-Cleaner | v" + (epoly_tools_project_version as string)
 
-rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:488
+rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:444
 (
     dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:264 height:32
     button btn_select_remove "USELESS LOOPS SELECT \\ REMOVE" pos:[24,56] width:240 height:32 tooltip:"LMB: Select visible internal edges after subtracting border-corner and wall-corner loop masks.\n\nRMB: Remove the exact stored redundant-edge selection and its redundant vertices."
@@ -6945,17 +7752,16 @@ rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:488
     button btn_t_junction_all "T JUNCTIONS" pos:[24,144] width:72 height:32 tooltip:"LMB: Select all visible internal loops traced from exact T-junction stems."
     button btn_t_junction_border "T BORDER" pos:[108,144] width:72 height:32 tooltip:"LMB: Select only the T-stem edges at broken inner-border seams. Parallel continuation edges along the traced loop are not selected."
     button btn_t_junction_mesh "T MESH" pos:[192,144] width:72 height:32 tooltip:"LMB: Select complete traced T-junction loops that have no broken inner-border seam endpoint."
-    button btn_broken_t_select "BROKEN T JUNCTIONS SELECT \\ FIX" pos:[24,188] width:240 height:32 tooltip:"LMB: Select complete broken inner-border components using the position precision below.\n\nRMB: Refresh the Broken-T selection, then run the complete Divide, Move, and Weld repair with no modal stage dialogs."
-    button btn_fix_t_border_holes "FIX T BORDER HOLES" pos:[24,232] width:240 height:32 tooltip:"LMB: Run Broken-T selection, then the complete Divide, Move, and Weld repair with no modal stage dialogs."
-    button btn_debug_border "2  SELECT BORDER CORNER LOOPS" pos:[24,276] width:240 height:32 tooltip:"LMB: Select border-corner loop edges in SELECT REDUNDANT LOOPS."
-    button btn_debug_wall_corner "3  SELECT WALL CORNER LOOP" pos:[24,320] width:240 height:32 tooltip:"LMB: Select wall-corner loop edges in SELECT REDUNDANT LOOPS."
-    button btn_debug_angle "4  SELECT ANGLED LOOPS" pos:[24,364] width:240 height:32 enabled:false tooltip:"Unused in the clean rewrite."
-    checkbox chk_quiet "QUIET" pos:[24,408] width:48 height:24 checked:true tooltip:"Reserved for the clean detector diagnostics."
-    label lbl_position_precision "postion preccision" pos:[78,408] width:108 height:16
-    dropdownlist ddl_position_precision "" pos:[192,404] width:72 height:24 items:#("1mm", "0.1mm", "0.01mm") selection:3 tooltip:"Position precision used for Broken-T position matching and edge re-resolution. Default: 0.01mm."
-    spinner spn_straight_angle "ANGLE:" pos:[24,444] width:108 range:[0.0,45.0,5.0] type:#float scale:0.1 fieldwidth:60 enabled:false tooltip:"Not used by SELECT in this build."
-    label lbl_straight_units "deg" pos:[144,448] width:24 height:16
-    button btn_get_angle "GET ANGLE" pos:[180,440] width:84 height:32 enabled:false tooltip:"Unused in the clean rewrite."
+    button btn_t_border_holes "T BORDER HOLES SELECT \\ FIX" pos:[24,188] width:240 height:32 tooltip:"LMB: Select complete broken inner-border components using the position precision below.\n\nRMB: Run Broken-T selection, then the complete Divide, Move, and Weld repair with no modal stage dialogs."
+    button btn_debug_border "2  SELECT BORDER CORNER LOOPS" pos:[24,232] width:240 height:32 tooltip:"LMB: Select border-corner loop edges in SELECT REDUNDANT LOOPS."
+    button btn_debug_wall_corner "3  SELECT WALL CORNER LOOP" pos:[24,276] width:240 height:32 tooltip:"LMB: Select wall-corner loop edges in SELECT REDUNDANT LOOPS."
+    button btn_debug_angle "4  SELECT ANGLED LOOPS" pos:[24,320] width:240 height:32 enabled:false tooltip:"Unused in the clean rewrite."
+    checkbox chk_quiet "QUIET" pos:[24,364] width:48 height:24 checked:true tooltip:"Suppress routine detector and Broken-T per-pair success diagnostics. Failures and stage/final summaries remain visible."
+    label lbl_position_precision "postion preccision" pos:[78,364] width:108 height:16
+    dropdownlist ddl_position_precision "" pos:[192,360] width:72 height:24 items:#("1mm", "0.1mm", "0.01mm") selection:3 tooltip:"Position precision used for Broken-T position matching and edge re-resolution. Default: 0.01mm."
+    spinner spn_straight_angle "ANGLE:" pos:[24,400] width:108 range:[0.0,45.0,5.0] type:#float scale:0.1 fieldwidth:60 enabled:false tooltip:"Not used by SELECT in this build."
+    label lbl_straight_units "deg" pos:[144,404] width:24 height:16
+    button btn_get_angle "GET ANGLE" pos:[180,396] width:84 height:32 enabled:false tooltip:"Unused in the clean rewrite."
 
     on RedundantLoopFixer_UI open do
     (
@@ -7044,20 +7850,16 @@ rollout RedundantLoopFixer_UI RedundantLoopFixer_Title width:288 height:488
         RedundantLoopFixer.selectMeshTJunctions()
     )
 
-    on btn_broken_t_select pressed do
+    on btn_t_border_holes pressed do
     (
         RedundantLoopFixer.selectBrokenTJunctionBorders()
     )
 
-    on btn_broken_t_select rightClick do
+    on btn_t_border_holes rightClick do
     (
         RedundantLoopFixer.fixTBorderHoles()
     )
 
-    on btn_fix_t_border_holes pressed do
-    (
-        RedundantLoopFixer.fixTBorderHoles()
-    )
 
     on btn_debug_border pressed do
     (

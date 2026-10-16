@@ -3,8 +3,8 @@ Geometry Diagnostics frontend.
 Defines the standalone test UI and delegates all processing to the backend.
 */
 
-global geometry_diagnostics_ui_version = "0.17"
-global geometry_diagnostics_ui_project_version = "0.30"
+global geometry_diagnostics_ui_version = "0.22"
+global geometry_diagnostics_ui_project_version = "0.36"
 global geometry_diagnostics_project_version
 global geometry_diagnostics_source_file
 global geometry_diagnostics_directory
@@ -65,6 +65,27 @@ function setupGeometryDiagnosticsDarkButton button_control =
 )
 
 
+
+/*
+Adds a restrained blue-accented dark theme to the shared .NET restart title button.
+The canonical ToolTitleButton helper continues to own its label, height, font, and restart behavior.
+*/
+function styleGeometryDiagnosticsRestartTitleButton button_control =
+(
+    local color_class = dotNetClass "System.Drawing.Color"
+
+    button_control.BackColor = color_class.FromArgb 39 45 55
+    button_control.ForeColor = color_class.FromArgb 128 193 255
+    button_control.FlatAppearance.BorderColor = color_class.FromArgb 70 111 153
+    button_control.FlatAppearance.BorderSize = 1
+    button_control.FlatAppearance.MouseOverBackColor = color_class.FromArgb 52 66 83
+    button_control.FlatAppearance.MouseDownBackColor = color_class.FromArgb 28 55 82
+
+    button_control
+    -- return
+)
+
+
 /*
 Returns the WinForms mouse button name used by the directional diagnostic controls.
 This preserves explicit LMB/RMB routing from the Wall-Fixer source buttons.
@@ -76,11 +97,11 @@ function geometryDiagnosticsGetDotNetMouseButton event_args =
 )
 
 
-rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagnostics_project_version) width:336 height:516
+rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagnostics_project_version) width:336 height:564
 (
     local direction_button_tooltip
 
-    dotNetControl btn_tool_title "System.Windows.Forms.Button" width:312 height:24 align:#center
+    dotNetControl btn_tool_title "System.Windows.Forms.Button" width:312 height:18 align:#center
 
     label lbl_status "Ready." width:288 height:36 align:#left
 
@@ -90,7 +111,10 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
         dropdownList ddl_ortho_tolerance "ortho tolerance" items:#("1.00mm", "2.00mm", "5.00mm", "10.00mm") selection:1 width:132
 
         dotNetControl btn_check_vertical "System.Windows.Forms.Button" width:132 height:38 across:2
-        dotNetControl btn_check_horizontal "System.Windows.Forms.Button" width:132 height:38
+        dotNetControl btn_fix_skewed "System.Windows.Forms.Button" width:132 height:38
+
+        dotNetControl btn_check_horizontal "System.Windows.Forms.Button" width:132 height:38 across:2
+        dotNetControl btn_fix_sloped "System.Windows.Forms.Button" width:132 height:38
 
         dotNetControl btn_check_ortho_edges "System.Windows.Forms.Button" width:288 height:38 align:#center
 
@@ -122,6 +146,7 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
     (
         ToolTitleButton.setupToolTitleButton btn_tool_title "Geometry Diagnostics"
         ToolTitleButton.resizeToolTitleButton btn_tool_title (geometryDiagnosticsRollout.width - 24)
+        styleGeometryDiagnosticsRestartTitleButton btn_tool_title
 
         local saved_precision = IniSettings.getString geometry_diagnostics_ini_path "Debug" "PositionPrecision" default_value:"0.01mm"
         local precision_index = findItem #("1mm", "0.1mm", "0.01mm") saved_precision
@@ -148,9 +173,13 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
             direction_button_tooltip = dotNetObject "System.Windows.Forms.ToolTip"
         )
 
+        direction_button_tooltip.SetToolTip btn_tool_title "LMB: Reload the latest Geometry Diagnostics script and restart this tool."
+
         setupGeometryDiagnosticsDarkButton btn_check_planar
         setupGeometryDiagnosticsDarkButton btn_check_vertical
+        setupGeometryDiagnosticsDarkButton btn_fix_skewed
         setupGeometryDiagnosticsDarkButton btn_check_horizontal
+        setupGeometryDiagnosticsDarkButton btn_fix_sloped
         setupGeometryDiagnosticsDarkButton btn_check_ortho_edges
         setupGeometryDiagnosticsDarkButton btn_clear_object
 
@@ -158,16 +187,24 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
         direction_button_tooltip.SetToolTip btn_check_planar "LMB: split evaluated faces into wall clusters at sharp corners of 45 degrees or more, then check each wall plane independently. Connected multi-wall objects such as boxes are supported. An existing top Edit Poly is reused; a NON PLANAR VERTS marker is added only when required.\n\nRMB: move only detected outlier vertices onto their owning wall-cluster planes. Shared corner vertices are solved against every touching wall plane. Script selection markers are removed first, and the object is collapsed to Editable Poly only when the real stack requires repair."
 
         local direction_orange = (dotNetClass "System.Drawing.Color").Orange
-        btn_check_vertical.Text = "VERTICAL\\SKEWED"
+        btn_check_vertical.Text = "Vertical"
         btn_check_vertical.ForeColor = direction_orange
-        direction_button_tooltip.SetToolTip btn_check_vertical "LMB: select Z-direction edges whose XY drift is within postion preccision.\n\nRMB: select Z-direction edges whose XY drift is greater than postion preccision.\n\nCTRL+RMB: detect the current skewed vertical-direction edges, then fix their XY constraints using postion preccision."
+        direction_button_tooltip.SetToolTip btn_check_vertical "LMB: Select exact Z-direction edges within postion preccision.\n\nRMB: Select skewed Z-direction edges.\n\nCTRL+RMB: Fix skewed Z-direction edges with an exact trusted continuation."
 
-        btn_check_horizontal.Text = "HORIZONTAL SLOPED"
+        btn_fix_skewed.Text = "SKEWED \\ FIX"
+        btn_fix_skewed.ForeColor = direction_orange
+        direction_button_tooltip.SetToolTip btn_fix_skewed "LMB: Select skewed Z-direction edges beyond postion preccision.\n\nRMB: Fix the skewed set using an exact same-loop reference. Unresolved components remain unchanged."
+
+        btn_check_horizontal.Text = "Horizontal"
         btn_check_horizontal.ForeColor = direction_orange
-        direction_button_tooltip.SetToolTip btn_check_horizontal "LMB: select horizontal X/Y-direction edges within postion preccision. X uses YZ drift; Y uses XZ drift.\n\nRMB: select matching horizontal edges whose off-axis drift is greater than postion preccision.\n\nCTRL+RMB: detect the current sloped/skewed horizontal edges, then fix X/Y-axis lateral plus Z constraints using postion preccision."
+        direction_button_tooltip.SetToolTip btn_check_horizontal "LMB: Select exact X/Y-direction edges within postion preccision.\n\nRMB: Select sloped X/Y-direction edges.\n\nCTRL+RMB: Fix sloped X/Y-direction edges with an exact trusted continuation."
+
+        btn_fix_sloped.Text = "SLOPED \\ FIX"
+        btn_fix_sloped.ForeColor = direction_orange
+        direction_button_tooltip.SetToolTip btn_fix_sloped "LMB: Select sloped X/Y-direction edges beyond postion preccision.\n\nRMB: Fix the sloped set using an exact same-loop reference. Unresolved components remain unchanged."
 
         btn_check_ortho_edges.Text = "CHECK ORTHO EDGES"
-        direction_button_tooltip.SetToolTip btn_check_ortho_edges "LMB: paint visible edges by distance severity.\n\nRMB: batch-fix ortho edges by running VERTICAL\\SKEWED LMB + CTRL+RMB, then HORIZONTAL SLOPED LMB + CTRL+RMB."
+        direction_button_tooltip.SetToolTip btn_check_ortho_edges "LMB: Paint visible edges by distance severity.\n\nRMB: Fix vertical skewed components, then horizontal sloped components. Components without trusted references stay unchanged."
 
         btn_clear_object.Text = "CLEAR OBJECT"
         btn_clear_object.ForeColor = (dotNetClass "System.Drawing.Color").OrangeRed
@@ -187,13 +224,13 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
     (
         ToolTitleButton.resizeToolTitleButton btn_tool_title (dialog_size.x - 24)
 
-        DialogHost.saveDialogHeight geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:516
+        DialogHost.saveDialogHeight geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:564
     )
 
 
     on geometryDiagnosticsRollout close do
     (
-        DialogHost.saveDialogState geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:516
+        DialogHost.saveDialogState geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" min_height:564
     )
 
 
@@ -396,8 +433,8 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
 
 
     /*
-    Runs one self-initializing CTRL+RMB direction repair.
-    The backend detects skewed edges first, preserves that detected selection, and leaves the final direction Edit Poly active at Edge level.
+    Runs one unified no-guess CTRL+RMB direction repair.
+    The backend preserves the matching RMB set, refuses components without trusted wall/reference geometry, and leaves the final direction Edit Poly active at Edge level.
     */
     function runGeometryDiagnosticsDirectionFixButton direction_type =
     (
@@ -422,7 +459,9 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
 
         if failed_count > 0 then
         (
-            setGeometryDiagnosticsStatus "Direction edge fix failed. See Listener."
+            setGeometryDiagnosticsStatus \
+                ("Direction fixed: " + (fixed_edge_count as string) + \
+                " edge(s); " + (failed_count as string) + " object(s) unresolved/failed. See Listener.")
             return false
         )
 
@@ -478,6 +517,36 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
     )
 
 
+    on btn_fix_skewed MouseUp sender event_args do
+    (
+        local mouse_button = geometryDiagnosticsGetDotNetMouseButton event_args
+
+        if mouse_button == "Left" then
+        (
+            runGeometryDiagnosticsDirectionButton #vertical #skewed
+        )
+        else if mouse_button == "Right" then
+        (
+            runGeometryDiagnosticsDirectionFixButton #vertical
+        )
+    )
+
+
+    on btn_fix_sloped MouseUp sender event_args do
+    (
+        local mouse_button = geometryDiagnosticsGetDotNetMouseButton event_args
+
+        if mouse_button == "Left" then
+        (
+            runGeometryDiagnosticsDirectionButton #horizontal #skewed
+        )
+        else if mouse_button == "Right" then
+        (
+            runGeometryDiagnosticsDirectionFixButton #horizontal
+        )
+    )
+
+
     on btn_check_ortho_edges MouseUp sender event_args do
     (
         local mouse_button = geometryDiagnosticsGetDotNetMouseButton event_args
@@ -517,7 +586,9 @@ rollout geometryDiagnosticsRollout ("Geometry Diagnostics - v" + geometry_diagno
             )
             else if fix_result[3] > 0 then
             (
-                setGeometryDiagnosticsStatus "Ortho batch fix failed. See Listener."
+                setGeometryDiagnosticsStatus \
+                    ("Ortho partially fixed: " + (fix_result[1] as string) + \
+                    " edge(s); " + (fix_result[3] as string) + " object(s) unresolved/failed. See Listener.")
             )
             else
             (
@@ -548,7 +619,7 @@ function openGeometryDiagnostics =
         return false
     )
 
-    local dialog_created = DialogHost.createManagedDialog geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" tool_key:"Geometry-Diagnostics" default_width:336 default_height:516 min_height:516
+    local dialog_created = DialogHost.createManagedDialog geometryDiagnosticsRollout geometry_diagnostics_ini_path "MainUI" tool_key:"Geometry-Diagnostics" default_width:336 default_height:564 min_height:564
 
     if dialog_created then
     (

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPT ↔ MCP ↔ 3ds Max Bridge</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;background:#111;color:#eee;max-width:980px;margin:40px auto;padding:0 24px;line-height:1.55}
+h1,h2{color:#fff} a{color:#69d2ff}.box{border:1px solid #555;border-radius:10px;padding:14px 18px;margin:10px 0;background:#1b1b1b}
+.arrow{text-align:center;font-size:22px;color:#aaa}.note{border-left:4px solid #69d2ff;padding:10px 16px;background:#181818}
+code{background:#252525;padding:2px 6px;border-radius:4px}
+</style>
+</head>
+<body>
+<h1>GPT ↔ MCP ↔ 3ds Max Bridge</h1>
+<p>Pracovní poznámka k plánovanému propojení ChatGPT s 3ds Maxem. Google Drive zůstává úložiště verzovaných MaxScriptů; MCP slouží jako pracovní komunikační kanál.</p>
+
+<h2>Cílový data flow</h2>
+<div class="box"><b>ChatGPT</b><br>napíše/upraví MaxScript a vyvolá MCP nástroj</div>
+<div class="arrow">↕ HTTPS / vzdálené MCP</div>
+<div class="box"><b>MCP endpoint / bridge na PC</b><br>převezme požadavek z internetu a předá ho lokálnímu 3ds Max MCP řešení</div>
+<div class="arrow">↕ lokální komunikace</div>
+<div class="box"><b>3ds Max MCP server / bridge</b><br>spustí příkaz nebo MaxScript v 3ds Maxu</div>
+<div class="arrow">↕</div>
+<div class="box"><b>3ds Max</b><br>provede skript → vytvoří výsledek / JSON / log</div>
+<div class="arrow">↑ výsledek stejnou cestou zpět</div>
+<div class="box"><b>ChatGPT</b><br>zpracuje feedback → vytvoří další verzovanou iteraci</div>
+
+<h2>Google Drive</h2>
+<p>Každá iterace skriptu se uloží jako nová verze, např. <code>Tool_0.01.ms</code>, <code>Tool_0.02.ms</code>. Poslední funkční baseline se nepřepisuje. Drive je historie a záloha; není nutné, aby byl transportní vrstvou mezi GPT a Maxem.</p>
+
+<h2>MCP řešení pro 3ds Max</h2>
+<p><a href="https://github.com/cl0nazepamm/3dsmax-mcp">3dsmax-mcp — GitHub</a><br>
+Kandidát s nativním bridge pro 3ds Max a MCP serverem.</p>
+
+<p><a href="https://github.com/maxpkg-dev/max-ultra-mcp">Max Ultra MCP — GitHub</a><br>
+Alternativní řešení používající MaxScript bridge a lokální MCP server.</p>
+
+<h2>Krátký postup</h2>
+<ol>
+<li>Nainstalovat a lokálně otestovat vybrané MCP řešení s 3ds Maxem.</li>
+<li>Ověřit: příkaz → spuštění MaxScriptu → návrat výsledku/logu.</li>
+<li>Ověřit, jak připojit vlastní vzdálený MCP endpoint přímo k ChatGPT.</li>
+<li>Teprve potom zvolit bezpečné HTTPS zpřístupnění lokálního MCP serveru.</li>
+<li>Napojit vývojový cyklus na verzované MaxScripty uložené na Google Drive.</li>
+</ol>
+
+<div class="note"><b>Stav 9. 10. 2026:</b> Lokální MCP projekty jsou kandidáti pro komunikaci s 3ds Maxem. Vzdálená cesta ChatGPT → HTTPS → PC → MCP je cílová architektura, ale před implementací je potřeba ověřit konkrétní podporu vzdáleného MCP v ChatGPT a způsob bezpečného vystavení endpointu.</div>
+</body>
+</html>

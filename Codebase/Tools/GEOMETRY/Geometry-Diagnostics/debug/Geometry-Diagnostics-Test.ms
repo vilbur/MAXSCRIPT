@@ -3,8 +3,8 @@ Geometry Diagnostics backend test.
 Runs direct channel-0 tests plus evaluated-stack VertexPaint tests on tessellation-created vertices.
 */
 
-global geometry_diagnostics_test_file_version = "0.25"
-global geometry_diagnostics_test_project_version = "0.31"
+global geometry_diagnostics_test_file_version = "0.29"
+global geometry_diagnostics_test_project_version = "0.37"
 global geometry_diagnostics_project_version
 global geometry_diagnostics_test_source_file = getSourceFileName()
 global geometry_diagnostics_test_directory
@@ -1465,191 +1465,276 @@ function partOfTest26 =
 
 
 /*
-Test part 27 verifies vertical RMB selection followed by CTRL+RMB repair, while horizontal keeps its self-initializing repair coverage.
-Vertical XY drift uses the selected-component anchor repair; horizontal lateral-plus-Z drift keeps the direction constraint solver.
+Creates a vertical XZ wall grid for direction-repair regression.
+The generated Plane is converted to Editable Poly and its original XY grid is remapped to XZ with Y=0.
+*/
+function createGeometryDiagnosticsDirectionWallFixture node_name segment_count =
+(
+    local test_node = plane \
+        name:(uniqueName node_name) \
+        length:300.0 width:300.0 \
+        lengthsegs:segment_count widthsegs:segment_count
+
+    convertTo test_node Editable_Poly
+    test_node.baseObject.showCage = off
+
+    local source_poly = test_node.baseObject
+
+    if polyop.getHasDeadStructs source_poly != 0 then
+    (
+        polyop.collapseDeadStructs source_poly
+    )
+
+    for vertex_id = 1 to polyop.getNumVerts source_poly do
+    (
+        local source_position = polyop.getVert source_poly vertex_id
+        polyop.setVert source_poly vertex_id [source_position.x, 0.0, source_position.y]
+    )
+
+    update test_node
+    test_node
+    -- return
+)
+
+
+/*
+Finds one wall-fixture vertex by explicit world position and position precision.
+Returns zero when no unique matching vertex exists.
+*/
+function findGeometryDiagnosticsDirectionFixtureVertex source_node target_position position_precision =
+(
+    if not isValidNode source_node or classOf source_node.baseObject != Editable_Poly or \
+        classOf target_position != Point3 or position_precision == undefined or position_precision <= 0.0 then return 0
+
+    local source_poly = source_node.baseObject
+    local found_vertex_id = 0
+
+    for vertex_id = 1 to polyop.getNumVerts source_poly do
+    (
+        local world_position = (polyop.getVert source_poly vertex_id) * source_node.objectTransform
+
+        if distance world_position target_position <= position_precision then
+        (
+            if found_vertex_id != 0 then
+            (
+                format "Geometry Diagnostics TEST FIXTURE ERROR | target:% | matches:[%,%]\n" \
+                    target_position found_vertex_id vertex_id
+                return 0
+            )
+
+            found_vertex_id = vertex_id
+        )
+    )
+
+    found_vertex_id
+    -- return
+)
+
+
+/*
+Captures current world positions for every Editable Poly vertex in one test node.
+*/
+function captureGeometryDiagnosticsDirectionFixturePositions source_node =
+(
+    local captured_positions = #()
+
+    if not isValidNode source_node or classOf source_node.baseObject != Editable_Poly then return captured_positions
+
+    local source_poly = source_node.baseObject
+
+    for vertex_id = 1 to polyop.getNumVerts source_poly do
+    (
+        append captured_positions ((polyop.getVert source_poly vertex_id) * source_node.objectTransform)
+    )
+
+    captured_positions
+    -- return
+)
+
+
+/*
+Verifies that every fixture vertex except one explicit repair target stayed within position precision of its original position.
+*/
+function geometryDiagnosticsDirectionFixturePreserved source_node original_positions ignored_vertex_id position_precision =
+(
+    if not isValidNode source_node or classOf source_node.baseObject != Editable_Poly or classOf original_positions != Array then return false
+
+    local source_poly = source_node.baseObject
+    if original_positions.count != polyop.getNumVerts source_poly then return false
+
+    for vertex_id = 1 to original_positions.count do
+    (
+        if vertex_id != ignored_vertex_id then
+        (
+            local current_position = (polyop.getVert source_poly vertex_id) * source_node.objectTransform
+
+            if distance current_position original_positions[vertex_id] > position_precision then return false
+        )
+    )
+
+    true
+    -- return
+)
+
+
+/*
+Test part 27 verifies the unified no-guess CTRL+RMB method for vertical and horizontal wall loops.
+A valid exact same-loop continuation must repair both depth and in-plane deviation, while a component with no trustworthy reference must remain untouched.
 */
 function partOfTest27 =
 (
-    format "\n--- TEST PART 27 : RMB-SELECTION VERTICAL CTRL+RMB FIX ---\n"
+    format "\n--- TEST PART 27 : UNIFIED SAME-LOOP DIRECTION CTRL+RMB ---\n"
 
     local vertical_node = undefined
     local horizontal_node = undefined
+    local unresolved_node = undefined
     local test_passed = true
     local position_precision = units.decodeValue "0.01mm"
 
     try
     (
-        vertical_node = box \
-            name:(uniqueName "GeometryDiagnostics_VerticalCtrlRmbTest") \
-            length:100.0 width:100.0 height:100.0 \
-            lengthsegs:1 widthsegs:1 heightsegs:1
-        convertTo vertical_node Editable_Poly
-        vertical_node.baseObject.showCage = off
-
+        vertical_node = createGeometryDiagnosticsDirectionWallFixture "GeometryDiagnostics_VerticalUnifiedTest" 3
         local vertical_poly = vertical_node.baseObject
-        local vertical_edge_id = 0
-        local vertical_top_vertex_id = 0
-        local vertical_bottom_vertex_id = 0
+        local vertical_bad_vertex_id = findGeometryDiagnosticsDirectionFixtureVertex vertical_node [-50.0, 0.0, -50.0] position_precision
+        local vertical_original_positions = captureGeometryDiagnosticsDirectionFixturePositions vertical_node
 
-        for edge_id = 1 to polyop.getNumEdges vertical_poly while vertical_edge_id == 0 do
-        (
-            local edge_verts = polyop.getEdgeVerts vertical_poly edge_id
-            local point_a = (polyop.getVert vertical_poly edge_verts[1]) * vertical_node.objectTransform
-            local point_b = (polyop.getVert vertical_poly edge_verts[2]) * vertical_node.objectTransform
-            local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
+        geometryDiagnosticsTestCheck (vertical_bad_vertex_id > 0) "Vertical unified fixture resolves its interior test vertex."
+        if vertical_bad_vertex_id == 0 then throw "Vertical unified fixture vertex was not found."
 
-            if axis_data.count == 2 and axis_data[1] == #z then
-            (
-                vertical_edge_id = edge_id
-
-                if point_a.z > point_b.z then
-                (
-                    vertical_top_vertex_id = edge_verts[1]
-                    vertical_bottom_vertex_id = edge_verts[2]
-                )
-                else
-                (
-                    vertical_top_vertex_id = edge_verts[2]
-                    vertical_bottom_vertex_id = edge_verts[1]
-                )
-            )
-        )
-
-        local vertical_bottom_before = (polyop.getVert vertical_poly vertical_bottom_vertex_id) * vertical_node.objectTransform
-        local vertical_top_local = polyop.getVert vertical_poly vertical_top_vertex_id
-        polyop.setVert vertical_poly vertical_top_vertex_id \
-            (vertical_top_local + [position_precision * 5.0, position_precision * 3.0, 0.0])
+        local vertical_bad_local = polyop.getVert vertical_poly vertical_bad_vertex_id
+        polyop.setVert vertical_poly vertical_bad_vertex_id \
+            (vertical_bad_local + [position_precision * 5.0, position_precision * 4.0, 0.0])
         update vertical_node
         select vertical_node
 
         local vertical_rmb_result = checkGeometryDiagnosticsDirectionEdges vertical_node #vertical #skewed "0.01mm"
         local vertical_rmb_edges = if vertical_rmb_result != undefined then copy vertical_rmb_result.edge_ids else #{}
-
-        geometryDiagnosticsTestCheck (vertical_rmb_result != undefined) "Vertical RMB returns the skewed-edge selection used by CTRL+RMB."
-        geometryDiagnosticsTestCheck (vertical_rmb_edges.numberSet == 1 and vertical_rmb_edges[vertical_edge_id]) "Vertical RMB selects the deliberately skewed vertical edge."
-
         local vertical_fix_result = fixGeometryDiagnosticsSelectedDirectionEdges #vertical "0.01mm"
-        local vertical_adapter = if vertical_fix_result[4] != undefined then #(#edit_poly, vertical_fix_result[4], false) else #()
-        local vertical_after_selection = if vertical_adapter.count >= 2 then getGeometryDiagnosticsDirectionEdgeSelection vertical_node vertical_adapter else undefined
+        local vertical_edit_poly_mod = vertical_fix_result[4]
+        local vertical_adapter = if vertical_edit_poly_mod != undefined then #(#edit_poly, vertical_edit_poly_mod, false) else #()
+        local vertical_after_position = if vertical_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionVertexWorldPosition vertical_node vertical_adapter vertical_bad_vertex_id else undefined
+        local vertical_after_selection = if vertical_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionEdgeSelection vertical_node vertical_adapter else undefined
         local vertical_all_exact = classOf vertical_after_selection == BitArray and vertical_after_selection == vertical_rmb_edges
 
         if vertical_all_exact then
         (
             for edge_id in vertical_after_selection do
             (
-                if not isGeometryDiagnosticsExactDirectionEdge vertical_node vertical_adapter edge_id #vertical position_precision then
-                (
-                    vertical_all_exact = false
-                )
+                if not isGeometryDiagnosticsExactDirectionEdge vertical_node vertical_adapter edge_id #vertical position_precision then vertical_all_exact = false
             )
         )
 
-        local vertical_bottom_after = if vertical_adapter.count >= 2 then \
-            getGeometryDiagnosticsDirectionVertexWorldPosition vertical_node vertical_adapter vertical_bottom_vertex_id else undefined
-        local vertical_top_after = if vertical_adapter.count >= 2 then \
-            getGeometryDiagnosticsDirectionVertexWorldPosition vertical_node vertical_adapter vertical_top_vertex_id else undefined
-        local vertical_xy_aligned = vertical_bottom_after != undefined and vertical_top_after != undefined and \
-            abs (vertical_top_after.x - vertical_bottom_after.x) <= position_precision and \
-            abs (vertical_top_after.y - vertical_bottom_after.y) <= position_precision
+        geometryDiagnosticsTestCheck (vertical_rmb_result != undefined and vertical_rmb_edges.numberSet > 0) "Vertical RMB finds the deliberately skewed wall-loop edges."
+        geometryDiagnosticsTestCheck (vertical_fix_result[2] == 1 and vertical_fix_result[3] == 0) "Vertical CTRL+RMB repairs one wall object without unresolved components."
+        geometryDiagnosticsTestCheck vertical_all_exact "Vertical CTRL+RMB makes every RMB-selected edge vertical within postion preccision."
+        geometryDiagnosticsTestCheck (vertical_after_position != undefined and distance vertical_after_position vertical_original_positions[vertical_bad_vertex_id] <= position_precision) "Vertical CTRL+RMB removes wall-normal and in-plane deviation from the bad vertex."
+        geometryDiagnosticsTestCheck (geometryDiagnosticsDirectionFixturePreserved vertical_node vertical_original_positions vertical_bad_vertex_id position_precision) "Vertical CTRL+RMB does not shift any other valid wall vertex."
 
-        geometryDiagnosticsTestCheck (vertical_fix_result[2] == 1 and vertical_fix_result[3] == 0) "Vertical CTRL+RMB processes the RMB-selected edge set without failure."
-        geometryDiagnosticsTestCheck (classOf vertical_after_selection == BitArray and vertical_after_selection == vertical_rmb_edges) "Vertical CTRL+RMB preserves the RMB edge selection after repair."
-        geometryDiagnosticsTestCheck vertical_all_exact "Vertical CTRL+RMB repairs every RMB-selected vertical edge to within postion preccision."
-        geometryDiagnosticsTestCheck vertical_xy_aligned "Vertical CTRL+RMB aligns the skewed edge endpoints to one XY coordinate."
-        geometryDiagnosticsTestCheck (vertical_bottom_after != undefined and (distance vertical_bottom_after vertical_bottom_before) <= position_precision) "Vertical CTRL+RMB keeps the lowest component anchor in place."
-        geometryDiagnosticsTestCheck (getCommandPanelTaskMode() == #modify and subObjectLevel == 2) "Vertical CTRL+RMB leaves Modify mode at Edge level."
-
-        horizontal_node = box \
-            name:(uniqueName "GeometryDiagnostics_HorizontalCtrlRmbTest") \
-            length:100.0 width:100.0 height:100.0 \
-            lengthsegs:1 widthsegs:1 heightsegs:1
-        convertTo horizontal_node Editable_Poly
-        horizontal_node.baseObject.showCage = off
-
+        horizontal_node = createGeometryDiagnosticsDirectionWallFixture "GeometryDiagnostics_HorizontalUnifiedTest" 3
         local horizontal_poly = horizontal_node.baseObject
-        local horizontal_edge_id = 0
-        local horizontal_vertex_id = 0
-        local horizontal_axis = undefined
+        local horizontal_bad_vertex_id = findGeometryDiagnosticsDirectionFixtureVertex horizontal_node [-50.0, 0.0, -50.0] position_precision
+        local horizontal_original_positions = captureGeometryDiagnosticsDirectionFixturePositions horizontal_node
 
-        for edge_id = 1 to polyop.getNumEdges horizontal_poly while horizontal_edge_id == 0 do
-        (
-            local edge_verts = polyop.getEdgeVerts horizontal_poly edge_id
-            local point_a = (polyop.getVert horizontal_poly edge_verts[1]) * horizontal_node.objectTransform
-            local point_b = (polyop.getVert horizontal_poly edge_verts[2]) * horizontal_node.objectTransform
-            local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
+        geometryDiagnosticsTestCheck (horizontal_bad_vertex_id > 0) "Horizontal unified fixture resolves its interior test vertex."
+        if horizontal_bad_vertex_id == 0 then throw "Horizontal unified fixture vertex was not found."
 
-            if axis_data.count == 2 and (axis_data[1] == #x or axis_data[1] == #y) then
-            (
-                horizontal_edge_id = edge_id
-                horizontal_vertex_id = edge_verts[1]
-                horizontal_axis = axis_data[1]
-            )
-        )
-
-        local horizontal_local_position = polyop.getVert horizontal_poly horizontal_vertex_id
-        local horizontal_offset = if horizontal_axis == #x then \
-            [0.0, position_precision * 5.0, position_precision * 4.0] else \
-            [position_precision * 5.0, 0.0, position_precision * 4.0]
-
-        polyop.setVert horizontal_poly horizontal_vertex_id (horizontal_local_position + horizontal_offset)
+        local horizontal_bad_local = polyop.getVert horizontal_poly horizontal_bad_vertex_id
+        polyop.setVert horizontal_poly horizontal_bad_vertex_id \
+            (horizontal_bad_local + [0.0, position_precision * 4.0, position_precision * 5.0])
         update horizontal_node
         select horizontal_node
 
+        local horizontal_rmb_result = checkGeometryDiagnosticsDirectionEdges horizontal_node #horizontal #skewed "0.01mm"
+        local horizontal_rmb_edges = if horizontal_rmb_result != undefined then copy horizontal_rmb_result.edge_ids else #{}
         local horizontal_fix_result = fixGeometryDiagnosticsSelectedDirectionEdges #horizontal "0.01mm"
-        local horizontal_adapter = if horizontal_fix_result[4] != undefined then #(#edit_poly, horizontal_fix_result[4], false) else #()
-        local horizontal_after_selection = if horizontal_adapter.count >= 2 then getGeometryDiagnosticsDirectionEdgeSelection horizontal_node horizontal_adapter else undefined
-        local horizontal_all_exact = classOf horizontal_after_selection == BitArray and horizontal_after_selection.numberSet > 0
+        local horizontal_edit_poly_mod = horizontal_fix_result[4]
+        local horizontal_adapter = if horizontal_edit_poly_mod != undefined then #(#edit_poly, horizontal_edit_poly_mod, false) else #()
+        local horizontal_after_position = if horizontal_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionVertexWorldPosition horizontal_node horizontal_adapter horizontal_bad_vertex_id else undefined
+        local horizontal_after_selection = if horizontal_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionEdgeSelection horizontal_node horizontal_adapter else undefined
+        local horizontal_all_exact = classOf horizontal_after_selection == BitArray and horizontal_after_selection == horizontal_rmb_edges
 
         if horizontal_all_exact then
         (
             for edge_id in horizontal_after_selection do
             (
-                if not isGeometryDiagnosticsExactDirectionEdge horizontal_node horizontal_adapter edge_id #horizontal position_precision then
-                (
-                    horizontal_all_exact = false
-                )
+                if not isGeometryDiagnosticsExactDirectionEdge horizontal_node horizontal_adapter edge_id #horizontal position_precision then horizontal_all_exact = false
             )
         )
 
-        local target_edge_verts = if horizontal_adapter.count >= 2 then \
-            getGeometryDiagnosticsDirectionEdgeVertIds horizontal_node horizontal_adapter horizontal_edge_id else #()
-        local target_axis_data = #()
+        geometryDiagnosticsTestCheck (horizontal_rmb_result != undefined and horizontal_rmb_edges.numberSet > 0) "Horizontal RMB finds the deliberately sloped wall-loop edges."
+        geometryDiagnosticsTestCheck (horizontal_fix_result[2] == 1 and horizontal_fix_result[3] == 0) "Horizontal CTRL+RMB repairs one wall object without unresolved components."
+        geometryDiagnosticsTestCheck horizontal_all_exact "Horizontal CTRL+RMB makes every RMB-selected edge horizontal within postion preccision."
+        geometryDiagnosticsTestCheck (horizontal_after_position != undefined and distance horizontal_after_position horizontal_original_positions[horizontal_bad_vertex_id] <= position_precision) "Horizontal CTRL+RMB removes wall-normal and in-plane deviation from the bad vertex."
+        geometryDiagnosticsTestCheck (geometryDiagnosticsDirectionFixturePreserved horizontal_node horizontal_original_positions horizontal_bad_vertex_id position_precision) "Horizontal CTRL+RMB does not shift any other valid wall vertex."
 
-        if target_edge_verts.count == 2 then
+        unresolved_node = plane \
+            name:(uniqueName "GeometryDiagnostics_NoReferenceTest") \
+            length:100.0 width:100.0 lengthsegs:1 widthsegs:1
+        convertTo unresolved_node Editable_Poly
+        unresolved_node.baseObject.showCage = off
+
+        local unresolved_poly = unresolved_node.baseObject
+
+        for vertex_id = 1 to polyop.getNumVerts unresolved_poly do
         (
-            local target_point_a = getGeometryDiagnosticsDirectionVertexWorldPosition horizontal_node horizontal_adapter target_edge_verts[1]
-            local target_point_b = getGeometryDiagnosticsDirectionVertexWorldPosition horizontal_node horizontal_adapter target_edge_verts[2]
-            target_axis_data = getGeometryDiagnosticsPrincipalAxisData target_point_a target_point_b
+            local source_position = polyop.getVert unresolved_poly vertex_id
+            polyop.setVert unresolved_poly vertex_id [source_position.x, 0.0, source_position.y]
         )
 
-        geometryDiagnosticsTestCheck (horizontal_fix_result[2] == 1 and horizontal_fix_result[3] == 0) "Horizontal CTRL+RMB self-detects and processes one object without failure."
-        geometryDiagnosticsTestCheck (classOf horizontal_after_selection == BitArray and horizontal_after_selection.numberSet > 0) "Horizontal CTRL+RMB creates the sloped/skewed edge selection itself."
-        geometryDiagnosticsTestCheck horizontal_all_exact "Horizontal CTRL+RMB repairs both lateral and Z off-axis drift to within postion preccision."
-        geometryDiagnosticsTestCheck (target_axis_data.count == 2 and target_axis_data[2] <= position_precision) "The explicitly laterally skewed horizontal test edge becomes axis-exact."
-        geometryDiagnosticsTestCheck (getCommandPanelTaskMode() == #modify and subObjectLevel == 2) "Horizontal CTRL+RMB leaves Modify mode at Edge level."
+        update unresolved_node
+
+        local unresolved_bad_vertex_id = findGeometryDiagnosticsDirectionFixtureVertex unresolved_node [-50.0, 0.0, 50.0] position_precision
+        geometryDiagnosticsTestCheck (unresolved_bad_vertex_id > 0) "No-reference fixture resolves its test vertex."
+        if unresolved_bad_vertex_id == 0 then throw "No-reference fixture vertex was not found."
+
+        local unresolved_bad_local = polyop.getVert unresolved_poly unresolved_bad_vertex_id
+        polyop.setVert unresolved_poly unresolved_bad_vertex_id \
+            (unresolved_bad_local + [position_precision * 5.0, position_precision * 4.0, 0.0])
+        update unresolved_node
+        local unresolved_before_fix = captureGeometryDiagnosticsDirectionFixturePositions unresolved_node
+        select unresolved_node
+
+        local unresolved_rmb_result = checkGeometryDiagnosticsDirectionEdges unresolved_node #vertical #skewed "0.01mm"
+        local unresolved_fix_result = fixGeometryDiagnosticsDirectionEdges unresolved_node #vertical "0.01mm"
+        local unresolved_after_fix = captureGeometryDiagnosticsDirectionFixturePositions unresolved_node
+        local unresolved_positions_same = unresolved_before_fix.count == unresolved_after_fix.count
+
+        if unresolved_positions_same then
+        (
+            for vertex_id = 1 to unresolved_before_fix.count while unresolved_positions_same do
+            (
+                if distance unresolved_before_fix[vertex_id] unresolved_after_fix[vertex_id] > position_precision then unresolved_positions_same = false
+            )
+        )
+
+        geometryDiagnosticsTestCheck (unresolved_rmb_result != undefined and unresolved_rmb_result.edge_ids.numberSet > 0) "No-reference fixture still detects the skewed vertical edge."
+        geometryDiagnosticsTestCheck (unresolved_fix_result != undefined and unresolved_fix_result[2]) "CTRL+RMB reports the component unresolved when no trustworthy wall/reference geometry exists."
+        geometryDiagnosticsTestCheck unresolved_positions_same "Unresolved CTRL+RMB leaves every vertex untouched instead of inventing a target."
 
         test_passed = \
-            vertical_fix_result[3] == 0 and \
-            vertical_rmb_edges.numberSet == 1 and \
-            vertical_all_exact and \
-            vertical_xy_aligned and \
-            vertical_bottom_after != undefined and \
-            (distance vertical_bottom_after vertical_bottom_before <= position_precision) and \
-            horizontal_fix_result[3] == 0 and \
-            horizontal_all_exact and \
-            target_axis_data.count == 2 and \
-            target_axis_data[2] <= position_precision
+            vertical_fix_result[3] == 0 and vertical_all_exact and \
+            vertical_after_position != undefined and distance vertical_after_position vertical_original_positions[vertical_bad_vertex_id] <= position_precision and \
+            geometryDiagnosticsDirectionFixturePreserved vertical_node vertical_original_positions vertical_bad_vertex_id position_precision and \
+            horizontal_fix_result[3] == 0 and horizontal_all_exact and \
+            horizontal_after_position != undefined and distance horizontal_after_position horizontal_original_positions[horizontal_bad_vertex_id] <= position_precision and \
+            geometryDiagnosticsDirectionFixturePreserved horizontal_node horizontal_original_positions horizontal_bad_vertex_id position_precision and \
+            unresolved_fix_result != undefined and unresolved_fix_result[2] and unresolved_positions_same
     )
     catch
     (
         local exception_text = getCurrentException()
         format "Geometry Diagnostics TEST PART 27 ERROR | exception:%\n" exception_text
-        geometryDiagnosticsTestCheck false "RMB-selection direction CTRL+RMB repair completed without exception."
+        geometryDiagnosticsTestCheck false "Unified no-guess direction CTRL+RMB regression completed without exception."
         test_passed = false
     )
 
     if isValidNode vertical_node then delete vertical_node
     if isValidNode horizontal_node then delete horizontal_node
+    if isValidNode unresolved_node then delete unresolved_node
 
     test_passed
     -- return
@@ -1657,12 +1742,12 @@ function partOfTest27 =
 
 
 /*
-Test part 28 verifies CHECK ORTHO EDGES RMB on a vertex displaced beyond postion preccision in X, Y, and Z.
-The requested vertical-LMB/CTRL+RMB then horizontal-LMB/CTRL+RMB sequence must finish with every box edge axis-exact.
+Test part 28 verifies the requested CHECK ORTHO EDGES RMB batch on one flat wall with one vertex displaced in all three world coordinates.
+The vertical step repairs XY from an exact continuation reference, then the horizontal step repairs YZ without moving any other valid wall vertex.
 */
 function partOfTest28 =
 (
-    format "\n--- TEST PART 28 : CHECK ORTHO EDGES RMB BATCH FIX ---\n"
+    format "\n--- TEST PART 28 : CHECK ORTHO EDGES RMB UNIFIED WALL FIX ---\n"
 
     local test_node = undefined
     local test_passed = false
@@ -1670,30 +1755,17 @@ function partOfTest28 =
 
     try
     (
-        test_node = box \
-            name:(uniqueName "GeometryDiagnostics_OrthoRmbBatchTest") \
-            length:100.0 width:100.0 height:100.0 \
-            lengthsegs:1 widthsegs:1 heightsegs:1
-        convertTo test_node Editable_Poly
-        test_node.baseObject.showCage = off
-
+        test_node = createGeometryDiagnosticsDirectionWallFixture "GeometryDiagnostics_OrthoRmbBatchTest" 3
         local source_poly = test_node.baseObject
-        local highest_vertex_id = 0
-        local highest_position = undefined
+        local bad_vertex_id = findGeometryDiagnosticsDirectionFixtureVertex test_node [-50.0, 0.0, -50.0] position_precision
+        local original_positions = captureGeometryDiagnosticsDirectionFixturePositions test_node
+        geometryDiagnosticsTestCheck (bad_vertex_id > 0) "Ortho batch fixture resolves its interior test vertex."
+        if bad_vertex_id == 0 then throw "Ortho batch fixture vertex was not found."
 
-        for vertex_id = 1 to polyop.getNumVerts source_poly do
-        (
-            local vertex_position = polyop.getVert source_poly vertex_id
+        local bad_local_position = polyop.getVert source_poly bad_vertex_id
 
-            if highest_position == undefined or vertex_position.z > highest_position.z then
-            (
-                highest_vertex_id = vertex_id
-                highest_position = vertex_position
-            )
-        )
-
-        polyop.setVert source_poly highest_vertex_id \
-            (highest_position + [position_precision * 5.0, position_precision * 3.0, position_precision * 4.0])
+        polyop.setVert source_poly bad_vertex_id \
+            (bad_local_position + [position_precision * 5.0, position_precision * 4.0, position_precision * 6.0])
         update test_node
         select test_node
 
@@ -1715,10 +1787,7 @@ function partOfTest28 =
                     local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition test_node final_adapter edge_verts[2]
                     local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
 
-                    if axis_data.count != 2 or axis_data[2] > position_precision then
-                    (
-                        all_edges_exact = false
-                    )
+                    if axis_data.count != 2 or axis_data[2] > position_precision then all_edges_exact = false
                 )
                 else
                 (
@@ -1731,26 +1800,294 @@ function partOfTest28 =
             all_edges_exact = false
         )
 
-        geometryDiagnosticsTestCheck (batch_result[2] == 1 and batch_result[3] == 0) "CHECK ORTHO EDGES RMB processes one object without failure."
-        geometryDiagnosticsTestCheck (batch_result[1] > 0) "CHECK ORTHO EDGES RMB repairs beyond-precision vertical/horizontal edges."
-        geometryDiagnosticsTestCheck all_edges_exact "CHECK ORTHO EDGES RMB leaves every box edge within postion preccision after true X/Y/Z drift."
+        local final_bad_position = if final_adapter.count >= 2 then \
+            getGeometryDiagnosticsDirectionVertexWorldPosition test_node final_adapter bad_vertex_id else undefined
+        local other_vertices_preserved = geometryDiagnosticsDirectionFixturePreserved test_node original_positions bad_vertex_id position_precision
+
+        geometryDiagnosticsTestCheck (batch_result[2] == 1 and batch_result[3] == 0) "CHECK ORTHO EDGES RMB processes one flat wall without unresolved components."
+        geometryDiagnosticsTestCheck (batch_result[1] > 0) "CHECK ORTHO EDGES RMB repairs both vertical and horizontal beyond-precision edges."
+        geometryDiagnosticsTestCheck all_edges_exact "CHECK ORTHO EDGES RMB leaves every wall-grid edge within postion preccision."
+        geometryDiagnosticsTestCheck (final_bad_position != undefined and distance final_bad_position original_positions[bad_vertex_id] <= position_precision) "CHECK ORTHO EDGES RMB restores the displaced wall vertex to the trusted wall/loop intersection."
+        geometryDiagnosticsTestCheck other_vertices_preserved "CHECK ORTHO EDGES RMB does not shift unrelated valid wall vertices."
         geometryDiagnosticsTestCheck (getCommandPanelTaskMode() == #modify) "CHECK ORTHO EDGES RMB leaves the Modify panel active."
         geometryDiagnosticsTestCheck (modPanel.getCurrentObject() == final_edit_poly_mod and subObjectLevel == 2) "CHECK ORTHO EDGES RMB leaves the final direction Edit Poly active at Edge level."
 
         test_passed = \
-            batch_result[2] == 1 and \
-            batch_result[3] == 0 and \
-            batch_result[1] > 0 and \
-            all_edges_exact and \
-            getCommandPanelTaskMode() == #modify and \
-            modPanel.getCurrentObject() == final_edit_poly_mod and \
-            subObjectLevel == 2
+            batch_result[2] == 1 and batch_result[3] == 0 and batch_result[1] > 0 and \
+            all_edges_exact and final_bad_position != undefined and \
+            distance final_bad_position original_positions[bad_vertex_id] <= position_precision and \
+            other_vertices_preserved and getCommandPanelTaskMode() == #modify and \
+            modPanel.getCurrentObject() == final_edit_poly_mod and subObjectLevel == 2
     )
     catch
     (
         local exception_text = getCurrentException()
         format "Geometry Diagnostics TEST PART 28 ERROR | exception:%\n" exception_text
-        geometryDiagnosticsTestCheck false "CHECK ORTHO EDGES RMB batch repair completed without exception."
+        geometryDiagnosticsTestCheck false "CHECK ORTHO EDGES RMB unified wall repair completed without exception."
+        test_passed = false
+    )
+
+    if isValidNode test_node then delete test_node
+
+    test_passed
+    -- return
+)
+
+
+/*
+Test part 29 verifies Edit Poly instance vertex reads and movement on a translated wall.
+The live Edit Poly vertex position must not collapse to the node transform origin, and CTRL+RMB must restore the bad vertex while preserving all other wall vertices.
+*/
+function partOfTest29 =
+(
+    format "\n--- TEST PART 29 : TRANSLATED EDIT POLY DIRECTION READ AND FIX ---\n"
+
+    local test_node = undefined
+    local test_passed = false
+    local position_precision = units.decodeValue "0.01mm"
+
+    try
+    (
+        test_node = createGeometryDiagnosticsDirectionWallFixture "GeometryDiagnostics_TranslatedDirectionTest" 3
+        test_node.position = [75.383591, 15.308228, -2.319107]
+        update test_node
+
+        local source_poly = test_node.baseObject
+        local local_target = [-50.0, 0.0, -50.0]
+        local world_target = local_target * test_node.objectTransform
+        local bad_vertex_id = findGeometryDiagnosticsDirectionFixtureVertex test_node world_target position_precision
+        local original_positions = captureGeometryDiagnosticsDirectionFixturePositions test_node
+
+        geometryDiagnosticsTestCheck (bad_vertex_id > 0) "Translated direction fixture resolves its test vertex."
+        if bad_vertex_id == 0 then throw "Translated direction fixture vertex was not found."
+
+        local bad_local = polyop.getVert source_poly bad_vertex_id
+        polyop.setVert source_poly bad_vertex_id \
+            (bad_local + [position_precision * 5.0, position_precision * 4.0, 0.0])
+        update test_node
+        select test_node
+
+        local rmb_result = checkGeometryDiagnosticsDirectionEdges test_node #vertical #skewed "0.01mm"
+        geometryDiagnosticsTestCheck (rmb_result != undefined and rmb_result.edge_ids.numberSet > 0) "Translated wall RMB finds the skewed vertical edges."
+        if rmb_result == undefined then throw "Translated wall RMB detection failed."
+
+        local edit_poly_mod = rmb_result.selection_edit_poly_mod
+        local adapter = #(#edit_poly, edit_poly_mod, false)
+        local expected_bad_world_before_fix = (polyop.getVert source_poly bad_vertex_id) * test_node.objectTransform
+        local edit_poly_bad_world_before_fix = getGeometryDiagnosticsDirectionVertexWorldPosition test_node adapter bad_vertex_id
+
+        geometryDiagnosticsTestCheck \
+            (edit_poly_bad_world_before_fix != undefined and distance edit_poly_bad_world_before_fix expected_bad_world_before_fix <= position_precision) \
+            "Edit Poly instance vertex read matches the translated wall vertex instead of the node transform origin."
+
+        local fix_result = fixGeometryDiagnosticsDirectionEdges test_node #vertical "0.01mm"
+        local final_bad_world = getGeometryDiagnosticsDirectionVertexWorldPosition test_node adapter bad_vertex_id
+        local preserved_other_vertices = geometryDiagnosticsDirectionFixturePreserved test_node original_positions bad_vertex_id position_precision
+
+        geometryDiagnosticsTestCheck (fix_result != undefined and not fix_result[2]) "Translated wall vertical CTRL+RMB completes without unresolved vertices."
+        geometryDiagnosticsTestCheck (final_bad_world != undefined and distance final_bad_world original_positions[bad_vertex_id] <= position_precision) "Translated wall bad vertex returns to its original trusted loop position."
+        geometryDiagnosticsTestCheck preserved_other_vertices "Translated wall CTRL+RMB preserves every unrelated valid vertex."
+
+        test_passed = \
+            edit_poly_bad_world_before_fix != undefined and \
+            distance edit_poly_bad_world_before_fix expected_bad_world_before_fix <= position_precision and \
+            fix_result != undefined and not fix_result[2] and \
+            final_bad_world != undefined and distance final_bad_world original_positions[bad_vertex_id] <= position_precision and \
+            preserved_other_vertices
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics TEST PART 29 ERROR | exception:%\n" exception_text
+        geometryDiagnosticsTestCheck false "Translated Edit Poly direction regression completed without exception."
+        test_passed = false
+    )
+
+    if isValidNode test_node then delete test_node
+
+    test_passed
+    -- return
+)
+
+
+/*
+Test part 30 checks that an unresolved vertical component cannot block a repairable horizontal component on the same object.
+Leaves the combined fixture in the scene for inspection and prints the undo order.
+*/
+function partOfTest30 =
+(
+    format "\n--- TEST PART 30 : ORTHO PARTIAL BATCH PROGRESS ---\n"
+
+    local fixture_node = undefined
+    local reference_node = undefined
+    local test_passed = false
+    local position_precision = units.decodeValue "0.01mm"
+
+    try
+    (
+        undo "30 Make disconnected wall elements" on
+        (
+            fixture_node = createGeometryDiagnosticsDirectionWallFixture "GeometryDiagnostics_PartialBatch" 1
+            reference_node = createGeometryDiagnosticsDirectionWallFixture "GeometryDiagnostics_RepairableElement" 3
+            reference_node.position = [500.0, 0.0, 0.0]
+            update reference_node
+
+            polyop.attach fixture_node reference_node
+            fixture_node.baseObject.showCage = off
+
+            if polyop.getHasDeadStructs fixture_node.baseObject != 0 then
+            (
+                polyop.collapseDeadStructs fixture_node.baseObject
+            )
+
+            update fixture_node
+        )
+
+        local unresolved_vertex_id = findGeometryDiagnosticsDirectionFixtureVertex \
+            fixture_node [-150.0, 0.0, -150.0] position_precision
+        local repairable_vertex_id = findGeometryDiagnosticsDirectionFixtureVertex \
+            fixture_node [450.0, 0.0, -50.0] position_precision
+
+        geometryDiagnosticsTestCheck \
+            (unresolved_vertex_id > 0 and repairable_vertex_id > 0) \
+            "Partial-batch fixture resolves both disconnected wall elements."
+
+        if unresolved_vertex_id == 0 or repairable_vertex_id == 0 then
+        (
+            throw "Partial batch fixture vertices were not found."
+        )
+
+        local expected_repairable_world = \
+            (polyop.getVert fixture_node.baseObject repairable_vertex_id) * fixture_node.objectTransform
+
+        undo "30 Introduce independent ortho defects" on
+        (
+            local unresolved_position = polyop.getVert fixture_node.baseObject unresolved_vertex_id
+            local repairable_position = polyop.getVert fixture_node.baseObject repairable_vertex_id
+
+            polyop.setVert fixture_node.baseObject unresolved_vertex_id \
+                (unresolved_position + [position_precision * 5.0, position_precision * 4.0, 0.0])
+            polyop.setVert fixture_node.baseObject repairable_vertex_id \
+                (repairable_position + [0.0, 0.0, position_precision * 6.0])
+            update fixture_node
+        )
+
+        local unresolved_world_before = \
+            (polyop.getVert fixture_node.baseObject unresolved_vertex_id) * fixture_node.objectTransform
+
+        select fixture_node
+        local batch_result = fixGeometryDiagnosticsSelectedOrthoBatch "0.01mm"
+
+        local unresolved_world_after = \
+            (polyop.getVert fixture_node.baseObject unresolved_vertex_id) * fixture_node.objectTransform
+        local repaired_world_after = \
+            (polyop.getVert fixture_node.baseObject repairable_vertex_id) * fixture_node.objectTransform
+
+        local unresolved_is_preserved = \
+            distance unresolved_world_before unresolved_world_after <= position_precision
+        local horizontal_is_repaired = \
+            distance repaired_world_after expected_repairable_world <= position_precision
+        local partial_is_reported = batch_result[2] == 1 and batch_result[3] == 1
+        local fixed_count_is_preserved = batch_result[1] > 0
+
+        geometryDiagnosticsTestCheck unresolved_is_preserved \
+            "Ortho batch preserves a selected vertical component without an exact continuation."
+        geometryDiagnosticsTestCheck horizontal_is_repaired \
+            "Ortho batch still repairs the independent horizontal component."
+        geometryDiagnosticsTestCheck partial_is_reported \
+            "Ortho batch reports one processed object with unresolved geometry."
+        geometryDiagnosticsTestCheck fixed_count_is_preserved \
+            "Ortho batch counts successfully repaired edges despite an unresolved component."
+
+        test_passed = unresolved_is_preserved and horizontal_is_repaired and \
+            partial_is_reported and fixed_count_is_preserved
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics TEST PART 30 ERROR | exception:%\n" exception_text
+        geometryDiagnosticsTestCheck false "Ortho partial-batch regression completed without exception."
+        test_passed = false
+    )
+
+    format "TEST 30 UNDO ORDER (newest first): Geometry Diagnostics - Fix Ortho Edges -> 30 Introduce independent ortho defects -> 30 Make disconnected wall elements.\n"
+    format "TEST 30 FIXTURE REMAINS IN THE SCENE: %\n" fixture_node
+
+    test_passed
+    -- return
+)
+
+
+/*
+Regression part 31 reproduces the reported translated-object failure.
+The base Editable Poly must actually move despite an initially unbound
+selection-only Edit Poly primary node. The operation must preserve the
+single owned selection modifier and every unrelated base vertex.
+*/
+function partOfTest31 =
+(
+    format "\n--- TEST PART 31 : TRANSLATED SELECTION MODIFIER BASE WRITE ---\n"
+
+    local test_node = undefined
+    local test_passed = false
+    local position_precision = units.decodeValue "0.01mm"
+
+    try
+    (
+        test_node = createGeometryDiagnosticsDirectionWallFixture "GeometryDiagnostics_BaseRepairTest" 3
+        test_node.position = [75.383591, 15.308228, -2.319107]
+        update test_node
+
+        local source_poly = test_node.baseObject
+        local vertex_world = [-50.0, 0.0, -50.0] * test_node.objectTransform
+        local vertex_id = findGeometryDiagnosticsDirectionFixtureVertex test_node vertex_world position_precision
+        if vertex_id <= 0 then throw "Part 31 fixture vertex missing."
+
+        local original_positions = captureGeometryDiagnosticsDirectionFixturePositions test_node
+        local original_base_position = polyop.getVert source_poly vertex_id
+
+        polyop.setVert source_poly vertex_id \
+            (original_base_position + [position_precision * 5.0, position_precision * 4.0, 0.0])
+        update test_node
+        select test_node
+
+        local selected_result = checkGeometryDiagnosticsDirectionEdges test_node #vertical #skewed "0.01mm"
+        geometryDiagnosticsTestCheck (selected_result != undefined and selected_result.edge_ids.numberSet > 0) \
+            "Translated wall discovers skewed edges before repair."
+
+        if selected_result == undefined then throw "Part 31 failed to detect skewed edges."
+
+        local selection_edit_poly_mod = selected_result.selection_edit_poly_mod
+        local matching_adapter = #(#edit_poly, selection_edit_poly_mod, false)
+        local verified_adapter = getGeometryDiagnosticsDirectionBaseRepairAdapter \
+            test_node matching_adapter position_precision
+
+        geometryDiagnosticsTestCheck (verified_adapter.count == 3 and verified_adapter[1] == #editable_poly) \
+            "Sole owned Edit Poly modifier maps safely to base Editable Poly topology."
+
+        local fix_result = fixGeometryDiagnosticsDirectionEdges test_node #vertical "0.01mm"
+        local repaired_base_position = polyop.getVert source_poly vertex_id
+        local untouched_vertices_ok = geometryDiagnosticsDirectionFixturePreserved test_node original_positions vertex_id position_precision
+        local stack_ok = test_node.modifiers.count == 1 and test_node.modifiers[1] == selection_edit_poly_mod
+
+        geometryDiagnosticsTestCheck (fix_result != undefined and fix_result[1] > 0 and not fix_result[2]) \
+            "Translated skewed component is reported as physically repaired."
+        geometryDiagnosticsTestCheck (distance repaired_base_position original_base_position <= position_precision) \
+            "Base Editable Poly vertex actually reaches the trusted target."
+        geometryDiagnosticsTestCheck untouched_vertices_ok \
+            "Base repair leaves unrelated wall vertices untouched."
+        geometryDiagnosticsTestCheck stack_ok \
+            "Base repair keeps exactly the original Geometry Diagnostics selection modifier."
+
+        test_passed = fix_result != undefined and fix_result[1] > 0 and not fix_result[2] and \
+            verified_adapter.count == 3 and distance repaired_base_position original_base_position <= position_precision and \
+            untouched_vertices_ok and stack_ok
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics TEST PART 31 ERROR | exception:%\n" exception_text
+        geometryDiagnosticsTestCheck false "Translated selection-only base repair completed without exception."
         test_passed = false
     )
 
@@ -1790,3 +2127,6 @@ partOfTest25()
 partOfTest26()
 partOfTest27()
 partOfTest28()
+partOfTest29()
+partOfTest30()
+partOfTest31()

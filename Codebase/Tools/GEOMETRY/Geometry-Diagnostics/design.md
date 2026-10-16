@@ -796,3 +796,78 @@ The selected vertical edges are split into connected components through shared s
 
 This removes the Wall-Fixer-derived target-initialization ambiguity from the vertical repair. The operation still uses the exact owned direction `Edit_Poly`, restores the caller's vertex selection, restores the original RMB edge BitArray, refreshes once, and finishes with the Modify panel active at Edge level. No topology is changed.
 
+
+
+## Unified no-guess direction repair — 0.32
+
+`VERTICAL\SKEWED CTRL+RMB` and `HORIZONTAL SLOPED CTRL+RMB` now share one repair algorithm. The requested direction changes only which principal world axis is considered free: Z for vertical, X for X-running horizontal edges, and Y for Y-running horizontal edges.
+
+The repair domain is the current matching RMB skewed/sloped edge selection when one exists. If CTRL+RMB is invoked without such a selection, Geometry Diagnostics runs the same RMB detection once and uses that result. Selected edges are split into connected components by their principal axis so X-, Y-, and Z-running components are never mixed.
+
+For every component Geometry Diagnostics performs a read-only trust preflight before any vertex is moved:
+
+1. Snapshot the evaluated node and require the temporary mesh vertex count / component vertex positions to match the live direction Edit Poly ID domain within `postion preccision`.
+2. Collect faces touching the selected component, then collect their vertices that are outside the selected component. At least three such reference vertices are required.
+3. Resolve one plane from those neighboring vertices and require every reference vertex to lie on that plane within `postion preccision`. If the local topology represents a corner, several wall planes, non-planar reference geometry, or too little reference geometry, the component is unresolved.
+4. Search the component boundary for an unselected visible edge that continues the same principal axis, is already exact within `postion preccision`, and has both endpoints on the trusted wall plane. This is the same-loop direction reference.
+5. If several valid references exist, their constrained coordinates must agree within `postion preccision`. Conflicting references are unresolved; the tool never averages or votes them into a new target.
+
+A valid reference vertex is an anchor and is never moved. For every non-anchor vertex, the coordinate along the desired edge direction is preserved exactly while the other two coordinates are copied from the trusted anchor:
+
+```text
+Z-running vertical:   keep Z, use anchor X/Y
+X-running horizontal: keep X, use anchor Y/Z
+Y-running horizontal: keep Y, use anchor X/Z
+```
+
+The resulting world-space target must also remain on the trusted wall plane within `postion preccision`. This simultaneously removes the out-of-wall-plane deviation and the in-wall skew/sloping without moving the vertex along the desired edge direction. If the axis-aligned target cannot stay on the trusted plane, the component is unresolved rather than forced.
+
+All target plans are solved before movement. Horizontal X/Y components that share a selected vertex are treated as ambiguous junctions and remain untouched. Resolved vertices are moved through the established Edit Poly `Select -> MoveSelection -> Commit` path and read back against `postion preccision`; the original RMB edge BitArray is restored for inspection.
+
+The safety rule is explicit: **no trustworthy wall plane + no trustworthy same-loop exact reference = no geometry change for that component**. Safe components may still be repaired while unresolved components stay in place and are reported. `CHECK ORTHO EDGES` RMB keeps the requested sequence: vertical LMB -> vertical CTRL+RMB -> horizontal LMB -> horizontal CTRL+RMB.
+
+## Same-loop no-guess direction repair — 0.33
+
+`VERTICAL\SKEWED CTRL+RMB` and `HORIZONTAL SLOPED CTRL+RMB` keep one shared repair method, but the 0.32 whole-neighborhood wall-plane fit is removed. Runtime testing showed that collecting every face vertex around a selected component mixes valid corner walls and rejects otherwise repairable components.
+
+The trusted reference is now the exact continuation of the same topological loop:
+
+1. Keep the ordinary RMB skewed/sloped edge BitArray unchanged as the repair domain.
+2. Split the selected set into connected components by principal axis.
+3. At a component boundary, inspect unselected visible incident edges.
+4. A candidate reference must use the same principal axis, already be exact within `postion preccision`, and leave the shared anchor vertex in the opposite free-axis direction from at least one selected component edge. This opposite-direction rule rejects same-side branches.
+5. If no candidate exists, the component is unresolved and does not move.
+6. If several anchors exist, their constrained coordinates must agree within `postion preccision`. Conflicting anchors leave the component unresolved.
+7. Anchor vertices and reference edges are never moved.
+8. Every non-anchor selected vertex preserves its coordinate along the requested direction and copies only the two constrained coordinates from the trusted anchor:
+
+```text
+Z-running vertical:   keep Z, use anchor X/Y
+X-running horizontal: keep X, use anchor Y/Z
+Y-running horizontal: keep Y, use anchor X/Z
+```
+
+The trusted continuation edge already lies on the wall loop and therefore supplies the 3D target line. Snapping a bad component onto that line corrects both kinds of deviation described by the tool contract: depth away from the wall and lateral skew/sloping inside the wall. No separate plane average or projection is needed.
+
+Safety remains strict: **no trustworthy same-loop continuation = no geometry change**. There is no mean-coordinate fallback, lowest-vertex fallback, plane guess, or automatic shift of otherwise valid surrounding geometry.
+
+Edit Poly coordinate access follows the shared Epoly transform pattern: instance calls such as `edit_poly_mod.GetVertex vertex_id node:source_node`, object-space `MoveSelection` deltas, `Commit`, and explicit read-back through `postion preccision`. This fixes the runtime case where static-style reads produced the node transform origin instead of the requested vertex position.
+
+## Ortho RMB independent passes and partial accounting — 0.35
+
+The ordered vertical-first, horizontal-second Ortho RMB batch must attempt horizontal detection and repair even when a vertical component cannot be resolved. The existing no-guess same-loop reference rule remains unchanged, and an unresolved component is never forced into a guessed target.
+
+Each verified repaired edge contributes to the batch count even when other components are unresolved. The batch reports the affected object as unresolved/failed while retaining the verified repaired-edge count, and preserves the exact owned Edit Poly selection/display workflow. This does not mean that partial completion is full success.
+
+
+## Direction button grid and title styling — 0.36
+
+The TESTS group exposes two paired rows of equal-size WinForms buttons: `VERTICAL` beside `SKEWED \ FIX`; `HORIZONTAL` beside `SLOPED \ FIX`. Left direction buttons retain `LMB` exact-edge selection, `RMB` off-axis selection, and `CTRL+RMB` repair. Right buttons expose the same existing backend workflows directly: `LMB` selects off-axis skewed/sloped edges, and `RMB` repairs only components with a trusted exact same-loop reference.
+
+The .NET restart title button retains the canonical `ToolTitleButton` label, 18 px height, resize-to-dialog-width behavior, and `LMB` reload action. Geometry Diagnostics adds local blue-accented dark styling after shared setup without changing the shared helper. The default/minimum dialog height is 564 px.
+
+## Safe selection-only Editable Poly base repair — 0.37
+
+When direction fixing a node with precisely one modifier, the script-owned `GEOMETRY DIAGNOSTICS` Edit Poly, and an Editable Poly base, validate that both levels have identical counts, ordered edge endpoint IDs (allowing reverse orientation), and vertex positions within the configured `postion preccision` before choosing the base as the repair geometry adapter. Do not collapse dead base topology after edge IDs have been cached; refuse the base repair path if dead structure exists. The owned modifier still owns the selected-edge BitArray, selection restoration, and active Edge-level display.
+
+For this exact verified selection-only stack, use `polyop.setVert` on the base with explicitly converted object-local target coordinates, and verify repaired vertex positions plus final exact-edge directions against that base geometry. This bypasses modifier primary-node / `MoveSelection` context failures and is guarded against using base vertex IDs where other modifiers or topology changes could make them unsafe. For any other stack retain the existing Edit Poly path without hidden fallback. This does not relax the exact same-loop reference safety rule, and unresolved components remain unchanged.

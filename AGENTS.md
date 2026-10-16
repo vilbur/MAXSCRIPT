@@ -9,6 +9,7 @@ These rules are mandatory for every MaxScript project change and do not need to 
 
 The shared MaxScript Codebase layers below are canonical source-of-truth libraries and are **READ-ONLY by default in every chat**:
 
+- `Codebase/Functions/`
 - `Codebase/Operations/`
 - `Codebase/Tools/`
 - `Codebase/Toolsets/`
@@ -26,7 +27,7 @@ A chat may freely:
 
 ### Writes require explicit current-prompt authorization
 
-Do **not** create, edit, replace, upload, delete, rename, move, version, refactor, reformat, or otherwise modify anything under a protected layer unless the **current user prompt explicitly instructs you to modify that shared Operation, Tool, Toolset, layer, or named file**.
+Do **not** create, edit, replace, upload, delete, rename, move, version, refactor, reformat, or otherwise modify anything under a protected layer unless the **current user prompt explicitly instructs you to modify that shared Function, Operation, Tool, Toolset, layer, or named file**.
 
 Write authorization must come from the current conversation and must be specific enough to identify the protected target or protected layer being changed.
 
@@ -48,17 +49,17 @@ Explicit permission unlocks only the requested protected target(s) for the reque
 
 After that requested shared-source change is complete, the protected layer automatically returns to READ-ONLY. A later shared-source modification requires a new explicit user instruction.
 
-Do not broaden permission from one Operation to another Operation, from one Tool to another Tool, from a Tool to its Operation dependencies, or from one protected layer to another unless the prompt explicitly includes them.
+Do not broaden permission from one Function to another Function, from one Operation to another Operation, from one Tool to another Tool, from a Tool to its Function/Operation dependencies, or from one protected layer to another unless the prompt explicitly includes them.
 
 ### Protected write check
 
-Before every write under `Codebase/Operations/`, `Codebase/Tools/`, or `Codebase/Toolsets/`, internally verify all of the following:
+Before every write under `Codebase/Functions/`, `Codebase/Operations/`, `Codebase/Tools/`, or `Codebase/Toolsets/`, internally verify all of the following:
 
 ```text
 PROTECTED CODEBASE WRITE CHECK
 
 Protected target: <exact file/folder>
-Layer: Operations | Tools | Toolsets
+Layer: Functions | Operations | Tools | Toolsets
 Explicit current-prompt permission: YES
 Requested change includes this target: YES
 Active project/repository check: PASS
@@ -66,7 +67,56 @@ Active project/repository check: PASS
 
 If any value is not clearly satisfied, **DO NOT WRITE**.
 
-The current lock covers Operations, Tools, and Toolsets. `Codebase/Functions/` is not included unless a separate rule explicitly protects it.
+The current lock covers Functions, Operations, Tools, and Toolsets.
+
+
+## CRITICAL SHARED CORE FUNCTIONS REUSE
+
+
+`Codebase/Functions/` is the canonical reusable core library for **all MaxScript development**. Treat its verified public Functions as source of truth, not as examples to rewrite locally.
+
+### Mandatory reuse preflight
+
+Before writing a new atomic helper, MAXScript/native wrapper, geometry primitive, selection helper, modifier helper, path/helper utility, validation helper, or other low-level reusable behavior:
+
+1. Inspect the relevant area of `Codebase/Functions/` first.
+2. Check the Function contract and supported context before designing a replacement.
+3. If an existing Function provides the required behavior, use that Function.
+4. Do not reimplement, copy/paste, rename, lightly rewrite, or create a project-local variant of the same core behavior.
+5. Do not create an extra project helper script whose only purpose is to duplicate behavior already owned by `Codebase/Functions/`.
+
+This preflight is mandatory even when the user does not mention `Functions` in the task. A new chat must not reinvent shared core behavior merely because it has not seen the implementation before.
+
+### Dependency rule
+
+The dependency direction remains:
+
+```text
+Functions -> Operations -> Tools -> Toolsets
+```
+
+Operations, Tools, Toolsets, and ordinary project scripts must consume shared Functions downward instead of owning duplicate low-level implementations.
+
+When a small adapter is genuinely required because caller data has a different shape, keep the adapter thin and delegate the actual atomic behavior to the canonical Function. Do not fork the algorithm into the adapter.
+
+### No extra duplicate support script
+
+Using shared core functionality must not require inventing a new per-project copy of that functionality. Load/call the canonical shared Function dependency through the project's normal dependency-loading mechanism. Do not add `Helpers.ms`, `Utils.ms`, `Common.ms`, or similarly named local files merely to reproduce an existing shared Function.
+
+Project-specific behavior that is not generally reusable may remain project-local. Once an atomic behavior is genuinely reusable across MaxScript developments, its canonical home is `Codebase/Functions/`.
+
+### Missing core behavior
+
+If a required generally reusable atomic behavior does not yet exist in `Codebase/Functions/`:
+
+- do not silently create a competing permanent implementation in an Operation, Tool, or Toolset;
+- identify the missing Function contract;
+- because `Codebase/Functions/` is protected read-only by default, modify or add the shared Function only when the current user prompt explicitly authorizes that shared Functions change;
+- until authorized, keep the canonical Functions library unchanged rather than pretending a downstream duplicate is the new source of truth.
+
+### Stable source-of-truth rule
+
+Existing verified Functions are the default implementation to preserve across developments. Fixes to shared atomic behavior belong in the canonical Function itself when explicitly authorized, so every dependent MaxScript development can benefit from one maintained implementation instead of chat-by-chat reinvention.
 
 
 ## CRITICAL TOOL ENTRY FILE NAMING
@@ -123,7 +173,7 @@ The current lock covers Operations, Tools, and Toolsets. `Codebase/Functions/` i
 
 
 - Avoid `try/catch` by default. Do not use it to hide unexpected errors or keep broken code running silently.
-- Prefer explicit validation and normal condition checks before an operation instead of wrapping the operation in `try/catch`.
+- Validate only genuinely required preconditions, preferably once at the relevant workflow boundary; do not repeatedly check known-valid inputs or successful native operations merely as reassurance. Use normal conditions instead of `try/catch` when validation is necessary.
 - Silent `catch()` is allowed only for simple, expected, harmless cleanup where failure is intentionally irrelevant, such as `try (destroyDialog some_rollout) catch ()`.
 - If `try/catch` is necessary for a real operation, the `catch` block must obtain the exception with `getCurrentException()` and report or log it clearly.
 - Do not replace a useful runtime error with a generic failure message that hides the original exception text.
@@ -149,6 +199,8 @@ catch
 ## CRITICAL FATAL-CONDITION DIAGNOSTICS
 
 
+- This section governs diagnostics for checks that are actually required; it does not require introducing new checks, post-operation verification, or per-component diagnostics.
+- Trust completed native operations during routine batch processing. Do not re-read and compare each moved vertex position, deleted vertex, or updated selection unless the operation contract or a known failure mode explicitly requires verification.
 - Any failed precondition, postcondition, invariant, verification, or safety check that aborts an operation, returns `false`/`undefined`, sets a failure flag, or prevents a required commit must emit a diagnostic before taking the failure path.
 - Never use a silent fatal branch such as `if actual_value != expected_value then return false`.
 - For expected-versus-actual comparisons, log both raw values. When useful, also log the difference/delta plus the relevant node, modifier, component ID, operation/stage name, and input values needed to reproduce the failure.
@@ -456,6 +508,16 @@ An Edit Poly modifier may depend on the component indexing of the topology below
 
 
 When working with `Edit_Poly`, operate on and query the modifier's own topology using the Edit Poly API unless the task explicitly requires modifying the base Editable Poly and the consequences of reindexing have been handled.
+
+
+### Edit Poly-first development and programmatic operations
+
+- For new geometry and sub-object tools, implement and validate the `Edit_Poly` **modifier** path first. Preserve the modifier stack and its edit history. Do not build a second `Editable_Poly` base-object implementation unless the requested feature actually needs it; add support later without duplicating shared logic.
+- Pass the target node, exact Edit Poly modifier instance, operation mode, and relevant vertex/edge/face IDs or BitArray explicitly to functional helpers. Avoid relying on the current Command Panel or visible sub-object selection as an implicit input.
+- Prefer direct, documented MAXScript/3ds Max API calls over simulated UI clicks, keystrokes, menu actions, or repeatedly switching modifier/selection modes. A documented Edit Poly API call such as `EditPolyMod.ButtonOp` is still a programmatic operation, not simulated UI input.
+- Build intermediate vertex, edge, and polygon selections in code (prefer BitArray for appropriate index sets). Do not visibly select components in the viewport solely to pass them between operations. If a native Edit Poly operation requires the modifier's selection state, set it programmatically only when necessary.
+- Avoid unnecessary redraws, panel updates, and per-component UI interactions in batch work. Do not add per-vertex/post-operation validation merely to reassure that routine native operations succeeded; follow the existing failure-reporting and topology/index-safety rules where a real failure occurs.
+- Do not edit or compact the base object's topology beneath an active Edit Poly modifier as a workaround for missing modifier API behavior. Respect the modifier/base-object boundary described above.
 
 
 ### Diagnose dead topology explicitly

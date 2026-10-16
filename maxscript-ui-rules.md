@@ -202,7 +202,7 @@ on myRollout open do
 \- Use a **12 px base grid** for dialog and control dimensions.  
 \- Default button size: **96 × 24 px**.  
 \- Standard control height: **24 px**.  
-\- Exception: the canonical `tool title button` / title-restart button is **18 px** high. Keep its current font family and style, and increase its current font size by **2.0**; do not force the standard 24 px control height.  
+\- Exception: the canonical `tool title button` / title-restart button is **18 px** high by default. Preserve its current font family and style and increase its current font size by **`2.0`** when applying the title-button style; do not force the standard 24 px control height.  
 \- Preferred control widths: **72, 96, 144, 192, 288 px**.  
 \- Preferred dialog widths: **336, 384, 480, 576 px**.  
 \- Standard spacing: **12 px**.  
@@ -329,7 +329,7 @@ btn.Font = dotNetObject \\
 \- Border width: `0 px`.  
 \- Hover background: RGB `45, 45, 48`.  
 \- Pressed background: RGB `45, 45, 48`.  
-\- Keep the current font family and style, and increase the current font size by `2.0`.  
+\- Preserve the current font family and style and increase the current button font size by `2.0` when the title-button style is applied.  
 \- Do not allow the normal bright Windows hover or pressed highlight.  
 \- Default height: **18 px**.  
 \- Fill the available dialog width. With standard `12 px` side margins, use `dialog_width - 24 px`.  
@@ -358,6 +358,18 @@ button_control.ForeColor = (dotNetClass "System.Drawing.Color").FromArgb 62 158 
 button_control.FlatAppearance.BorderSize = 0
 button_control.FlatAppearance.MouseOverBackColor = button_control.BackColor
 button_control.FlatAppearance.MouseDownBackColor = button_control.BackColor
+
+button_control.height = 18
+local current_font = button_control.Font
+
+if current_font != undefined then
+(
+    button_control.Font = dotNetObject \
+        "System.Drawing.Font" \
+        current_font.FontFamily \
+        (current_font.Size + 2.0) \
+        current_font.Style
+)
 ```
 
 
@@ -570,7 +582,7 @@ When a dialog contains multiple rollouts, resize the rollout/subrollout area rat
 \- Verify that the default INI is created beside the owning/main `.ms` script and that multiple versioned entry scripts use the same unversioned INI file.  
 \- Test that the native dialog/tool title shows the actual running version number when it is visible.  
 \- For a `tool title button`, verify that the label contains only the tool/dialog name and no version text.  
-\- For a `tool title button`, verify RGB `45, 45, 48` for normal, hover, and pressed backgrounds; RGB `62, 158, 255` text; `0 px` border; and `18 px` height with the current font size increased by `2.0`.  
+\- For a `tool title button`, verify RGB `45, 45, 48` for normal, hover, and pressed backgrounds; RGB `62, 158, 255` text; `0 px` border; default `18 px` height; and font size increased by `2.0` from the button font that existed before the title-button style was applied.  
 \- Resize the dialog horizontally and verify that the `tool title button` continues to fill the usable width.  
 \- Test `restartTool` behavior for both cases: a newer matching versioned script exists, and no newer version exists.  
 \- Verify that LMB on the `tool title button` calls `restartTool`.  

@@ -1,3 +1,50 @@
+## 2026-10-09 — Project 0.37
+
+- Diagnosed direction fixes returning zero despite valid detection: Edit Poly primary-node binding fails and its attempted MoveSelection produces readbacks at the node transform origin.
+- Added a topology-verified base Editable Poly repair path only when the stack contains exactly the Geometry Diagnostics owned selection-only Edit Poly, with unchanged vertex/edge IDs and all initial positions equal within the selected position precision.
+- The repair retains the existing Edit Poly for selection and display, but writes the matching base vertex directly with polyop.setVert; post-move readback and exact-edge verification use the same verified base geometry.
+- Complex stacks, mismatched topology, and dead base topology do not take this new base path; their existing guarded modifier workflow is unchanged.
+- Added Part 31 translated-node regression: confirm the actual base vertex moves and no other vertices or modifiers change. 3ds Max runtime verification is pending.
+- FN 0.29 and test 0.29; project version 0.37. UI and entry script remain unchanged.
+
+## 2026-10-09 — Project 0.36
+
+- `Geometry-Diagnostics-UI.ms` 0.22: split direction controls into a 2 x 2 grid: VERTICAL / SKEWED \ FIX, HORIZONTAL / SLOPED \ FIX.
+- Left controls retain exact-edge LMB selection and the original RMB/CTRL+RMB shortcuts. Each new right control uses LMB to select off-axis edges and RMB to perform the existing trusted-reference fix.
+- Styled only this tool's .NET restart title button with blue-on-charcoal text/border and hover/pressed states. Preserved the shared title helper, tool-name label, 18 px height, and LMB restart action.
+- Increased the minimum dialog height for the second row while preserving INI-backed dialog state.
+
+## 2026-10-09 — Project 0.35
+
+- Ortho RMB no longer skips its horizontal pass when vertical repair reports unresolved components. Both passes execute independently on each selected object, in the original vertical-then-horizontal order.
+- Both Ortho RMB and direction CTRL+RMB now retain counts for verified repaired edges even when another component on the same object remains unresolved; incomplete work stays flagged rather than being reported as success.
+- The final owned direction Edit Poly remains active when a pass makes partial progress. UI status reports repaired counts alongside unresolved-object counts.
+- Added regression Part 30 with disconnected wall elements: the no-reference vertical component must remain unchanged while an independent, properly referenced horizontal component can still be repaired.
+- Backend advances to 0.28, UI to 0.21, regression script to 0.28; shared project version advances to 0.35. Main entry file is unchanged. Static patch construction only; 3ds Max runtime verification is required.
+
+## 2026-10-09 — Project 0.34
+
+- Updated the `.NET` tool title/restart button to the current shared style: `18 px` height, existing title colors/flat borderless states preserved, and the current button font size increased by `2.0` through the shared `ToolTitleButton` helper.
+- Geometry behavior is unchanged. `Geometry-Diagnostics-UI.ms` advances to file `0.20`; backend, main, and regression files are unchanged.
+
+## 2026-10-07 — Project 0.33
+
+- Fixed the runtime CTRL+RMB failure shown by the supplied `BLOCK-A-MATERIAL001` log without changing ordinary vertical/horizontal RMB detection.
+- Replaced static `EditPolyMod.GetVertex`-style direction reads with the proven instance API (`edit_poly_mod.GetVertex ... node:`) used by the shared Epoly transform source; world targets still convert to object-space deltas before `MoveSelection -> Commit` and read-back verification.
+- Simplified both vertical and horizontal repair to one exact same-loop continuation rule. A component moves only when an unselected visible edge continues the component in the opposite principal-axis direction and is already exact within `postion preccision`.
+- Removed the over-strict whole-neighborhood wall-plane fit that rejected valid wall corners. The exact continuation edge now supplies the trusted 3D alignment line, correcting both wall-depth and in-wall drift while preserving the requested principal-axis coordinate.
+- Multiple continuation anchors must agree within `postion preccision`; missing, same-side branch, or conflicting references leave that component untouched. No averaging, lowest-vertex fallback, projection guess, or invented target is used.
+- Added translated-node regression coverage so an Edit Poly vertex read cannot silently collapse to the node transform origin, plus existing no-reference/no-movement safety coverage.
+
+## 2026-10-07 — Project 0.32
+
+- Replaced the separate vertical/horizontal CTRL+RMB repair strategies with one unified no-guess wall-loop method. Both directions now consume the matching RMB skewed/sloped set when available and fall back to the same RMB detection only when needed.
+- Each selected same-axis component first resolves a trusted local wall plane from neighboring face vertices outside the component. The reference geometry must provide at least three usable vertices and all reference vertices must fit that plane within the explicit `postion preccision`; corners, ambiguous planes, and insufficient reference geometry are left unresolved.
+- Alignment now requires an unselected visible continuation edge on the same loop that is already exact for the same X/Y/Z principal axis and lies on the trusted wall plane. Multiple references must agree within `postion preccision`; no mean coordinate, lowest-vertex target, or guessed fallback is allowed.
+- Reference/anchor vertices are never moved. Non-anchor vertices keep the coordinate along the desired edge direction and receive only the constrained coordinates from the trusted reference; the solved target must also remain on the wall plane within `postion preccision`.
+- Components without a trustworthy plane/reference, conflicting references, or shared X/Y horizontal junctions remain completely untouched and are reported as unresolved instead of shifting otherwise valid wall geometry.
+- Updated direction-button tooltips plus regression Parts 27-28 for vertical/horizontal wall-plane repair, no-reference no-op safety, preservation of unrelated wall vertices, and the ordered CHECK ORTHO EDGES RMB batch.
+
 ## 2026-10-07 — Project 0.31
 
 - Fixed `VERTICAL\SKEWED CTRL+RMB` without changing the now-working ordinary RMB selection path.

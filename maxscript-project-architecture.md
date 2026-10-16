@@ -20,6 +20,16 @@ The goal is to keep features isolated, make debugging local, and reduce the risk
 
 
 
+
+## Avoid spaghetti code — function design
+
+- Prefer short, focused functions for basic operations. Each should have a clear purpose, explicit inputs (for example a node, Edit Poly instance, operation mode, or component IDs/BitArray), and a defined result or side effect.
+- Use the existing framework and appropriate procedural functions or structs; object-oriented design is not mandatory. Avoid hidden dependencies on UI selection/state when parameters can express the operation directly.
+- Keep high-level workflows readable as a sequence of meaningful steps. A longer function is fine when the work genuinely belongs together; split it when responsibilities, reuse, or excessive branching justify the boundary.
+- Avoid giant do-everything functions, deep nested `if/else` chains, duplicate implementations, and tangled cross-layer state. Prefer `case ... of` for many mutually exclusive choices when clearer.
+- Do not split code into dozens of trivial wrappers, force arbitrary line-count limits, or introduce abstractions and files that add more navigation than value.
+- Reuse verified shared functions and operations before writing another implementation. Preserve working interfaces and avoid unrelated refactoring.
+
 ## Canonical shared Codebase layout
 
 

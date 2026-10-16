@@ -20,6 +20,27 @@ Follow `maxscript-protected-identifiers.md` for reserved keywords, protected glo
 
 Do not rename legitimate property access or API symbols merely because part of the expression matches a protected word. For example, `obj.modifiers` is valid property access; a user-defined variable named `modifier` is not.
 
+## Performance-sensitive control flow
+
+- Prefer the function's final expression as its result. Do not use `return` for routine function exits.
+- Avoid `break`, `exit`, `continue`, and `throw` for ordinary control flow. Autodesk documents that executing these commands uses slow C++ exceptions. Use normal `if ... then ... else ...` / `case ... of` expressions or a `for ... while ...` stop condition instead.
+- Minimize `try/catch`: use it only for necessary exception handling, not normal decisions or repetitive per-component operations. Preserve the existing error-reporting and narrow harmless-cleanup rules below.
+- Do not add extra helper layers or complex control flow solely to avoid a rare, necessary exceptional exit; keep the frequent execution path simple and fast.
+
+Autodesk MAXScript Help: [Do not use return, break, exit or continue](https://help.autodesk.com/cloudhelp/2026/ENU/MAXScript-Help/files/Frequently-Asked-Questions/Writing-Better-and-Faster/How-To-Make-It-Faster-/GUID-DEFAF4D3-ADE9-469E-963A-440996D64BE1.html).
+
+## Array and BitArray performance
+
+- Choose the collection by purpose, not by a blanket preference. Use `BitArray` for large sets of positive integer component IDs, selections, and true/false flags over a known index domain. Use `Array` for ordered or heterogeneous values and growing lists whose size is not yet known.
+- When the final size is known, allocate it **once** before filling (`values = #(); values.count = item_count` or `flags = #{}; flags.count = item_count`), then assign by index. Avoid repeated growth in hot loops; in particular, appending to a growing `BitArray` is slow.
+- For large fixed-size Arrays, prefer indexed assignment to repeated `append`, which can repeatedly copy/reallocate array storage. `append` remains acceptable for small collections or legitimately dynamic results; do not introduce complicated bookkeeping solely to avoid it.
+- For filtered/dynamically produced Arrays, prefer an appropriate `for ... collect` expression over manually building an Array with `append`, when the expression remains clear.
+- Do not repeatedly convert `Array` to `BitArray` and back within loops or construct needless intermediate copies of large collections. Reuse a stable collection and cached values where that improves the actual work.
+- `BitArray.count` is its **capacity/index domain**, not the number of selected elements; use `.numberSet` for the count of set bits. Do not interpret an empty BitArray as a failed native query unless that meaning is explicit in the caller contract.
+- Never make oversized allocations by guessing an enormous upper bound. Preserve stable topology IDs during a compound Edit Poly operation; rebuild selections only when a documented topology/index boundary invalidates them.
+
+Autodesk MAXScript Help: [Use bitArrays instead of Arrays when possible](https://help.autodesk.com/cloudhelp/2026/ENU/MAXScript-Help/files/Frequently-Asked-Questions/Writing-Better-and-Faster/How-To-Make-It-Faster-/GUID-E2FA13DE-C491-4244-A7AA-62631FB03CA4.html), [Pre-initialize arrays when final size is known](https://help.autodesk.com/cloudhelp/2026/ENU/MAXScript-Help/files/Frequently-Asked-Questions/Writing-Better-and-Faster/How-To-Make-It-Faster-/GUID-20124F54-0FDC-4A56-A252-18DFE79A7C41.html), [For Loop Collect Vs For Loop Do Performance](https://help.autodesk.com/cloudhelp/2026/ENU/MAXScript-Help/files/Frequently-Asked-Questions/Writing-Better-and-Faster/How-To-Make-It-Faster-/GUID-F6D660D1-D0EE-41DB-804D-7404E513E2B6.html).
+
 ## Return contracts
 
 - Every function must preserve one documented return contract on every normal code path.
@@ -60,7 +81,7 @@ Any condition that represents a required precondition, postcondition, invariant,
 
 Required behavior:
 
-- Before `return false`, `return undefined`, setting a failure flag, breaking a required workflow, or skipping a required commit because a critical condition failed, emit a diagnostic with the values that caused the failure.
+- Before propagating a critical failure result (`false` or `undefined`), setting a failure flag, or skipping a required commit, emit a diagnostic with the values that caused the failure.
 - For `actual != expected`, range checks, count checks, topology checks, transform checks, and selection checks, print the actual value and the expected/required value whenever both are available.
 - Include the relevant object/node, exact modifier instance or name, component ID(s), operation/stage name, and input/delta values when they materially help reproduce the failure.
 - Preserve raw backend values in diagnostics. Do not round or format them to UI display precision.
@@ -81,12 +102,13 @@ if moved_position != expected_position then
 Good:
 
 ```maxscript
-if moved_position != expected_position then
+local operation_ok = moved_position == expected_position
+if not operation_ok then
 (
     format "MOVE FAILED | vertex:% expected:% actual:% delta:%\n" \
         vertex_id expected_position moved_position (moved_position - expected_position)
-    return false
 )
+operation_ok
 ```
 
 ## Topology and selection reads

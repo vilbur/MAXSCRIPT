@@ -34,7 +34,7 @@ Use this framework from the **first runnable UI version** of every new MaxScript
 
 Start new UI work from `Default-UI-Template.ms`. From the first version, a standalone tool dialog or owning rollout includes:
 
-- the canonical `.NET tool title button` at the top of the UI;
+- the canonical `.NET tool title button` at the top of the UI, with font size derived from its current height as `button.height - 4`;
 - LMB restart through `restartTool`;
 - INI persistence for relevant control values, modes, and options;
 - one stable, unversioned INI stored beside the owning/main `.ms` script by default;

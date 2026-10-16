@@ -5,7 +5,7 @@ The tool title button uses the production host appearance and LMB restart patter
 
 struct ToolTitleButton_v
 (
-    file_version = "0.03",
+    file_version = "0.05",
 
     /*
     Applies the canonical tool title button appearance and tool-name label.
@@ -35,6 +35,8 @@ struct ToolTitleButton_v
         button_control.FlatAppearance.MouseOverBackColor = dark_color
         button_control.FlatAppearance.MouseDownBackColor = dark_color
 
+        button_control.height = 18
+
         if current_font != undefined then
         (
             button_control.Font = dotNetObject \
@@ -43,8 +45,6 @@ struct ToolTitleButton_v
                 (current_font.Size + 2.0) \
                 current_font.Style
         )
-
-        button_control.height = 18
 
         true
         -- return

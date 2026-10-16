@@ -1,11 +1,11 @@
-/* Material-ID-Manager_0.065.ms
-   File version: 0.065
-   Project version: 0.065
+/* Material-ID-Manager.ms
+   File version: 0.066
+   Project version: 0.066
 */
 
 global material_id_manager_project_version
-global material_id_manager_file_version = 0.065
-global material_id_manager_stored_project_version = 0.065
+global material_id_manager_file_version = 0.066
+global material_id_manager_stored_project_version = 0.066
 global material_id_manager_rollout_title
 global material_id_manager_tool_title
 global material_id_manager_source_path = getSourceFileName()
@@ -9460,7 +9460,7 @@ rollout materialIdManagerSelectFacesRollout "Material Select Modifier Sets" heig
 
 rollout materialIdManagerRollout material_id_manager_rollout_title
 (
-    dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:264 height:24
+    dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:264 height:18
     subRollout sub_rollouts "" pos:[12,42] width:264 height:1314 scrollBar:#asNeeded
 
     label lbl_status "Ready." pos:[12,1380] width:264 height:24
@@ -9474,6 +9474,7 @@ rollout materialIdManagerRollout material_id_manager_rollout_title
         local color_class = dotNetClass "System.Drawing.Color"
         local title_back_color = color_class.FromArgb 45 45 48
         local title_text_color = color_class.FromArgb 62 158 255
+        local current_font = btn_tool_title.Font
 
         btn_tool_title.Text = material_id_manager_tool_title
         btn_tool_title.UseVisualStyleBackColor = false
@@ -9484,6 +9485,16 @@ rollout materialIdManagerRollout material_id_manager_rollout_title
         btn_tool_title.FlatAppearance.MouseOverBackColor = title_back_color
         btn_tool_title.FlatAppearance.MouseDownBackColor = title_back_color
         btn_tool_title.TabStop = false
+        btn_tool_title.height = 18
+
+        if current_font != undefined then
+        (
+            btn_tool_title.Font = dotNetObject \
+                "System.Drawing.Font" \
+                current_font.FontFamily \
+                (current_font.Size + 2.0) \
+                current_font.Style
+        )
 
         true -- return
     )
@@ -9501,7 +9512,7 @@ rollout materialIdManagerRollout material_id_manager_rollout_title
         )
 
         btn_tool_title.width = button_width
-        btn_tool_title.height = 24
+        btn_tool_title.height = 18
 
         button_width -- return
     )

@@ -3,8 +3,8 @@ Geometry Diagnostics backend.
 Owns Geometry Diagnostics test helpers and delegates reusable color painting to VertexColorPainter.
 */
 
-global geometry_diagnostics_fn_version = "0.25"
-global geometry_diagnostics_fn_project_version = "0.31"
+global geometry_diagnostics_fn_version = "0.29"
+global geometry_diagnostics_fn_project_version = "0.37"
 global geometry_diagnostics_project_version
 global geometry_diagnostics_test_node
 global VertexColorPainter
@@ -3114,8 +3114,8 @@ function getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter edge_id 
     )
     else if adapter[1] == #edit_poly then
     (
-        local vert_a = EditPolyMod.GetEdgeVertex adapter[2] edge_id 1 node:source_node
-        local vert_b = EditPolyMod.GetEdgeVertex adapter[2] edge_id 2 node:source_node
+        local vert_a = adapter[2].GetEdgeVertex edge_id 1 node:source_node
+        local vert_b = adapter[2].GetEdgeVertex edge_id 2 node:source_node
         edge_verts = #(vert_a, vert_b)
     )
 
@@ -3137,7 +3137,7 @@ function getGeometryDiagnosticsDirectionVertexPosition source_node adapter verte
     )
     else if adapter[1] == #edit_poly then
     (
-        EditPolyMod.GetVertex adapter[2] vertex_id node:source_node
+        adapter[2].GetVertex vertex_id node:source_node
     )
     else
     (
@@ -3690,7 +3690,7 @@ function getGeometryDiagnosticsDirectionVertexSelection source_node adapter =
         )
         else if adapter[1] == #edit_poly then
         (
-            vertex_selection = EditPolyMod.GetSelection geometry_source #Vertex node:source_node
+            vertex_selection = geometry_source.GetSelection #Vertex node:source_node
         )
         else
         (
@@ -3742,8 +3742,8 @@ function setGeometryDiagnosticsDirectionVertexSelection source_node adapter vert
         )
         else if adapter[1] == #edit_poly then
         (
-            EditPolyMod.SetEPolySelLevel geometry_source #Vertex
-            EditPolyMod.SetSelection geometry_source #Vertex vertex_selection node:source_node
+            geometry_source.SetEPolySelLevel #Vertex
+            geometry_source.SetSelection #Vertex vertex_selection node:source_node
         )
         else
         (
@@ -3798,11 +3798,11 @@ function getGeometryDiagnosticsDirectionVertexIncidentEdges source_node adapter 
         )
         else if adapter[1] == #edit_poly then
         (
-            local incident_count = EditPolyMod.GetVertexEdgeCount geometry_source vertex_id node:source_node
+            local incident_count = geometry_source.GetVertexEdgeCount vertex_id node:source_node
 
             for edge_slot = 1 to incident_count do
             (
-                local edge_id = EditPolyMod.GetVertexEdge geometry_source vertex_id edge_slot node:source_node
+                local edge_id = geometry_source.GetVertexEdge vertex_id edge_slot node:source_node
 
                 if edge_id != undefined and edge_id > 0 then
                 (
@@ -3900,470 +3900,6 @@ function isGeometryDiagnosticsDirectionEdgeVisible source_node adapter edge_id =
 
 
 /*
-Returns true when one principal axis constrains one world-space coordinate.
-Z edges constrain X/Y, X edges constrain Y/Z, and Y edges constrain X/Z.
-*/
-function geometryDiagnosticsAxisConstrainsCoordinate axis_type coordinate_type =
-(
-    case axis_type of
-    (
-        #z: (coordinate_type == #x or coordinate_type == #y)
-        #x: (coordinate_type == #y or coordinate_type == #z)
-        #y: (coordinate_type == #x or coordinate_type == #z)
-        default: false
-    )
-    -- return
-)
-
-
-/*
-Returns one Point3 coordinate by symbolic axis.
-*/
-function getGeometryDiagnosticsPointCoordinate point_value coordinate_type =
-(
-    if point_value == undefined or classOf point_value != Point3 then return undefined
-
-    case coordinate_type of
-    (
-        #x: point_value.x
-        #y: point_value.y
-        #z: point_value.z
-        default: undefined
-    )
-    -- return
-)
-
-
-/*
-Returns a Point3 copy with one coordinate replaced.
-*/
-function setGeometryDiagnosticsPointCoordinate point_value coordinate_type coordinate_value =
-(
-    if point_value == undefined or classOf point_value != Point3 then return undefined
-    if classOf coordinate_value != Float and classOf coordinate_value != Integer then return undefined
-
-    case coordinate_type of
-    (
-        #x: [coordinate_value, point_value.y, point_value.z]
-        #y: [point_value.x, coordinate_value, point_value.z]
-        #z: [point_value.x, point_value.y, coordinate_value]
-        default: undefined
-    )
-    -- return
-)
-
-
-/*
-Rounds one scalar only for precision diagnostics.
-The selected position precision is explicit and scene geometry is never snapped by this helper.
-*/
-function geometryDiagnosticsRoundScalarForPrecision scalar_value position_precision =
-(
-    if (classOf scalar_value != Float and classOf scalar_value != Integer) or position_precision == undefined or position_precision <= 0.0 then return undefined
-
-    local scaled_value = scalar_value / position_precision
-    local rounded_step = if scaled_value >= 0.0 then floor (scaled_value + 0.5) else -(floor ((-scaled_value) + 0.5))
-
-    rounded_step * position_precision
-    -- return
-)
-
-
-/*
-Rounds a Point3 copy only for precision diagnostics.
-*/
-function getGeometryDiagnosticsRoundedPointForPrecision point_value position_precision =
-(
-    if point_value == undefined or classOf point_value != Point3 then return undefined
-
-    local rounded_x = geometryDiagnosticsRoundScalarForPrecision point_value.x position_precision
-    local rounded_y = geometryDiagnosticsRoundScalarForPrecision point_value.y position_precision
-    local rounded_z = geometryDiagnosticsRoundScalarForPrecision point_value.z position_precision
-
-    if rounded_x == undefined or rounded_y == undefined or rounded_z == undefined then return undefined
-
-    [rounded_x, rounded_y, rounded_z]
-    -- return
-)
-
-
-/*
-Tests whether one edge is already within the requested position precision for its principal direction.
-*/
-function isGeometryDiagnosticsExactDirectionEdge source_node adapter edge_id direction_type position_precision =
-(
-    local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter edge_id
-
-    if edge_verts.count != 2 then return false
-
-    local point_a = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[1]
-    local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[2]
-
-    if point_a == undefined or point_b == undefined then return false
-
-    geometryDiagnosticsDirectionMatches point_a point_b direction_type #exact position_precision
-    -- return
-)
-
-
-/*
-Builds axis records for the selected skewed direction edges.
-Each row is #(edge_id, vertex_a, vertex_b, principal_axis).
-*/
-function buildGeometryDiagnosticsDirectionConstraintRecords source_node adapter selected_edges direction_type =
-(
-    if not isValidNode source_node or classOf adapter != Array or adapter.count < 2 or classOf selected_edges != BitArray then return undefined
-
-    local constraint_records = #()
-
-    for edge_id in selected_edges do
-    (
-        local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter edge_id
-
-        if edge_verts.count != 2 then
-        (
-            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:constraintEdgeRead | node:% | edge:% | verts:%\n" \
-                source_node.name edge_id edge_verts
-            return undefined
-        )
-
-        local point_a = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[1]
-        local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[2]
-        local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
-
-        if axis_data.count != 2 then
-        (
-            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:constraintAxis | node:% | edge:% | point_a:% | point_b:%\n" \
-                source_node.name edge_id point_a point_b
-            return undefined
-        )
-
-        local axis_type = axis_data[1]
-        local direction_matches = if direction_type == #vertical then (axis_type == #z) else (axis_type == #x or axis_type == #y)
-
-        if not direction_matches then
-        (
-            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:constraintDirection | node:% | edge:% | requested:% | actual_axis:%\n" \
-                source_node.name edge_id direction_type axis_type
-            return undefined
-        )
-
-        append constraint_records #(edge_id, edge_verts[1], edge_verts[2], axis_type)
-    )
-
-    constraint_records
-    -- return
-)
-
-
-/*
-Builds vertex components linked by selected edges that constrain one coordinate.
-Each returned row is #(vertex_bits, edge_bits).
-*/
-function buildGeometryDiagnosticsCoordinateConstraintComponents constraint_records coordinate_type =
-(
-    if classOf constraint_records != Array then return undefined
-
-    local components = #()
-    local assigned_records = #{}
-    assigned_records.count = constraint_records.count
-
-    for record_index = 1 to constraint_records.count do
-    (
-        local seed_record = constraint_records[record_index]
-
-        if not assigned_records[record_index] and geometryDiagnosticsAxisConstrainsCoordinate seed_record[4] coordinate_type then
-        (
-            local component_vertices = #{}
-            local component_edges = #{}
-            local pending_records = #(record_index)
-
-            while pending_records.count > 0 do
-            (
-                local current_index = pending_records[1]
-                deleteItem pending_records 1
-
-                if not assigned_records[current_index] then
-                (
-                    local current_record = constraint_records[current_index]
-
-                    if geometryDiagnosticsAxisConstrainsCoordinate current_record[4] coordinate_type then
-                    (
-                        assigned_records[current_index] = true
-                        component_edges[current_record[1]] = true
-                        component_vertices[current_record[2]] = true
-                        component_vertices[current_record[3]] = true
-
-                        for candidate_index = 1 to constraint_records.count do
-                        (
-                            if not assigned_records[candidate_index] and findItem pending_records candidate_index == 0 then
-                            (
-                                local candidate_record = constraint_records[candidate_index]
-
-                                local candidate_a_in_component = candidate_record[2] <= component_vertices.count and component_vertices[candidate_record[2]]
-                                local candidate_b_in_component = candidate_record[3] <= component_vertices.count and component_vertices[candidate_record[3]]
-
-                                if geometryDiagnosticsAxisConstrainsCoordinate candidate_record[4] coordinate_type and \
-                                    (candidate_a_in_component or candidate_b_in_component) then
-                                (
-                                    append pending_records candidate_index
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-
-            if component_edges.numberSet > 0 then
-            (
-                append components #(component_vertices, component_edges)
-            )
-        )
-    )
-
-    components
-    -- return
-)
-
-
-/*
-Returns one target-record index for a vertex ID, or zero when absent.
-Target rows are #(vertex_id, original_world_position, target_world_position).
-*/
-function getGeometryDiagnosticsDirectionTargetRecordIndex target_records vertex_id =
-(
-    if classOf target_records != Array then return 0
-
-    for record_index = 1 to target_records.count do
-    (
-        if target_records[record_index][1] == vertex_id then return record_index
-    )
-
-    0
-    -- return
-)
-
-
-/*
-Ensures one selected vertex has an original/target world-position row.
-Returns the row index or zero when the vertex position cannot be read.
-*/
-function ensureGeometryDiagnosticsDirectionTargetRecord target_records source_node adapter vertex_id =
-(
-    local existing_index = getGeometryDiagnosticsDirectionTargetRecordIndex target_records vertex_id
-    if existing_index > 0 then return existing_index
-
-    local vertex_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter vertex_id
-
-    if vertex_position == undefined then
-    (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:targetRecord | node:% | vertex:% | position:undefined\n" \
-            source_node.name vertex_id
-        return 0
-    )
-
-    append target_records #(vertex_id, vertex_position, [vertex_position.x, vertex_position.y, vertex_position.z])
-    target_records.count
-    -- return
-)
-
-
-/*
-Collects coordinate anchors from exact, unselected visible edges touching a selected component.
-Only neighboring edges that constrain the requested coordinate contribute anchors.
-*/
-function getGeometryDiagnosticsDirectionCoordinateAnchors source_node adapter component_vertices selected_edges coordinate_type position_precision =
-(
-    local anchor_values = #()
-
-    for vertex_id in component_vertices do
-    (
-        local incident_edges = getGeometryDiagnosticsDirectionVertexIncidentEdges source_node adapter vertex_id
-
-        for incident_edge_id in incident_edges do
-        (
-            local edge_is_selected = incident_edge_id <= selected_edges.count and selected_edges[incident_edge_id]
-
-            if not edge_is_selected and isGeometryDiagnosticsDirectionEdgeVisible source_node adapter incident_edge_id then
-            (
-                local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter incident_edge_id
-
-                if edge_verts.count == 2 then
-                (
-                    local other_vertex_id = if edge_verts[1] == vertex_id then edge_verts[2] else edge_verts[1]
-                    local other_is_component_vertex = other_vertex_id <= component_vertices.count and component_vertices[other_vertex_id]
-
-                    if not other_is_component_vertex then
-                    (
-                        local point_a = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[1]
-                        local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[2]
-                        local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
-
-                        if axis_data.count == 2 and axis_data[2] <= position_precision and \
-                            geometryDiagnosticsAxisConstrainsCoordinate axis_data[1] coordinate_type then
-                        (
-                            local other_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter other_vertex_id
-                            local anchor_value = getGeometryDiagnosticsPointCoordinate other_position coordinate_type
-
-                            if anchor_value != undefined then append anchor_values anchor_value
-                        )
-                    )
-                )
-            )
-        )
-    )
-
-    anchor_values
-    -- return
-)
-
-
-/*
-Chooses one coordinate target from neighboring exact-edge anchors.
-The largest precision-group wins; without anchors the component mean is used for minimum movement.
-*/
-function resolveGeometryDiagnosticsDirectionCoordinateTarget anchor_values component_mean position_precision =
-(
-    if classOf anchor_values != Array or position_precision == undefined or position_precision <= 0.0 then return undefined
-
-    if anchor_values.count == 0 then return component_mean
-
-    local anchor_groups = #()
-
-    for anchor_value in anchor_values do
-    (
-        local group_index = 0
-
-        for candidate_index = 1 to anchor_groups.count while group_index == 0 do
-        (
-            if abs (anchor_value - anchor_groups[candidate_index][1]) <= position_precision then
-            (
-                group_index = candidate_index
-            )
-        )
-
-        if group_index == 0 then
-        (
-            append anchor_groups #(anchor_value, anchor_value, 1)
-        )
-        else
-        (
-            local group_record = anchor_groups[group_index]
-            group_record[2] += anchor_value
-            group_record[3] += 1
-            anchor_groups[group_index] = group_record
-        )
-    )
-
-    local best_value = undefined
-    local best_count = -1
-    local best_mean_distance = 1.0e30
-
-    for group_record in anchor_groups do
-    (
-        local group_average = group_record[2] / group_record[3]
-        local mean_distance = abs (group_average - component_mean)
-
-        if group_record[3] > best_count or \
-            (group_record[3] == best_count and mean_distance < best_mean_distance) or \
-            (group_record[3] == best_count and mean_distance == best_mean_distance and (best_value == undefined or group_average < best_value)) then
-        (
-            best_value = group_average
-            best_count = group_record[3]
-            best_mean_distance = mean_distance
-        )
-    )
-
-    best_value
-    -- return
-)
-
-
-/*
-Solves all selected direction-edge equality constraints in world space before any vertex is moved.
-Exact unselected neighbors anchor components; otherwise each component uses its mean coordinate.
-*/
-function solveGeometryDiagnosticsDirectionTargets source_node adapter selected_edges direction_type position_precision =
-(
-    local constraint_records = buildGeometryDiagnosticsDirectionConstraintRecords source_node adapter selected_edges direction_type
-    if constraint_records == undefined then return undefined
-
-    local target_records = #()
-
-    for constraint_record in constraint_records do
-    (
-        if ensureGeometryDiagnosticsDirectionTargetRecord target_records source_node adapter constraint_record[2] == 0 then return undefined
-        if ensureGeometryDiagnosticsDirectionTargetRecord target_records source_node adapter constraint_record[3] == 0 then return undefined
-    )
-
-    for coordinate_type in #(#x, #y, #z) do
-    (
-        local coordinate_components = buildGeometryDiagnosticsCoordinateConstraintComponents constraint_records coordinate_type
-        if coordinate_components == undefined then return undefined
-
-        for component_record in coordinate_components do
-        (
-            local component_vertices = component_record[1]
-            local component_sum = 0.0
-            local component_count = 0
-
-            for vertex_id in component_vertices do
-            (
-                local target_index = getGeometryDiagnosticsDirectionTargetRecordIndex target_records vertex_id
-
-                if target_index == 0 then
-                (
-                    format "Geometry Diagnostics DIRECTION FIX ERROR | stage:componentRecord | node:% | vertex:% | coordinate:%\n" \
-                        source_node.name vertex_id coordinate_type
-                    return undefined
-                )
-
-                local original_coordinate = getGeometryDiagnosticsPointCoordinate target_records[target_index][2] coordinate_type
-
-                if original_coordinate == undefined then return undefined
-
-                component_sum += original_coordinate
-                component_count += 1
-            )
-
-            if component_count == 0 then return undefined
-
-            local component_mean = component_sum / component_count
-            local anchor_values = getGeometryDiagnosticsDirectionCoordinateAnchors \
-                source_node adapter component_vertices selected_edges coordinate_type position_precision
-            local target_coordinate = resolveGeometryDiagnosticsDirectionCoordinateTarget \
-                anchor_values component_mean position_precision
-
-            if target_coordinate == undefined then
-            (
-                format "Geometry Diagnostics DIRECTION FIX ERROR | stage:coordinateTarget | node:% | coordinate:% | vertices:% | anchors:% | mean:%\n" \
-                    source_node.name coordinate_type component_vertices anchor_values component_mean
-                return undefined
-            )
-
-            format "Geometry Diagnostics DIRECTION FIX CONSTRAINT | node:% | direction:% | coordinate:% | vertices:% | edges:% | anchors:% | target:%\n" \
-                source_node.name direction_type coordinate_type component_vertices component_record[2] anchor_values.count target_coordinate
-
-            for vertex_id in component_vertices do
-            (
-                local target_index = getGeometryDiagnosticsDirectionTargetRecordIndex target_records vertex_id
-                local target_record = target_records[target_index]
-                local updated_target = setGeometryDiagnosticsPointCoordinate target_record[3] coordinate_type target_coordinate
-
-                if updated_target == undefined then return undefined
-
-                target_record[3] = updated_target
-                target_records[target_index] = target_record
-            )
-        )
-    )
-
-    #(target_records, constraint_records)
-    -- return
-)
-
-
-/*
 Moves one adapter vertex to an explicit world-space target.
 Edit Poly movement uses the shared stable Select -> MoveSelection -> Commit pattern in object space.
 */
@@ -4399,7 +3935,7 @@ function setGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter 
 
             local inverse_tm = inverse source_node.objectTransform
             local target_local_position = target_world_position * inverse_tm
-            local current_local_position = EditPolyMod.GetVertex geometry_source vertex_id node:source_node
+            local current_local_position = geometry_source.GetVertex vertex_id node:source_node
 
             if current_local_position == undefined then
             (
@@ -4486,19 +4022,26 @@ function setGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter 
 
 
 /*
-Returns the current RMB vertical-skewed edge selection from the exact owned direction Edit Poly.
-When CTRL+RMB is used without a prior RMB selection, the same RMB detection is run once as a fallback.
+Returns the current RMB skewed/sloped edge selection for one requested direction.
+When CTRL+RMB has no matching current RMB set, the same RMB detection is run once as a fallback.
 */
-function getGeometryDiagnosticsVerticalFixSelection source_node position_precision_text =
+function getGeometryDiagnosticsDirectionFixSelection source_node direction_type position_precision_text =
 (
     if not isValidNode source_node then return undefined
+
+    if direction_type != #vertical and direction_type != #horizontal then
+    (
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:fixSelectionDirection | node:% | direction:%\n" \
+            source_node.name direction_type
+        return undefined
+    )
 
     local position_precision = resolveGeometryDiagnosticsPositionPrecision position_precision_text
 
     if position_precision == undefined or position_precision <= 0.0 then
     (
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:precision | node:% | text:% | resolved:%\n" \
-            source_node.name position_precision_text position_precision
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:fixSelectionPrecision | node:% | direction:% | text:% | resolved:%\n" \
+            source_node.name direction_type position_precision_text position_precision
         return undefined
     )
 
@@ -4513,8 +4056,8 @@ function getGeometryDiagnosticsVerticalFixSelection source_node position_precisi
 
         if current_edges == undefined then
         (
-            format "Geometry Diagnostics VERTICAL FIX ERROR | stage:edgeSelectionRead | node:% | edit_poly:%\n" \
-                source_node.name selection_edit_poly_mod
+            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:fixSelectionRead | node:% | direction:% | edit_poly:%\n" \
+                source_node.name direction_type selection_edit_poly_mod
             return undefined
         )
 
@@ -4528,7 +4071,7 @@ function getGeometryDiagnosticsVerticalFixSelection source_node position_precisi
                 local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[2]
 
                 if point_a != undefined and point_b != undefined and \
-                    geometryDiagnosticsDirectionMatches point_a point_b #vertical #skewed position_precision then
+                    geometryDiagnosticsDirectionMatches point_a point_b direction_type #skewed position_precision then
                 (
                     selected_edges[edge_id] = true
                 )
@@ -4538,12 +4081,12 @@ function getGeometryDiagnosticsVerticalFixSelection source_node position_precisi
 
     if selected_edges.numberSet == 0 then
     (
-        local detection_result = checkGeometryDiagnosticsDirectionEdges source_node #vertical #skewed position_precision_text
+        local detection_result = checkGeometryDiagnosticsDirectionEdges source_node direction_type #skewed position_precision_text
 
         if detection_result == undefined then
         (
-            format "Geometry Diagnostics VERTICAL FIX ERROR | stage:detectFallback | node:% | precision:%\n" \
-                source_node.name position_precision_text
+            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:fixSelectionFallback | node:% | direction:% | precision:%\n" \
+                source_node.name direction_type position_precision_text
             return undefined
         )
 
@@ -4558,75 +4101,152 @@ function getGeometryDiagnosticsVerticalFixSelection source_node position_precisi
 
 
 /*
-Builds connected components from the current selected edge set without expanding into unselected loop edges.
-Each returned row is #(component_edges, component_vertices).
+Returns the live vertex count for one direction adapter.
+The count is used only to verify that a temporary analysis mesh shares the same vertex-ID domain.
 */
-function buildGeometryDiagnosticsSelectedEdgeComponents source_node adapter selected_edges =
+function getGeometryDiagnosticsDirectionVertexCount source_node adapter =
+(
+    if not isValidNode source_node or classOf adapter != Array or adapter.count < 2 then
+    (
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:vertexCountInput | node:% | adapter:%\n" source_node adapter
+        return 0
+    )
+
+    local vertex_count = 0
+
+    try
+    (
+        if adapter[1] == #editable_poly then
+        (
+            vertex_count = polyop.getNumVerts adapter[2]
+        )
+        else if adapter[1] == #edit_poly then
+        (
+            vertex_count = adapter[2].GetNumVertices node:source_node
+        )
+    )
+    catch
+    (
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:vertexCount | node:% | adapter:% | exception:%\n" \
+            source_node.name adapter exception_text
+        return 0
+    )
+
+    if classOf vertex_count != Integer then
+    (
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:vertexCountType | node:% | value:% | class:%\n" \
+            source_node.name vertex_count (classOf vertex_count)
+        return 0
+    )
+
+    vertex_count
+    -- return
+)
+
+
+/*
+Builds connected selected-edge components while keeping X-, Y-, and Z-running directions independent.
+Each returned row is #(component_edges, component_vertices, principal_axis).
+*/
+function buildGeometryDiagnosticsSelectedAxisEdgeComponents source_node adapter selected_edges direction_type =
 (
     if not isValidNode source_node or classOf adapter != Array or adapter.count < 2 or classOf selected_edges != BitArray then
     (
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:buildComponentsInput | node:% | adapter:% | edges:%\n" \
-            source_node adapter selected_edges
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:axisComponentsInput | node:% | direction:% | adapter:% | edges:%\n" \
+            source_node direction_type adapter selected_edges
         return undefined
     )
 
-    local remaining_edges = copy selected_edges
+    local edge_records = #()
+
+    for edge_id in selected_edges do
+    (
+        local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter edge_id
+
+        if edge_verts.count != 2 then
+        (
+            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:axisComponentEdge | node:% | edge:% | verts:%\n" \
+                source_node.name edge_id edge_verts
+            return undefined
+        )
+
+        local point_a = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[1]
+        local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[2]
+        local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
+
+        if axis_data.count != 2 then
+        (
+            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:axisComponentDirection | node:% | edge:% | point_a:% | point_b:%\n" \
+                source_node.name edge_id point_a point_b
+            return undefined
+        )
+
+        local axis_type = axis_data[1]
+        local direction_matches = if direction_type == #vertical then (axis_type == #z) else (axis_type == #x or axis_type == #y)
+
+        if not direction_matches then
+        (
+            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:axisComponentMismatch | node:% | edge:% | requested:% | actual:%\n" \
+                source_node.name edge_id direction_type axis_type
+            return undefined
+        )
+
+        append edge_records #(edge_id, edge_verts[1], edge_verts[2], axis_type)
+    )
+
+    local assigned_records = #{}
+    assigned_records.count = edge_records.count
     local components = #()
 
-    while remaining_edges.numberSet > 0 do
+    for record_index = 1 to edge_records.count do
     (
-        local seed_edge = (remaining_edges as array)[1]
-        local pending_edges = #(seed_edge)
-        local component_edges = #{}
-        local component_vertices = #{}
-
-        while pending_edges.count > 0 do
+        if not assigned_records[record_index] then
         (
-            local edge_id = pending_edges[1]
-            deleteItem pending_edges 1
+            local seed_record = edge_records[record_index]
+            local component_axis = seed_record[4]
+            local component_edges = #{}
+            local component_vertices = #{}
+            local pending_records = #(record_index)
 
-            if remaining_edges[edge_id] then
+            while pending_records.count > 0 do
             (
-                local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter edge_id
+                local current_index = pending_records[1]
+                deleteItem pending_records 1
 
-                if edge_verts.count != 2 then
+                if not assigned_records[current_index] then
                 (
-                    format "Geometry Diagnostics VERTICAL FIX ERROR | stage:componentEdgeRead | node:% | edge:% | verts:%\n" \
-                        source_node.name edge_id edge_verts
-                    return undefined
-                )
+                    local current_record = edge_records[current_index]
 
-                remaining_edges[edge_id] = false
-                component_edges[edge_id] = true
-                component_vertices[edge_verts[1]] = true
-                component_vertices[edge_verts[2]] = true
-
-                local remaining_ids = remaining_edges as array
-
-                for candidate_edge_id in remaining_ids do
-                (
-                    local candidate_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter candidate_edge_id
-
-                    if candidate_verts.count != 2 then
+                    if current_record[4] == component_axis then
                     (
-                        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:componentCandidateRead | node:% | edge:% | verts:%\n" \
-                            source_node.name candidate_edge_id candidate_verts
-                        return undefined
-                    )
+                        assigned_records[current_index] = true
+                        component_edges[current_record[1]] = true
+                        component_vertices[current_record[2]] = true
+                        component_vertices[current_record[3]] = true
 
-                    local shares_vertex = \
-                        (candidate_verts[1] <= component_vertices.count and component_vertices[candidate_verts[1]]) or \
-                        (candidate_verts[2] <= component_vertices.count and component_vertices[candidate_verts[2]])
+                        for candidate_index = 1 to edge_records.count do
+                        (
+                            if not assigned_records[candidate_index] and findItem pending_records candidate_index == 0 then
+                            (
+                                local candidate_record = edge_records[candidate_index]
 
-                    if shares_vertex and findItem pending_edges candidate_edge_id == 0 then
-                    (
-                        append pending_edges candidate_edge_id
+                                if candidate_record[4] == component_axis then
+                                (
+                                    local shares_vertex = \
+                                        (candidate_record[2] <= component_vertices.count and component_vertices[candidate_record[2]]) or \
+                                        (candidate_record[3] <= component_vertices.count and component_vertices[candidate_record[3]])
+
+                                    if shares_vertex then append pending_records candidate_index
+                                )
+                            )
+                        )
                     )
                 )
             )
-        )
 
-        append components #(component_edges, component_vertices)
+            append components #(component_edges, component_vertices, component_axis)
+        )
     )
 
     components
@@ -4635,198 +4255,350 @@ function buildGeometryDiagnosticsSelectedEdgeComponents source_node adapter sele
 
 
 /*
-Returns the lowest world-space vertex in one selected vertical component.
-Z is the primary ordering key and vertex ID is the deterministic exact tie-break.
+Returns the signed free-axis delta from one anchor vertex to another point.
+The requested principal axis is the only coordinate used for continuation direction.
 */
-function getGeometryDiagnosticsVerticalComponentAnchor source_node adapter component_vertices =
+function getGeometryDiagnosticsDirectionAxisDelta anchor_position other_position axis_type =
 (
-    if not isValidNode source_node or classOf adapter != Array or adapter.count < 2 or classOf component_vertices != BitArray then return #()
-
-    local best_vertex_id = 0
-    local best_position = undefined
-
-    for vertex_id in component_vertices do
+    if classOf anchor_position != Point3 or classOf other_position != Point3 then
     (
-        local vertex_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter vertex_id
-
-        if vertex_position == undefined then
-        (
-            format "Geometry Diagnostics VERTICAL FIX ERROR | stage:anchorPosition | node:% | vertex:%\n" \
-                source_node.name vertex_id
-            return #()
-        )
-
-        if best_position == undefined or vertex_position.z < best_position.z or \
-            (vertex_position.z == best_position.z and (best_vertex_id == 0 or vertex_id < best_vertex_id)) then
-        (
-            best_vertex_id = vertex_id
-            best_position = vertex_position
-        )
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:axisDeltaInput | anchor:% | other:% | axis:%\n" \
+            anchor_position other_position axis_type
+        return undefined
     )
 
-    if best_vertex_id == 0 or best_position == undefined then return #()
-
-    #(best_vertex_id, best_position)
+    case axis_type of
+    (
+        #x: (other_position.x - anchor_position.x)
+        #y: (other_position.y - anchor_position.y)
+        #z: (other_position.z - anchor_position.z)
+        default:
+        (
+            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:axisDeltaType | axis:%\n" axis_type
+            undefined
+        )
+    )
     -- return
 )
 
 
 /*
-Fixes the RMB-selected vertical skew components by aligning every component to its lowest endpoint XY while preserving every vertex Z.
-This replaces the Wall-Fixer loop-target initialization path that can resolve the wrong vertical target.
+Returns true only when an unselected exact edge continues one selected component through the shared anchor vertex.
+The exact reference must leave the anchor in the opposite free-axis direction from at least one component edge, preventing same-side branches from becoming anchors.
 */
-function fixGeometryDiagnosticsVerticalDirectionEdges source_node position_precision_text =
+function geometryDiagnosticsDirectionReferenceContinuesComponent source_node adapter component_edges anchor_vertex_id reference_other_vertex_id axis_type =
 (
-    local fix_input = getGeometryDiagnosticsVerticalFixSelection source_node position_precision_text
-
-    if fix_input == undefined then return undefined
-
-    local adapter = fix_input[1]
-    local selected_edges = fix_input[2]
-    local position_precision = fix_input[3]
-
-    if selected_edges.numberSet == 0 then
+    if not isValidNode source_node or classOf adapter != Array or adapter.count < 2 or \
+        classOf component_edges != BitArray or classOf anchor_vertex_id != Integer or classOf reference_other_vertex_id != Integer then
     (
-        local empty_display_active = activateGeometryDiagnosticsEdgeSelectionDisplay source_node adapter
-        completeRedraw()
-
-        if not empty_display_active then
-        (
-            format "Geometry Diagnostics VERTICAL FIX ERROR | stage:emptyFinalDisplay | node:%\n" source_node.name
-            return undefined
-        )
-
-        return #(0, false, #{}, adapter[2])
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:referenceContinuationInput | node:% | component_edges:% | anchor:% | reference_other:% | axis:%\n" \
+            source_node component_edges anchor_vertex_id reference_other_vertex_id axis_type
+        return false
     )
 
-    local original_vertex_selection = getGeometryDiagnosticsDirectionVertexSelection source_node adapter
+    local anchor_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter anchor_vertex_id
+    local reference_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter reference_other_vertex_id
 
-    if original_vertex_selection == undefined then
+    if anchor_position == undefined or reference_position == undefined then
     (
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:vertexSelectionRead | node:%\n" source_node.name
-        return undefined
+        format "Geometry Diagnostics DIRECTION FIX UNRESOLVED | stage:referenceContinuationPosition | node:% | anchor:% | reference_other:% | anchor_position:% | reference_position:%\n" \
+            source_node.name anchor_vertex_id reference_other_vertex_id anchor_position reference_position
+        return false
     )
 
-    local components = buildGeometryDiagnosticsSelectedEdgeComponents source_node adapter selected_edges
+    local reference_axis_delta = getGeometryDiagnosticsDirectionAxisDelta anchor_position reference_position axis_type
 
-    if components == undefined then return undefined
+    if reference_axis_delta == undefined or reference_axis_delta == 0.0 then return false
 
-    local failed_vertices = #{}
+    local incident_edges = getGeometryDiagnosticsDirectionVertexIncidentEdges source_node adapter anchor_vertex_id
 
-    for component_record in components do
+    for component_edge_id in incident_edges do
     (
-        local component_edges = component_record[1]
-        local component_vertices = component_record[2]
-        local anchor_data = getGeometryDiagnosticsVerticalComponentAnchor source_node adapter component_vertices
-
-        if anchor_data.count != 2 then
+        if component_edge_id <= component_edges.count and component_edges[component_edge_id] then
         (
-            for vertex_id in component_vertices do failed_vertices[vertex_id] = true
-        )
-        else
-        (
-            local anchor_vertex_id = anchor_data[1]
-            local anchor_position = anchor_data[2]
+            local component_edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter component_edge_id
 
-            format "Geometry Diagnostics VERTICAL FIX COMPONENT | node:% | edges:% | vertices:% | anchor_vertex:% | anchor_position:%\n" \
-                source_node.name component_edges component_vertices anchor_vertex_id anchor_position
-
-            for vertex_id in component_vertices do
+            if component_edge_verts.count == 2 then
             (
-                local original_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter vertex_id
+                local component_other_vertex_id = if component_edge_verts[1] == anchor_vertex_id then component_edge_verts[2] else component_edge_verts[1]
+                local component_other_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter component_other_vertex_id
 
-                if original_position == undefined then
+                if component_other_position != undefined then
                 (
-                    failed_vertices[vertex_id] = true
-                )
-                else
-                (
-                    local target_position = [anchor_position.x, anchor_position.y, original_position.z]
+                    local component_axis_delta = getGeometryDiagnosticsDirectionAxisDelta anchor_position component_other_position axis_type
 
-                    if not setGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter vertex_id target_position position_precision then
+                    if component_axis_delta != undefined and component_axis_delta != 0.0 and \
+                        (component_axis_delta * reference_axis_delta) < 0.0 then
                     (
-                        failed_vertices[vertex_id] = true
+                        return true
                     )
                 )
             )
         )
     )
 
-    if not setGeometryDiagnosticsDirectionVertexSelection source_node adapter original_vertex_selection then
-    (
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:restoreVertexSelection | node:% | requested:%\n" \
-            source_node.name original_vertex_selection
-        return undefined
-    )
-
-    local fixed_edges = 0
-
-    for edge_id in selected_edges do
-    (
-        if isGeometryDiagnosticsExactDirectionEdge source_node adapter edge_id #vertical position_precision then
-        (
-            fixed_edges += 1
-        )
-        else
-        (
-            local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter edge_id
-
-            if edge_verts.count == 2 then
-            (
-                failed_vertices[edge_verts[1]] = true
-                failed_vertices[edge_verts[2]] = true
-            )
-        )
-    )
-
-    local edge_selection_result = setGeometryDiagnosticsCheckerEdgeSelection source_node adapter selected_edges
-
-    if edge_selection_result[1] != true then
-    (
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:restoreEdgeSelection | node:% | requested:% | immediate:% | final:% | display:%\n" \
-            source_node.name selected_edges edge_selection_result[2] edge_selection_result[3] edge_selection_result[4]
-        return undefined
-    )
-
-    try
-    (
-        adapter[2].RefreshScreen()
-    )
-    catch
-    (
-        local exception_text = getCurrentException()
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:refreshAfterMove | node:% | exception:%\n" \
-            source_node.name exception_text
-        return undefined
-    )
-
-    local display_active = activateGeometryDiagnosticsEdgeSelectionDisplay source_node adapter
-    completeRedraw()
-
-    if not display_active or getCommandPanelTaskMode() != #modify or modPanel.getCurrentObject() != adapter[2] or subObjectLevel != 2 then
-    (
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:finalPanel | node:% | display:% | panel:% | current:% | expected:% | level:%\n" \
-            source_node.name display_active (getCommandPanelTaskMode()) (modPanel.getCurrentObject()) adapter[2] subObjectLevel
-        return undefined
-    )
-
-    if failed_vertices.numberSet > 0 then
-    (
-        format "Geometry Diagnostics VERTICAL FIX ERROR | stage:verification | node:% | selected_edges:% | fixed_edges:% | failed_vertices:% | position_precision:%\n" \
-            source_node.name selected_edges fixed_edges failed_vertices position_precision_text
-    )
-
-    format "Geometry Diagnostics VERTICAL FIX | node:% | selected:% | fixed:% | failed_vertices:% | precision:%\n" \
-        source_node.name selected_edges.numberSet fixed_edges failed_vertices position_precision_text
-
-    #(fixed_edges, failed_vertices.numberSet > 0, copy failed_vertices, adapter[2])
+    false
     -- return
 )
 
 
 /*
-Runs one direction CTRL+RMB repair. Vertical uses the current RMB-selected component repair; horizontal keeps the self-initializing coordinate solver.
-Both paths preserve the exact owned direction Edit Poly and verify repaired edges against postion preccision.
+Finds exact same-axis continuation edges on the boundary of one selected component.
+The references themselves define the trusted 3D alignment line; missing or conflicting references leave the component unresolved instead of inventing a target.
+*/
+function getGeometryDiagnosticsComponentDirectionReference source_node adapter selected_edges component_edges component_vertices axis_type position_precision =
+(
+    if not isValidNode source_node or classOf adapter != Array or adapter.count < 2 or \
+        classOf selected_edges != BitArray or classOf component_edges != BitArray or classOf component_vertices != BitArray or \
+        position_precision == undefined or position_precision <= 0.0 then
+    (
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:referenceInput | node:% | adapter:% | selected:% | component_edges:% | component_vertices:% | axis:% | precision:%\n" \
+            source_node adapter selected_edges component_edges component_vertices axis_type position_precision
+        return #()
+    )
+
+    local anchor_records = #()
+    local anchor_vertices = #{}
+    local reference_edges = #{}
+
+    for vertex_id in component_vertices do
+    (
+        local incident_edges = getGeometryDiagnosticsDirectionVertexIncidentEdges source_node adapter vertex_id
+
+        for incident_edge_id in incident_edges do
+        (
+            local edge_is_selected = incident_edge_id <= selected_edges.count and selected_edges[incident_edge_id]
+            local edge_is_component = incident_edge_id <= component_edges.count and component_edges[incident_edge_id]
+
+            if not edge_is_selected and not edge_is_component and isGeometryDiagnosticsDirectionEdgeVisible source_node adapter incident_edge_id then
+            (
+                local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter incident_edge_id
+
+                if edge_verts.count == 2 then
+                (
+                    local other_vertex_id = if edge_verts[1] == vertex_id then edge_verts[2] else edge_verts[1]
+                    local other_is_component_vertex = other_vertex_id <= component_vertices.count and component_vertices[other_vertex_id]
+
+                    if not other_is_component_vertex then
+                    (
+                        local point_a = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[1]
+                        local point_b = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter edge_verts[2]
+                        local axis_data = getGeometryDiagnosticsPrincipalAxisData point_a point_b
+
+                        if axis_data.count == 2 and axis_data[1] == axis_type and axis_data[2] <= position_precision and \
+                            geometryDiagnosticsDirectionReferenceContinuesComponent \
+                                source_node adapter component_edges vertex_id other_vertex_id axis_type then
+                        (
+                            reference_edges[incident_edge_id] = true
+
+                            if not (vertex_id <= anchor_vertices.count and anchor_vertices[vertex_id]) then
+                            (
+                                anchor_vertices[vertex_id] = true
+                                append anchor_records #(vertex_id, incident_edge_id)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    )
+
+    if anchor_records.count == 0 then
+    (
+        format "Geometry Diagnostics DIRECTION FIX UNRESOLVED | stage:referenceMissing | node:% | axis:% | component_edges:% | component_vertices:%\n" \
+            source_node.name axis_type component_edges component_vertices
+        return #()
+    )
+
+    local primary_anchor_id = 0
+    local primary_anchor_position = undefined
+
+    for anchor_record in anchor_records do
+    (
+        local anchor_vertex_id = anchor_record[1]
+        local anchor_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter anchor_vertex_id
+
+        if anchor_position == undefined then
+        (
+            format "Geometry Diagnostics DIRECTION FIX UNRESOLVED | stage:referencePosition | node:% | anchor_vertex:%\n" \
+                source_node.name anchor_vertex_id
+            return #()
+        )
+
+        if primary_anchor_id == 0 or anchor_vertex_id < primary_anchor_id then
+        (
+            primary_anchor_id = anchor_vertex_id
+            primary_anchor_position = anchor_position
+        )
+    )
+
+    for anchor_record in anchor_records do
+    (
+        local anchor_vertex_id = anchor_record[1]
+        local anchor_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter anchor_vertex_id
+        local anchor_difference = getGeometryDiagnosticsAxisConstrainedDistance primary_anchor_position anchor_position axis_type
+
+        if anchor_difference == undefined or anchor_difference > position_precision then
+        (
+            format "Geometry Diagnostics DIRECTION FIX UNRESOLVED | stage:referenceConflict | node:% | axis:% | primary_vertex:% | primary_position:% | other_vertex:% | other_position:% | constrained_distance:% | precision:%\n" \
+                source_node.name axis_type primary_anchor_id primary_anchor_position anchor_vertex_id anchor_position anchor_difference position_precision
+            return #()
+        )
+    )
+
+    #(primary_anchor_id, primary_anchor_position, anchor_vertices, reference_edges)
+    -- return
+)
+
+
+/*
+Builds one complete no-guess target plan from exact same-loop continuation geometry.
+The exact reference line supplies both wall-depth and in-wall alignment; anchor vertices stay fixed and no mean, projection, or guessed target is allowed.
+*/
+function buildGeometryDiagnosticsDirectionComponentTargetPlan source_node adapter selected_edges component_record position_precision =
+(
+    if classOf component_record != Array or component_record.count < 3 then
+    (
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:targetPlanInput | node:% | component:% | precision:%\n" \
+            source_node component_record position_precision
+        return #()
+    )
+
+    local component_edges = component_record[1]
+    local component_vertices = component_record[2]
+    local axis_type = component_record[3]
+    local reference_data = getGeometryDiagnosticsComponentDirectionReference \
+        source_node adapter selected_edges component_edges component_vertices axis_type position_precision
+
+    if reference_data.count < 4 then return #()
+
+    local anchor_vertex_id = reference_data[1]
+    local anchor_position = reference_data[2]
+    local anchor_vertices = reference_data[3]
+    local reference_edges = reference_data[4]
+    local target_records = #()
+
+    for vertex_id in component_vertices do
+    (
+        local original_position = getGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter vertex_id
+
+        if original_position == undefined then
+        (
+            format "Geometry Diagnostics DIRECTION FIX UNRESOLVED | stage:componentTargetRead | node:% | vertex:% | axis:%\n" \
+                source_node.name vertex_id axis_type
+            return #()
+        )
+
+        if vertex_id <= anchor_vertices.count and anchor_vertices[vertex_id] then
+        (
+            append target_records #(vertex_id, original_position, original_position, true)
+        )
+        else
+        (
+            local target_position = case axis_type of
+            (
+                #z: [anchor_position.x, anchor_position.y, original_position.z]
+                #x: [original_position.x, anchor_position.y, anchor_position.z]
+                #y: [anchor_position.x, original_position.y, anchor_position.z]
+                default: undefined
+            )
+
+            if target_position == undefined then
+            (
+                format "Geometry Diagnostics DIRECTION FIX ERROR | stage:targetAxis | node:% | vertex:% | axis:%\n" \
+                    source_node.name vertex_id axis_type
+                return #()
+            )
+
+            append target_records #(vertex_id, original_position, target_position, false)
+        )
+    )
+
+    #(component_edges, component_vertices, axis_type, target_records, anchor_vertices, reference_edges, anchor_vertex_id)
+    -- return
+)
+
+
+
+/*
+Resolves a safe base-poly repair path for the common selection-only stack.
+The Edit Poly owns edge selection; the Editable Poly base owns geometry here.
+Never map IDs into the base for other modifier stacks, dead topology, or
+a non-identical evaluated mesh. No collapse or geometry edit occurs in this preflight.
+An empty result keeps the ordinary modifier repair path unchanged.
+*/
+function getGeometryDiagnosticsDirectionBaseRepairAdapter source_node selection_adapter position_precision =
+(
+    if not isValidNode source_node or classOf selection_adapter != Array or selection_adapter.count < 2 or \
+        selection_adapter[1] != #edit_poly or classOf source_node.baseObject != Editable_Poly or \
+        source_node.modifiers.count != 1 or source_node.modifiers[1] != selection_adapter[2] or \
+        selection_adapter[2].name != "GEOMETRY DIAGNOSTICS" or \
+        position_precision == undefined or position_precision <= 0.0 then
+    (
+        return #()
+    )
+
+    local base_poly = source_node.baseObject
+
+    if polyop.getHasDeadStructs base_poly != 0 then
+    (
+        format "Geometry Diagnostics DIRECTION FIX NOTICE | stage:baseRepairDeadTopology | node:% | no base writes with dead component IDs\n" source_node.name
+        return #()
+    )
+
+    local edit_poly_mod = selection_adapter[2]
+    local vertex_count = polyop.getNumVerts base_poly
+    local edge_count = polyop.getNumEdges base_poly
+    local source_vertex_count = edit_poly_mod.GetNumVertices node:source_node
+    local source_edge_count = edit_poly_mod.GetNumEdges node:source_node
+
+    if vertex_count <= 0 or edge_count <= 0 or \
+        vertex_count != source_vertex_count or edge_count != source_edge_count then
+    (
+        format "Geometry Diagnostics DIRECTION FIX NOTICE | stage:baseRepairCounts | node:% | base_vertices:% | evaluated_vertices:% | base_edges:% | evaluated_edges:% | base adapter refused\n" \
+            source_node.name vertex_count source_vertex_count edge_count source_edge_count
+        return #()
+    )
+
+    for edge_id = 1 to edge_count do
+    (
+        local base_edge_verts = polyop.getEdgeVerts base_poly edge_id
+        local evaluated_edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node selection_adapter edge_id
+
+        if base_edge_verts.count != 2 or evaluated_edge_verts.count != 2 or \
+            (base_edge_verts[1] != evaluated_edge_verts[1] or base_edge_verts[2] != evaluated_edge_verts[2]) and \
+            (base_edge_verts[1] != evaluated_edge_verts[2] or base_edge_verts[2] != evaluated_edge_verts[1]) then
+        (
+            format "Geometry Diagnostics DIRECTION FIX NOTICE | stage:baseRepairEdgeTopology | node:% | edge:% | base:% | evaluated:% | base adapter refused\n" \
+                source_node.name edge_id base_edge_verts evaluated_edge_verts
+            return #()
+        )
+    )
+
+    for vertex_id = 1 to vertex_count do
+    (
+        local base_position = polyop.getVert base_poly vertex_id
+        local evaluated_position = getGeometryDiagnosticsDirectionVertexPosition source_node selection_adapter vertex_id
+
+        if evaluated_position == undefined or distance base_position evaluated_position > position_precision then
+        (
+            format "Geometry Diagnostics DIRECTION FIX NOTICE | stage:baseRepairVertexMismatch | node:% | vertex:% | base:% | evaluated:% | precision:% | base adapter refused\n" \
+                source_node.name vertex_id base_position evaluated_position position_precision
+            return #()
+        )
+    )
+
+    format "Geometry Diagnostics DIRECTION FIX | stage:baseRepairVerified | node:% | vertices:% | edges:% | owner:%\n" \
+        source_node.name vertex_count edge_count edit_poly_mod
+
+    #(#editable_poly, base_poly, false)
+    -- return
+)
+
+
+/*
+Runs one unified direction CTRL+RMB repair for vertical and horizontal edges.
+Only components with an exact same-loop continuation reference are moved; missing or conflicting references remain untouched.
 */
 function fixGeometryDiagnosticsDirectionEdges source_node direction_type position_precision_text =
 (
@@ -4842,39 +4614,13 @@ function fixGeometryDiagnosticsDirectionEdges source_node direction_type positio
         return undefined
     )
 
-    local position_precision = resolveGeometryDiagnosticsPositionPrecision position_precision_text
+    local fix_input = getGeometryDiagnosticsDirectionFixSelection source_node direction_type position_precision_text
 
-    if position_precision == undefined or position_precision <= 0.0 then
-    (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:precision | text:% | resolved:%\n" \
-            position_precision_text position_precision
-        return undefined
-    )
+    if fix_input == undefined then return undefined
 
-    if direction_type == #vertical then
-    (
-        return fixGeometryDiagnosticsVerticalDirectionEdges source_node position_precision_text
-    )
-
-    local detection_result = checkGeometryDiagnosticsDirectionEdges source_node direction_type #skewed position_precision_text
-
-    if detection_result == undefined then
-    (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:detectSkewed | node:% | direction:% | precision:%\n" \
-            source_node.name direction_type position_precision_text
-        return undefined
-    )
-
-    local adapter = #(#edit_poly, detection_result.selection_edit_poly_mod, false)
-    local selected_edges = copy detection_result.edge_ids
-    local original_vertex_selection = getGeometryDiagnosticsDirectionVertexSelection source_node adapter
-
-    if original_vertex_selection == undefined then
-    (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:vertexSelectionRead | node:% | direction:%\n" \
-            source_node.name direction_type
-        return undefined
-    )
+    local adapter = fix_input[1]
+    local selected_edges = fix_input[2]
+    local position_precision = fix_input[3]
 
     if selected_edges.numberSet == 0 then
     (
@@ -4891,33 +4637,127 @@ function fixGeometryDiagnosticsDirectionEdges source_node direction_type positio
         return #(0, false, #{}, adapter[2])
     )
 
-    local solve_result = solveGeometryDiagnosticsDirectionTargets source_node adapter selected_edges direction_type position_precision
+    local original_vertex_selection = getGeometryDiagnosticsDirectionVertexSelection source_node adapter
 
-    if solve_result == undefined then
+    if original_vertex_selection == undefined then
     (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:solve | node:% | direction:% | selected:%\n" \
-            source_node.name direction_type selected_edges
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:vertexSelectionRead | node:% | direction:%\n" \
+            source_node.name direction_type
         return undefined
     )
 
-    local target_records = solve_result[1]
-    local failed_vertices = #{}
-
-    for target_record in target_records do
+    if not activateGeometryDiagnosticsEdgeSelectionDisplay source_node adapter then
     (
-        local vertex_id = target_record[1]
-        local target_position = target_record[3]
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:moveContext | node:% | direction:% | edit_poly:%\n" \
+            source_node.name direction_type adapter[2]
+        return undefined
+    )
 
-        if not setGeometryDiagnosticsDirectionVertexWorldPosition source_node adapter vertex_id target_position position_precision then
+    local repair_adapter = getGeometryDiagnosticsDirectionBaseRepairAdapter source_node adapter position_precision
+
+    if repair_adapter.count == 0 then
+    (
+        repair_adapter = adapter
+    )
+
+    local components = buildGeometryDiagnosticsSelectedAxisEdgeComponents source_node repair_adapter selected_edges direction_type
+
+    if components == undefined then return undefined
+
+    local junction_components = #{}
+    junction_components.count = components.count
+
+    if components.count > 1 then
+    (
+        for first_index = 1 to (components.count - 1) do
         (
-            failed_vertices[vertex_id] = true
+            for second_index = (first_index + 1) to components.count do
+            (
+                local first_component = components[first_index]
+                local second_component = components[second_index]
+                local shared_vertices = first_component[2] * second_component[2]
+
+                if shared_vertices.numberSet > 0 then
+                (
+                    junction_components[first_index] = true
+                    junction_components[second_index] = true
+
+                    format "Geometry Diagnostics DIRECTION FIX UNRESOLVED | stage:componentJunction | node:% | direction:% | first_axis:% | second_axis:% | shared_vertices:%\n" \
+                        source_node.name direction_type first_component[3] second_component[3] shared_vertices
+                )
+            )
+        )
+    )
+
+    local plan_rows = #()
+    local unresolved_vertices = #{}
+
+    for component_index = 1 to components.count do
+    (
+        local component_record = components[component_index]
+        local component_is_junction = component_index <= junction_components.count and junction_components[component_index]
+
+        if component_is_junction then
+        (
+            for vertex_id in component_record[2] do unresolved_vertices[vertex_id] = true
+            append plan_rows #(false, component_record, #())
+        )
+        else
+        (
+            local target_plan = buildGeometryDiagnosticsDirectionComponentTargetPlan \
+                source_node repair_adapter selected_edges component_record position_precision
+
+            if target_plan.count == 0 then
+            (
+                for vertex_id in component_record[2] do unresolved_vertices[vertex_id] = true
+                append plan_rows #(false, component_record, #())
+            )
+            else
+            (
+                append plan_rows #(true, component_record, target_plan)
+            )
+        )
+    )
+
+    local failed_vertices = copy unresolved_vertices
+
+    for plan_row in plan_rows do
+    (
+        if plan_row[1] then
+        (
+            local target_plan = plan_row[3]
+            local component_edges = target_plan[1]
+            local component_vertices = target_plan[2]
+            local axis_type = target_plan[3]
+            local target_records = target_plan[4]
+            local anchor_vertices = target_plan[5]
+            local reference_edges = target_plan[6]
+            local anchor_vertex_id = target_plan[7]
+
+            format "Geometry Diagnostics DIRECTION FIX COMPONENT | node:% | direction:% | axis:% | edges:% | vertices:% | anchor:% | anchor_vertices:% | reference_edges:%\n" \
+                source_node.name direction_type axis_type component_edges component_vertices anchor_vertex_id anchor_vertices reference_edges
+
+            for target_record in target_records do
+            (
+                local vertex_id = target_record[1]
+                local target_position = target_record[3]
+                local is_anchor_vertex = target_record[4]
+
+                if not is_anchor_vertex and target_position != target_record[2] then
+                (
+                    if not setGeometryDiagnosticsDirectionVertexWorldPosition source_node repair_adapter vertex_id target_position position_precision then
+                    (
+                        failed_vertices[vertex_id] = true
+                    )
+                )
+            )
         )
     )
 
     if not setGeometryDiagnosticsDirectionVertexSelection source_node adapter original_vertex_selection then
     (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:restoreVertexSelection | node:% | requested:%\n" \
-            source_node.name original_vertex_selection
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:restoreVertexSelection | node:% | direction:% | requested:%\n" \
+            source_node.name direction_type original_vertex_selection
         return undefined
     )
 
@@ -4925,13 +4765,13 @@ function fixGeometryDiagnosticsDirectionEdges source_node direction_type positio
 
     for edge_id in selected_edges do
     (
-        if isGeometryDiagnosticsExactDirectionEdge source_node adapter edge_id direction_type position_precision then
+        if isGeometryDiagnosticsExactDirectionEdge source_node repair_adapter edge_id direction_type position_precision then
         (
             fixed_edges += 1
         )
         else
         (
-            local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node adapter edge_id
+            local edge_verts = getGeometryDiagnosticsDirectionEdgeVertIds source_node repair_adapter edge_id
 
             if edge_verts.count == 2 then
             (
@@ -4945,30 +4785,21 @@ function fixGeometryDiagnosticsDirectionEdges source_node direction_type positio
 
     if edge_selection_result[1] != true then
     (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:restoreEdgeSelection | node:% | requested:% | immediate:% | final:% | display:%\n" \
-            source_node.name selected_edges edge_selection_result[2] edge_selection_result[3] edge_selection_result[4]
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:restoreEdgeSelection | node:% | direction:% | requested:% | immediate:% | final:% | display:%\n" \
+            source_node.name direction_type selected_edges edge_selection_result[2] edge_selection_result[3] edge_selection_result[4]
         return undefined
     )
 
-    if adapter[1] == #edit_poly then
+    try
     (
-        try
-        (
-            adapter[2].RefreshScreen()
-        )
-        catch
-        (
-            local exception_text = getCurrentException()
-            format "Geometry Diagnostics DIRECTION FIX ERROR | stage:refreshAfterMove | node:% | direction:% | exception:%\n" \
-                source_node.name direction_type exception_text
-            return undefined
-        )
+        adapter[2].RefreshScreen()
     )
-
-    if failed_vertices.numberSet > 0 then
+    catch
     (
-        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:verification | node:% | direction:% | selected_edges:% | fixed_edges:% | failed_vertices:% | position_precision:%\n" \
-            source_node.name direction_type selected_edges fixed_edges failed_vertices position_precision_text
+        local exception_text = getCurrentException()
+        format "Geometry Diagnostics DIRECTION FIX ERROR | stage:refreshAfterMove | node:% | direction:% | exception:%\n" \
+            source_node.name direction_type exception_text
+        return undefined
     )
 
     local display_active = activateGeometryDiagnosticsEdgeSelectionDisplay source_node adapter
@@ -4981,7 +4812,13 @@ function fixGeometryDiagnosticsDirectionEdges source_node direction_type positio
         return undefined
     )
 
-    format "Geometry Diagnostics DIRECTION FIX | node:% | direction:% | detected_skewed:% | fixed:% | failed_vertices:% | precision:%\n" \
+    if failed_vertices.numberSet > 0 then
+    (
+        format "Geometry Diagnostics DIRECTION FIX UNRESOLVED | stage:verification | node:% | direction:% | selected_edges:% | fixed_edges:% | unresolved_or_failed_vertices:% | position_precision:%\n" \
+            source_node.name direction_type selected_edges fixed_edges failed_vertices position_precision_text
+    )
+
+    format "Geometry Diagnostics DIRECTION FIX | node:% | direction:% | selected:% | fixed:% | unresolved_or_failed_vertices:% | precision:%\n" \
         source_node.name direction_type selected_edges.numberSet fixed_edges failed_vertices position_precision_text
 
     #(fixed_edges, failed_vertices.numberSet > 0, copy failed_vertices, adapter[2])
@@ -4990,8 +4827,8 @@ function fixGeometryDiagnosticsDirectionEdges source_node direction_type positio
 
 
 /*
-Runs CTRL+RMB direction repair over the current geometry-object selection; vertical consumes the current RMB set and horizontal self-initializes.
-Each node detects its skewed direction edges before repair and the final successful Edit Poly remains active at Edge level.
+Runs the unified no-guess CTRL+RMB direction repair over the current geometry-object selection.
+Both directions preserve a matching RMB set or run the same RMB detection as fallback; the final successful Edit Poly remains active at Edge level.
 */
 function fixGeometryDiagnosticsSelectedDirectionEdges direction_type position_precision_text =
 (
@@ -5017,7 +4854,7 @@ function fixGeometryDiagnosticsSelectedDirectionEdges direction_type position_pr
                 processed_count += 1
                 local fix_result = fixGeometryDiagnosticsDirectionEdges source_node direction_type position_precision_text
 
-                if fix_result == undefined or fix_result[2] then
+                if fix_result == undefined then
                 (
                     failed_count += 1
                 )
@@ -5026,6 +4863,11 @@ function fixGeometryDiagnosticsSelectedDirectionEdges direction_type position_pr
                     total_fixed_edges += fix_result[1]
                     last_source_node = source_node
                     last_edit_poly_mod = fix_result[4]
+
+                    if fix_result[2] then
+                    (
+                        failed_count += 1
+                    )
                 )
             )
         )
@@ -5089,23 +4931,31 @@ function fixGeometryDiagnosticsSelectedOrthoBatch position_precision_text =
                 local vertical_fix = if vertical_selection != undefined then \
                     fixGeometryDiagnosticsDirectionEdges source_node #vertical position_precision_text else undefined
 
-                local horizontal_selection = if vertical_fix != undefined and not vertical_fix[2] then \
-                    checkGeometryDiagnosticsDirectionEdges source_node #horizontal #exact position_precision_text else undefined
+                local horizontal_selection = checkGeometryDiagnosticsDirectionEdges \
+                    source_node #horizontal #exact position_precision_text
                 local horizontal_fix = if horizontal_selection != undefined then \
                     fixGeometryDiagnosticsDirectionEdges source_node #horizontal position_precision_text else undefined
+
+                if vertical_fix != undefined then total_fixed_edges += vertical_fix[1]
+                if horizontal_fix != undefined then total_fixed_edges += horizontal_fix[1]
+
+                if horizontal_fix != undefined then
+                (
+                    last_source_node = source_node
+                    last_edit_poly_mod = horizontal_fix[4]
+                )
+                else if vertical_fix != undefined then
+                (
+                    last_source_node = source_node
+                    last_edit_poly_mod = vertical_fix[4]
+                )
 
                 if vertical_selection == undefined or vertical_fix == undefined or vertical_fix[2] or \
                     horizontal_selection == undefined or horizontal_fix == undefined or horizontal_fix[2] then
                 (
                     failed_count += 1
-                    format "Geometry Diagnostics ORTHO FIX ERROR | stage:batch | node:% | vertical_selection:% | vertical_fix:% | horizontal_selection:% | horizontal_fix:%\n" \
+                    format "Geometry Diagnostics ORTHO FIX PARTIAL/FAILED | stage:batch | node:% | vertical_selection:% | vertical_fix:% | horizontal_selection:% | horizontal_fix:%\n" \
                         source_node.name vertical_selection vertical_fix horizontal_selection horizontal_fix
-                )
-                else
-                (
-                    total_fixed_edges += vertical_fix[1] + horizontal_fix[1]
-                    last_source_node = source_node
-                    last_edit_poly_mod = horizontal_fix[4]
                 )
             )
         )
