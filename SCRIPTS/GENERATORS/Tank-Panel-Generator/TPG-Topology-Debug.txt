@@ -1,0 +1,1 @@
+TPG ERROR | Edit Poly topology unavailable | base:96 evaluated:0 stack_triangles:192 edit_poly_active:true select_mode:1 node:TPG_Module

@@ -1,0 +1,183 @@
+\\\\\\\# Tools Layer
+
+## CODEBASE SOURCE-FORK RULE — NO RUNTIME DEPENDENCY
+
+- The shared Codebase is a canonical **source/reference library**, not a runtime dependency location for downstream tools.
+- Before implementing equivalent behavior, inspect the relevant Codebase Function, Operation, Tool, or Toolset and use the verified implementation as the starting source.
+- When a new or downstream tool uses Codebase behavior, copy/fork the required implementation into that tool's own project files and version. The fork becomes tool-owned source for that tool version.
+- Never create a runtime dependency from a downstream tool to the shared Codebase. Do not `fileIn`, import, load, search for, or reference an absolute/relative Codebase path at runtime.
+- A delivered tool must continue to run when the shared Codebase folder is unavailable.
+- Fork only the minimum required source and its required lower-level behavior. Preserve verified contracts where practical, then adapt the tool-local fork when project-specific behavior is needed.
+- Codebase changes do not automatically propagate into existing tools. Updating a tool from newer Codebase source is an explicit, reviewed source-sync/fork operation.
+- Promote a generally useful fix back into the canonical Codebase only when the current user prompt explicitly authorizes that protected Codebase change.
+- The `Functions -> Operations -> Tools -> Toolsets` hierarchy remains the Codebase's source-organization model. References to lower-layer calls/dependencies inside Codebase documentation describe logical composition; downstream deliverables must vendor/fork the required source locally rather than depend on the central Codebase at runtime.
+
+
+## SHARED CODEBASE WRITE LOCK — READ ONLY BY DEFAULT
+
+This entire layer and every descendant file/folder are canonical shared source of truth and are **READ-ONLY by default in every chat**.
+
+Reading, searching, auditing, referencing, and consuming this layer are allowed. Modifying it is not.
+
+Do not create, edit, replace, upload, delete, rename, move, version, refactor, reformat, or otherwise change anything in this layer unless the **current user prompt explicitly instructs you to modify this shared layer or the specific shared item being changed**.
+
+A dependency on this layer, a bug discovered while using it, memory from another chat, a prior source/development chat, or a generic request to continue/fix a downstream project does not grant write permission.
+
+When a downstream project uses this Tool or its lower-layer behavior, fork the required source into that project and modify the project-local fork. Do not make the downstream project consume the central Codebase at runtime. An upstream shared-source change still requires explicit user authorization.
+
+Authorization is temporary and scoped only to the requested change set and named target(s). After that change is complete, this layer automatically returns to READ-ONLY.
+
+Before every write in this layer, verify explicit current-prompt permission for the exact protected target. If permission is absent or ambiguous, stop and do not write.
+
+
+\\\\\\\#\\\\\\\# Purpose
+
+
+A Tool is one user-facing functional unit built from Operations.
+
+
+A Tool normally corresponds to one rollout or one clearly bounded UI section with a single coherent purpose.
+
+
+\\\\\\\#\\\\\\\# Required Tool package
+
+
+Every Tool directory has exactly three current source files in its root:
+
+
+\\\\- \\\\\\\`\\\\\\\<ToolName\\\\\\\>.ms\\\\\\\` — main entry file. This is the file executed to run the Tool. It loads required **tool-local** dependencies, then loads the Tool backend and frontend, and finally opens or executes the Tool. A downstream fork must not load dependencies from the central Codebase path.      
+\\\\- \\\\\\\`\\\\\\\<ToolName\\\\\\\>-UI.ms\\\\\\\` — frontend only. It defines rollouts, dialogs, controls, callbacks, and UI presentation. It must not contain feature-processing logic or act as the package loader.      
+\\\\- \\\\\\\`\\\\\\\<ToolName\\\\\\\>-FN.ms\\\\\\\` — backend only. It contains Tool-specific non-UI functions and coordination logic. It may call Operations, but it must not reference rollout controls or create dialogs.
+
+
+The main entry file is the only Tool file that should auto-execute the Tool.
+
+
+The UI and FN files must remain loadable independently without automatically opening the Tool.
+
+
+Keep previous versioned source files in the Tool's \\\\\\\`\\\\\\\_Versions/\\\\\\\` folder so the Tool directory root contains only the three current source files plus support folders.
+
+
+\\\\\\\#\\\\\\\# Responsibilities
+
+
+\\\\- Expose Operations through UI controls when UI is required.        
+\\\\- Keep one clear functional purpose.        
+\\\\- Translate UI state and user input into Operation parameters.        
+\\\\- Present Operation results, status, and errors to the user.        
+\\\\- Use existing Operations as the verified source and fork the required workflow logic into the tool/project instead of reimplementing it from scratch.
+
+
+\\\\\\\#\\\\\\\# Boundaries
+
+
+Tools must not:
+
+
+\\\\- Reimplement atomic geometry or data logic from Functions.        
+\\\\- Reimplement workflow logic already owned by Operations.        
+\\\\- Become a container for unrelated tools.        
+\\\\- Own application-wide orchestration that belongs in a Toolset.
+\\- Search parent directories for Toolset, manager, orchestration, or application files.
+\\- Load or require a parent Toolset/manager in order to run.
+\\- Know the name, filename, folder layout, or implementation details of the Toolset that may host it.
+\\- Call upward into Toolset APIs or depend on Toolset globals as part of its normal operation.
+
+
+## No upward dependencies
+
+
+Dependency direction is strictly downward inside the source architecture. A Codebase Tool may logically use Operations, Functions, and lower-level utilities, but a downstream Tool must use tool-local forked copies of all required behavior and must not depend on the central Codebase path or any parent Toolset/orchestration layer.
+
+
+A delivered/forked Tool must remain runnable and testable standalone from its own project files, even when the shared Codebase folder is unavailable.
+
+
+Forbidden patterns include:
+
+
+```text
+Tool -> search parent folders -> find Toolset manager -> fileIn manager
+Tool -> require parent Toolset global
+Tool -> assume a fixed parent folder name
+Tool -> call parent orchestration API
+```
+
+
+Correct ownership:
+
+
+```text
+Toolset / parent
+    -> discovers, loads, configures, and embeds Tool
+
+
+Tool
+    -> calls tool-local forked Operations / Functions / lower-level utilities
+```
+
+
+If a Tool needs configuration or a service from above, the parent must pass that dependency downward through an explicit parameter, callback, interface, or preloaded shared service. The Tool must not discover the parent by walking upward through the filesystem.
+
+
+\\\\\\\#\\\\\\\# Composition
+
+
+The hierarchy is:
+
+
+\\\\\\\`Functions \\\\-\\\\\\\> Operations \\\\-\\\\\\\> Tools \\\\-\\\\\\\> Toolsets\\\\\\\`
+
+
+A Tool calls Operations. A Toolset groups related Tools.
+
+
+\\\\\\\#\\\\\\\# UI rule
+
+
+UI callback code should stay thin. A button should mainly collect input, call the appropriate Operation, and present the result.
+
+
+\\\\\\\#\\\\\\\# MaxScript rules
+
+
+Follow the parent MaxScript \\\\\\\`AGENTS.md\\\\\\\`, \\\\\\\`maxscript-ui-rules.md\\\\\\\` for UI work, and all other relevant shared MaxScript rules.
+
+
+\\\#\\\# Design file
+
+
+\\- Keep feature design for the Tools layer in \\\`design.md\\\` in this folder.    
+\\- Read \\\`design.md\\\` before implementing or changing a Tool whose design is documented there.    
+\\- Update \\\`design.md\\\` when the agreed Tool behavior, backend/frontend responsibilities, UI interactions, state, or constraints change.    
+\\- Keep design decisions in \\\`design.md\\\`; keep implementation history, debugging notes, and TODO work in their appropriate files.    
+
+
+
+
+## Directory organization
+
+
+Canonical Tool packages live under `Tools/` and may be nested under organizational category folders.
+
+
+Current shared categories are:
+
+
+- `LAYERS/`
+- `SELECTION/`
+- `GEOMETRY/`
+- `EPOLY/`
+- `SCENE/`
+- `MATERIALS/`
+- `DUMP/` for shared diagnostics/debug tooling.
+
+
+The `EPOLY/` category may further group Tool packages under component-oriented subcategories such as `Edge Tools/`, `Face Tools/`, `Loop Tools/`, and `Vertex Tools/`.
+
+
+Category and subcategory folders are organizational only. They are not Toolsets, they are not additional architecture layers, and their folder depth does not change dependency direction.
+
+
+Every actual Tool package still follows the required Tool-package contract in its own directory. Place a new Tool under the best matching category instead of restoring the legacy `Modules/` layout.
