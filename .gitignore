@@ -1,0 +1,15 @@
+*.bak
+*.ini
+*.lnk
+*.max
+test.ms
+*[0-9].*
+Logs
+
+/backup-*/
+
+/INSTALL/
+/SCRIPTS/GIT/
+/SCRIPTS/startup/honeycombmesh.mse
+
+
