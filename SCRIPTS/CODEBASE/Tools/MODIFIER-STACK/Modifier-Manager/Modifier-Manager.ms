@@ -1,13 +1,15 @@
 /* Modifier Manager - standalone tool launcher.
-   File version: 0.022 | Project version: 0.022.
+   File version: 0.032 | Project version: 0.032.
 */
 
 global modifier_manager_project_version
-global modifier_manager_file_version_entry = 0.022
-global modifier_manager_stored_project_version_entry = 0.022
+global modifier_manager_file_version_entry = 0.032
+global modifier_manager_stored_project_version_entry = 0.032
 global modifier_manager_main_path
 global modifier_manager_ini_path
 global modifierManagerUI
+global SCRIPT_MANAGER_RUNTIME_MODE
+global EPOLY_TOOLS_RUNTIME_MODE
 
 if modifier_manager_project_version == undefined or modifier_manager_stored_project_version_entry > modifier_manager_project_version then
 (
@@ -29,12 +31,19 @@ if modifier_manager_project_version == undefined or modifier_manager_stored_proj
     )
     fileIn framework_file
 
-    /* Close the previous dockable dialog before redefining the owning rollout. */
-    DialogHost.destroyToolDialogs "Modifier-Manager"
-    if modifierManagerUI != undefined then
+    /* Embedded loads define child rollouts; Script-Manager adds the main UI companion. */
+    local loader_mode = SCRIPT_MANAGER_RUNTIME_MODE
+    if loader_mode == undefined then loader_mode = EPOLY_TOOLS_RUNTIME_MODE
+    local standalone_mode = loader_mode == undefined or loader_mode == #standalone
+
+    if standalone_mode then
     (
-        DialogHost.unregisterDockableDialog modifierManagerUI
-        try (destroyDialog modifierManagerUI) catch (format "Modifier Manager dialog cleanup: %\n" (getCurrentException()))
+        DialogHost.destroyToolDialogs "Modifier-Manager"
+        if modifierManagerUI != undefined then
+        (
+            DialogHost.unregisterDockableDialog modifierManagerUI
+            try (destroyDialog modifierManagerUI) catch (format "Modifier Manager dialog cleanup: %\n" (getCurrentException()))
+        )
     )
 
     fileIn (source_folder + "Modifier-Manager-FN.ms")
@@ -42,8 +51,12 @@ if modifier_manager_project_version == undefined or modifier_manager_stored_proj
     fileIn (source_folder + "Modifier-Manager-Preset-UI.ms")
     fileIn (source_folder + "Modifier-Manager-Slice.ms")
     fileIn (source_folder + "Modifier-Manager-Slice-UI.ms")
-    fileIn (source_folder + "Modifier-Manager-UI.ms")
-    DialogHost.createManagedDialog modifierManagerUI modifier_manager_ini_path "MainUI" \
-        tool_key:"Modifier-Manager" default_width:336 default_height:840 min_height:840
-    windows.processPostedMessages()
+
+    if standalone_mode then
+    (
+        fileIn (source_folder + "Modifier-Manager-UI.ms")
+        DialogHost.createManagedDialog modifierManagerUI modifier_manager_ini_path "MainUI" \
+            tool_key:"Modifier-Manager" default_width:336 default_height:840 min_height:840
+        windows.processPostedMessages()
+    )
 )

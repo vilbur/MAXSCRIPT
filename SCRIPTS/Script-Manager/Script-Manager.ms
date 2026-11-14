@@ -1,5 +1,5 @@
 ﻿/*
-    Script-Manager 1.211
+    Script-Manager 1.221
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -122,8 +122,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.211,
-    project_version = 1.211,
+    file_version = 1.221,
+    project_version = 1.221,
     registry = undefined,
 
     /*
@@ -926,8 +926,8 @@ function scriptManagerPersistIgnoreMask manager_value requested_mask =
 
 struct script_manager_v
 (
-    file_version = 1.211,
-    project_version = 1.211,
+    file_version = 1.221,
+    project_version = 1.221,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -8346,7 +8346,7 @@ function getHostDialogIniSection host_path =
     ),
 
     /*
-    Collects top-level rollout identifiers declared by one readable script source.
+    Collects standalone top-level rollout identifiers, excluding children already added through addSubRollout in the same source.
     Returns an Array on a successful read, including #() when no rollout is declared, and undefined when the source cannot be read.
     */
     function getRolloutNames script_path =
@@ -8354,6 +8354,7 @@ function getHostDialogIniSection host_path =
         if script_path == undefined or not(doesFileExist script_path) then return undefined
 
         rollout_names = #()
+        nested_rollout_names = #()
         file_stream = undefined
         read_ok = true
 
@@ -8381,6 +8382,12 @@ function getHostDialogIniSection host_path =
                             (
                                 rollout_name = line_parts[2]
                                 if (findItem rollout_names rollout_name) == 0 then append rollout_names rollout_name
+                            )
+                            else if line_parts[1] == "addSubRollout" and line_parts.count >= 3 then
+                            (
+                                /* Already owned by this UI's subRollout, not a separate host panel. */
+                                nested_rollout_name = line_parts[3]
+                                if (findItem nested_rollout_names nested_rollout_name) == 0 then append nested_rollout_names nested_rollout_name
                             )
                         )
                     )
@@ -8410,6 +8417,12 @@ function getHostDialogIniSection host_path =
         )
 
         if not read_ok then return undefined
+
+        for nested_rollout_name in nested_rollout_names do
+        (
+            nested_rollout_index = findItem rollout_names nested_rollout_name
+            if nested_rollout_index > 0 then deleteItem rollout_names nested_rollout_index
+        )
 
         rollout_names
         -- return
