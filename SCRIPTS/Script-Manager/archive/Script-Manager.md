@@ -1,5 +1,11 @@
 ﻿# Script-Manager
 
+## Script loading checkbox
+
+- **Unchecked (false)**: Skip loading the script.
+- **Checked (true)**: Load the script in the shared group dialog.
+- **Indeterminate (third state)**: Load the script standalone.
+
 `G:\CODE\MAXSCRIPT\Script-Manager\Script-Manager.ms` is the generic MaxScript loader and optional rollout host for the managed MaxScript source tree.
 
 It is not owned by EPolyTools. The repository lives in `G:\CODE\MAXSCRIPT\Script-Manager\`. Its parent `G:\CODE\MAXSCRIPT\` is the default managed root; OPTIONS can persist a different source root.
