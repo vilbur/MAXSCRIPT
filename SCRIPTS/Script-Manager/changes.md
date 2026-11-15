@@ -1,4 +1,29 @@
-﻿## 2026-11-12 — 1.211
+﻿## 2026-11-15 — 1.225
+
+- Read checked SOURCES once per SCRIPTS state refresh and reuse resolved group hosts by script directory. Group coloring previously repeated source INI reads for every script row.
+- Keep the existing second checked ancestor rule and palette inheritance. Clear the temporary lookups after each refresh so subsequent checkbox and color changes take effect.
+- The reported v1.224 baseline was 27,891 ms for node states across 433 scripts. Static checks passed; live timing is pending.
+
+## 2026-11-14 — 1.224
+
+- Restyle GROUP COLOR palette buttons with a consistent dark `RGB 55,55,59` background and bold Segoe UI font; paint palette RGB only on button **foreground text**, not on button backgrounds. CLEAR also follows the dark button style.
+- Leave selected group colors, storage, script tree coloring, hosted-dialog titles, palette service, and 640/1280 px TreeView dimensions unchanged. Regression test v1.208 adds part 51. v1.223 retained.
+
+## 2026-11-14 — 1.223
+
+- Reduce SOURCES TreeView from 1280 to **640 px** and its rollout content height from 1292 to 652; retain SCRIPTS at 1280 px.
+- Add **GROUP COLOR** to the SOURCES parent-folder context menu. Open a swatch-button dialog using the canonical `SCRIPTS/CODEBASE/Globals/ColorPaletteService.ms` palette, excluding transparent colors and providing a CLEAR choice. The source palette and scene/materials are unchanged.
+- Save group color by numeric palette ID under `[GroupColors]` in `script_manager.ini`. Child groups inherit a parent assignment unless they have their own.
+- Reapply group color to SCRIPTS tree-item text independent of the tri-state loading mode and to the custom title-button font of existing/new hosted group dialogs. Unassigned groups remain neutral. Preserve the dialog's native system caption style.
+- Version source 1.223 and regression tests 1.207 (part 50 and updated menu/size expectations). Previous v1.222 and stable v1.188 retained.
+
+## 2026-11-14 — 1.222
+
+- Update from the latest canonical Script-Manager v1.221 source, preserving its existing functionality and unrelated changes.
+- Change both SOURCES and SCRIPTS TreeViews to 1280 px in initial declarations and the live resize layout. Adjust their rollout content heights (1292/1344), cached loader height (2958), and SCRIPTS minimum tree-height bookkeeping.
+- Keep the 1970 px default/2000 px max manager dialog height and its scrollable subrollout. Regression v1.206 adds part 49 for both initial and resized TreeViews. Stable v1.188 remains untouched.
+
+## 2026-11-12 — 1.211
 
 - Change OPTIONS → SHOW / **CLEAN SCRIPTS** into native tri-state checkbox (`triState:0/1/2`): 0 unchanged normal discovery; 1 previous strict clean view; 2 retains the matched canonical file when present, otherwise exposes scripts in folders with no same-name canonical script.
 - Cycle 0 → 1 → 2 → 0 explicitly through the checkbox event. Preserve legacy Boolean helpers, existing `CleanScriptsOnly=0/1` INI values, and add `2` to the same setting. No changes to startup commands, load error diagnostics, or other filters.

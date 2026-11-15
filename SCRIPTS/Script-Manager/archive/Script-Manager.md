@@ -10,6 +10,26 @@
 
 It is not owned by EPolyTools. The repository lives in `G:\CODE\MAXSCRIPT\Script-Manager\`. Its parent `G:\CODE\MAXSCRIPT\` is the default managed root; OPTIONS can persist a different source root.
 
+## 1.224 GROUP COLOR picker styling
+
+- GROUP COLOR buttons now use a uniform dark background (`RGB 55,55,59`), bold Segoe UI font, and their respective shared palette colors **only as text foreground**. CLEAR uses a neutral light foreground and matching dark button styling.
+- Group assignment, INI persistence, palette service, SCRIPTS TreeView colors, and host-dialog title colors remain unchanged.
+
+## 1.223 SOURCES group colors and compact source tree
+
+- SOURCES TreeView height is now **640 px** (half of v1.222); SCRIPTS stays **1280 px**. Both initial declarations and live resize layout use those sizes.
+- Right-click a parent folder in SOURCES and select **GROUP COLOR**. A non-modal dialog shows buttons for each nontransparent color from the shared `SCRIPTS/CODEBASE/Globals/ColorPaletteService.ms` and `ColorPalette.ini`, plus **CLEAR** to remove the assignment. The shared palette is read-only from Script-Manager.
+- The selected numeric color ID is stored under `[GroupColors]` in `script_manager.ini` by relative folder/group path. Nested groups inherit their nearest parent color unless a more specific assignment exists.
+- Scripts in the SCRIPTS TreeView use their resolved group color in the text foreground, regardless of OFF/HOST/DIRECT mode; uncolored groups remain neutral gray. The matching hosted-group dialog's **custom title button text** receives the same color. The native Windows title-bar text remains system-controlled. Colors update when the assignment changes and when the manager or group dialogs are recreated.
+- v1.223 builds on v1.222 without altering loading modes, script grouping, filter state, or the stable v1.188 snapshot.
+
+## 1.222 both TreeViews 1280 px
+
+- Increase **SOURCES** and **SCRIPTS** WinForms TreeView controls to a fixed working height of **1280 px** each, including both initial rollout declarations and resize layout assignments.
+- Resize SOURCES content to 1292 px and SCRIPTS content to 1344 px, preserving the existing control positions, spacing, button actions, and SCRIPTS live FILTER.
+- Keep the main dockable dialog's saved window size and scrolling behavior; the combined tree heights exceed the window height, so users scroll the loader to navigate between sections.
+- Based on latest canonical v1.221. Production v1.222; regression tests v1.206 add part 49. Preserves v1.188 stable reference.
+
 ## 1.211 CLEAN SCRIPTS tri-state
 
 - OPTIONS → SHOW now uses a native three-state **CLEAN SCRIPTS** checkbox: **0 unchecked** shows the normal script list, **1 checked** keeps only the unversioned script matching the immediate parent folder, and **2 indeterminate** keeps that clean file when available but shows otherwise hidden scripts when a folder has no matching canonical file.
@@ -110,13 +130,13 @@ It is not owned by EPolyTools. The repository lives in `G:\CODE\MAXSCRIPT\Script
 
 Production uses one synchronized release number everywhere:
 
-- file version: `1.211`
-- project version: `1.211`
-- loader dialog title: `Script-Manager 1.211`
+- file version: `1.224`
+- project version: `1.224`
+- loader dialog title: `Script-Manager 1.224`
 - generated host-dialog titles: `<Parent Folder>`
 - visible loader version is shown in the main dialog title; the redundant top info/version labels are removed
 
-The production snapshot for this release is `Script-Manager_1.211.ms`.
+The production snapshot for this release is `Script-Manager_1.224.ms`.
 
 **Stable MVP baseline: `1.188` (user-confirmed, 2026-10-28).** The immutable reference is `Script-Manager_1.188.ms`. The previous stable baseline was `1.153`; future development should branch from the last stable v1.188 snapshot and preserve that release unchanged.
 
@@ -214,7 +234,7 @@ Supported script types are `.ms`, `.mcr`, and `.mse`. When the same directory co
 The loader has two TreeViews:
 
 - `SOURCES` — an organizational directory tree below the active source root. `OPTIONS` contains ROOT PATH/BROWSE and the SHOW and IGNORE sections. The default root is derived from the Script-Manager location, while a custom root can be typed (apply with LMB REFRESH) or selected (BROWSE applies immediately) and persisted in the repository-local `script_manager.ini`. On first use, an existing legacy INI in 3ds Max `plugcfg` is copied into the repository if the new INI is missing. Missing drives do not erase the remembered ROOT PATH. The editable SCRIPTS IGNORE filter does not affect SOURCES; SOURCES independently excludes `.git` and directories with no `.ms`/`.mcr`/`.mse` descendants. The ROOT PATH edit is single-line, and its saved value is assigned to the OPTIONS control after the rollout is attached, so it is visible on first launch and remains correct after a full reload. A directory becomes a display-only hierarchy stopper when it contains an unversioned `.ms` file whose basename exactly matches the directory name, for example `script-name\script-name.ms`, and has a supported script descendant. Stopper rows stay visible, have no checkbox at any nesting depth, and do not show children. Other directories remain selectable recursive sources with the existing checkbox glyph style. SOURCES reserves image slot 0 as a transparent row image so stopper rows remain visually checkbox-free. The managed root itself is not shown as a redundant source item.
-- `SCRIPTS` — scripts found under the checked sources, displayed in the 1032 px TreeView with persisted tri-state load modes. `LOAD SCRIPTS` LMB performs a soft update and RMB performs a full hard reload. The visibility filters and IGNORE mask live in OPTIONS under SHOW and IGNORE. IGNORE masks are pipe-separated and case-insensitive; plain names match exactly, while `*` and `?` use native wildcard matching. Matching folder names remove that complete subtree from SCRIPTS, while matching script filenames or basenames remove only those script leaves. Legacy `.*` wildcard shorthand is normalized to `*`. Editing IGNORE does not scan live; LMB `REFRESH \ RESTART` saves it to `[Filter] ScriptIgnoreMask` in `script_manager.ini` and rebuilds the filtered SCRIPTS tree. Its single .NET `MouseUp` dispatcher saves IGNORE before validating ROOT PATH; failure diagnostics and refresh counts are printed to the MAXScript Listener. If ROOT PATH is invalid, IGNORE is still saved but the tree cannot be rebuilt until ROOT PATH is corrected. Keeping the native editText under 17 px prevents ENTER from adding a newline to its mask.
+- `SCRIPTS` — scripts found under the checked sources, displayed in the 1280 px TreeView with persisted tri-state load modes. `LOAD SCRIPTS` LMB performs a soft update and RMB performs a full hard reload. The visibility filters and IGNORE mask live in OPTIONS under SHOW and IGNORE. IGNORE masks are pipe-separated and case-insensitive; plain names match exactly, while `*` and `?` use native wildcard matching. Matching folder names remove that complete subtree from SCRIPTS, while matching script filenames or basenames remove only those script leaves. Legacy `.*` wildcard shorthand is normalized to `*`. Editing IGNORE does not scan live; LMB `REFRESH \ RESTART` saves it to `[Filter] ScriptIgnoreMask` in `script_manager.ini` and rebuilds the filtered SCRIPTS tree. Its single .NET `MouseUp` dispatcher saves IGNORE before validating ROOT PATH; failure diagnostics and refresh counts are printed to the MAXScript Listener. If ROOT PATH is invalid, IGNORE is still saved but the tree cannot be rebuilt until ROOT PATH is corrected. Keeping the native editText under 17 px prevents ENTER from adding a newline to its mask.
 
 `SCRIPTS` also mirrors organizational directories from the checked source tree when the directory does not contain its own canonical same-name `.ms` file. Each checked SOURCES item becomes a top-level SCRIPTS root for its discovered subtree; unchecked ancestors above that source are omitted instead of wrapping the visible scripts. SCRIPTS now prunes organizational categories without `.ms`/`.mcr`/`.mzp`/`.mse` files anywhere in their non-ignored subtree; SOURCES independently applies its existing script-bearing directory filter. Directories that do contain `<FolderName>.ms` remain tool folders and are represented by their script rows instead.
 
@@ -303,9 +323,9 @@ For `.ms` files, an optional sibling `<ScriptName>-UI.ms` companion is loaded au
 
 ## Tree layout and ordering
 
-The `SOURCES` TreeView has a fixed working height of 512 px for clearer source-tree navigation.
+The `SOURCES` TreeView has a fixed working height of 640 px for clearer source-tree navigation.
 
-The `SCRIPTS` TreeView has a minimum working height of 1032 px so large source sets can remain visible with much less scrolling. Moving preset controls into PRESETS restores the full 1032 px script viewport. The floating manager dialog opens tall enough to expose PRESETS and both tree viewports by default.
+The `SCRIPTS` TreeView has a fixed working height of 1280 px. The main manager dialog retains its saved size and scrollable rollout content, so both sections remain navigable when they do not fit on screen.
 
 Inside each script folder, visible script files are ordered by filesystem last-write time with the newest files at the top. Folder hierarchy ordering remains alphabetical.
 
@@ -432,7 +452,7 @@ Maxscript/
 └─ ...
 ```
 
-The canonical regression test is `tests/Script-Manager-test.ms`. This release uses test version `1.205` and project version `1.211`; part 45 covers live FILTER filename/folder matching, case-insensitivity, no-result handling, mode persistence, and expansion restoration. Part 44 retains the independent SHOW & IGNORE tests. The suite also covers repository-local INI, ROOT PATH persistence, script discovery after switching root, two synchronous cold-start openings without a RESTART, the IGNORE/REFRESH interaction, `OPEN GROUP`, Explorer elevation, selective expansion, caching, and INI persistence.
+The canonical regression test is `tests/Script-Manager-test.ms`. This release uses test version `1.208` and project version `1.224`; part 45 covers live FILTER filename/folder matching, case-insensitivity, no-result handling, mode persistence, and expansion restoration. Part 44 retains the independent SHOW & IGNORE tests. The suite also covers repository-local INI, ROOT PATH persistence, script discovery after switching root, two synchronous cold-start openings without a RESTART, the IGNORE/REFRESH interaction, `OPEN GROUP`, Explorer elevation, selective expansion, caching, and INI persistence.
 
 ## Safety
 

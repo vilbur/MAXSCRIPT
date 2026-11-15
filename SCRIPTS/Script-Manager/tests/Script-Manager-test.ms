@@ -1,10 +1,10 @@
 ﻿/*
-    Script-Manager regression test 1.205.
+    Script-Manager regression test 1.208.
     Tests production version identity, source selection, filters, persistent tri-state load modes, toolbar generation, tree menus, and dedicated script-load behavior.
 */
 
-global script_manager_test_file_version = 1.205
-global script_manager_test_project_version = 1.211
+global script_manager_test_file_version = 1.208
+global script_manager_test_project_version = 1.224
 global script_manager_test_root = getFilenamePath (getSourceFileName())
 global script_manager_test_passed = true
 global script_manager_test_original_root
@@ -106,11 +106,11 @@ function partOfTest1 =
     expected_ini_path = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath script_manager.manager_source_path) + "script_manager.ini"
     settings_path_ok = script_manager.ini_path == expected_ini_path
 
-    version_ok = script_manager.file_version == 1.211 and script_manager.project_version == 1.211 and ScriptManagerIntegration.file_version == 1.211 and ScriptManagerIntegration.project_version == 1.211
-    global_version_ok = script_manager_project_version == 1.211
-    title_ok = script_manager_ui.title == "Script-Manager 1.211"
+    version_ok = script_manager.file_version == 1.224 and script_manager.project_version == 1.224 and ScriptManagerIntegration.file_version == 1.224 and ScriptManagerIntegration.project_version == 1.224
+    global_version_ok = script_manager_project_version == 1.224
+    title_ok = script_manager_ui.title == "Script-Manager 1.224"
     main_action_ok = isProperty script_manager_ui #btn_refresh_restart and (script_manager_ui.btn_refresh_restart.GetType()).FullName == "System.Windows.Forms.Button"
-    main_action_style_ok = main_action_ok and script_manager_ui.btn_refresh_restart.Text == "REFRESH \\ RESTART  |  v1.211" and script_manager_ui.btn_refresh_restart.height == 18 and script_manager_ui.btn_refresh_restart.FlatAppearance.BorderSize == 0 and script_manager_ui.btn_refresh_restart.BackColor.R == 45 and script_manager_ui.btn_refresh_restart.BackColor.G == 45 and script_manager_ui.btn_refresh_restart.BackColor.B == 48 and script_manager_ui.btn_refresh_restart.ForeColor.R == 62 and script_manager_ui.btn_refresh_restart.ForeColor.G == 158 and script_manager_ui.btn_refresh_restart.ForeColor.B == 255 and not script_manager_ui.btn_refresh_restart.TabStop and script_manager_ui.btn_refresh_restart.Font.Name == "Segoe UI" and script_manager_ui.btn_refresh_restart.Font.Size == 14.0 and script_manager_ui.btn_refresh_restart.Font.Bold
+    main_action_style_ok = main_action_ok and script_manager_ui.btn_refresh_restart.Text == "REFRESH \\ RESTART  |  v1.224" and script_manager_ui.btn_refresh_restart.height == 18 and script_manager_ui.btn_refresh_restart.FlatAppearance.BorderSize == 0 and script_manager_ui.btn_refresh_restart.BackColor.R == 45 and script_manager_ui.btn_refresh_restart.BackColor.G == 45 and script_manager_ui.btn_refresh_restart.BackColor.B == 48 and script_manager_ui.btn_refresh_restart.ForeColor.R == 62 and script_manager_ui.btn_refresh_restart.ForeColor.G == 158 and script_manager_ui.btn_refresh_restart.ForeColor.B == 255 and not script_manager_ui.btn_refresh_restart.TabStop and script_manager_ui.btn_refresh_restart.Font.Name == "Segoe UI" and script_manager_ui.btn_refresh_restart.Font.Size == 14.0 and script_manager_ui.btn_refresh_restart.Font.Bold
     production_text = readScriptManagerTestFileText production_path
     main_action_direct_ok = production_text != undefined and (findString production_text "on btn_refresh_restart MouseUp") != undefined and (findString production_text "scriptManagerRefreshButtonMouseUpHandler sender event_args") != undefined and (findString production_text "on btn_refresh_restart Click") == undefined and (findString production_text "tmr_refresh_restart") == undefined
     single_tree_init_ok = production_text != undefined and (findString production_text "on script_manager_sources_ui open do") != undefined and (findString production_text "on script_manager_scripts_ui open do") != undefined and isProperty script_manager #populateInitialSourceTree and isProperty script_manager #populateInitialScriptTree
@@ -127,8 +127,8 @@ function partOfTest1 =
     soft_hard_api_ok = isProperty script_manager #updateScripts and isProperty script_manager #loadScripts and isProperty script_manager #isManagedScriptRunning and isProperty script_manager #loadSingleScriptForcedDirect and isProperty script_manager #closeExistingStandaloneRolloutsForSources
     source_tree_ok = script_manager.getSourceTreeControl() != undefined and script_manager.getSourceRootPathControl() != undefined and isProperty script_manager #saveSourceRootDirectory and isProperty script_manager #loadSourceRootDirectory and isProperty script_manager #applyPendingSourceOptions and isProperty script_manager #handleManualRefresh
     script_tree_ok = script_manager.getScriptTreeControl() != undefined and script_manager.getScriptIgnoreMaskControl() != undefined and isProperty script_manager #applyPendingScriptOptions and isProperty script_manager #saveScriptIgnoreMask and isProperty script_manager #loadScriptIgnoreMask and isProperty script_manager #buildScriptIgnorePatterns and isProperty script_manager #doesScriptTreeNameMatchIgnore and isProperty script_manager #isScriptTreeDirectoryIgnored and isProperty script_manager #isScriptTreeScriptIgnored and isProperty script_manager #shouldDisplayScriptTreeDirectory and isProperty script_manager #ensureScriptTreeFolderPath and isProperty script_manager #getScriptTreeSourceDisplayPath and isProperty script_manager #available_group_tree_paths and isProperty script_manager #available_script_tree_group_paths
-    source_height_ok = source_tree_ok and script_manager_sources_ui.tv_sources.height >= 512
-    script_height_ok = script_tree_ok and script_manager_scripts_ui.tv_scripts.height >= 1032
+    source_height_ok = source_tree_ok and script_manager_sources_ui.tv_sources.height == 640
+    script_height_ok = script_tree_ok and script_manager_scripts_ui.tv_scripts.height == 1280
     source_mixed_ui_ok = source_tree_ok and not(script_manager_sources_ui.tv_sources.CheckBoxes) and script_manager_sources_ui.tv_sources.ImageList != undefined and script_manager_sources_ui.tv_sources.ImageList.Images.Count >= 3
     tristate_ui_ok = script_tree_ok and not(script_manager_scripts_ui.tv_scripts.CheckBoxes) and script_manager_scripts_ui.tv_scripts.ImageList != undefined and script_manager_scripts_ui.tv_scripts.ImageList.Images.Count >= 3
     loader_only_ok = not(isProperty script_manager_ui #sr_tools)
@@ -144,7 +144,7 @@ function partOfTest1 =
     test_ok = settings_path_ok and version_ok and global_version_ok and title_ok and main_action_ok and main_action_style_ok and main_action_direct_ok and single_tree_init_ok and preset_rollout_ok and options_rollout_ok and source_rollout_ok and show_ignore_rollout_ok and ignore_tooltip_ok and root_tooltip_ok and root_single_line_ok and ignore_width_ok and ignore_single_line_ok and script_rollout_ok and soft_hard_api_ok and source_tree_ok and script_tree_ok and source_height_ok and script_height_ok and source_mixed_ui_ok and tristate_ui_ok and loader_only_ok and host_model_ok and clean_filter_ok and preset_ui_ok and preset_neutral_ok and preset_api_ok and rollout_state_ok and context_menu_ok and source_dialog_api_ok
     if not test_ok then script_manager_test_passed = false
 
-    format "PART 1 | settings-path:% | version:% | global:% | title:% | main-action:% | main-action-style:% | main-action-direct:% | single-init:% | presets-rollout:% | options-rollout:% | source-rollout:% | show-ignore-rollout:% | ignore-tooltip:% | root-tooltip:% | root-single-line:% | ignore-width:% | ignore-single-line:% | script-rollout:% | soft-hard:% | sources:% | scripts:% | source-512:% | script-1032:% | source-mixed-ui:% | tristate-ui:% | loader-only:% | host-model:% | clean-filter:% | preset-ui:% | preset-neutral:% | preset-api:% | rollout-state:% | tree-menu:% | source-dialog-api:% | PASS:%\n" settings_path_ok version_ok global_version_ok title_ok main_action_ok main_action_style_ok main_action_direct_ok single_tree_init_ok preset_rollout_ok options_rollout_ok source_rollout_ok show_ignore_rollout_ok ignore_tooltip_ok root_tooltip_ok root_single_line_ok ignore_width_ok ignore_single_line_ok script_rollout_ok soft_hard_api_ok source_tree_ok script_tree_ok source_height_ok script_height_ok source_mixed_ui_ok tristate_ui_ok loader_only_ok host_model_ok clean_filter_ok preset_ui_ok preset_neutral_ok preset_api_ok rollout_state_ok context_menu_ok source_dialog_api_ok test_ok
+    format "PART 1 | settings-path:% | version:% | global:% | title:% | main-action:% | main-action-style:% | main-action-direct:% | single-init:% | presets-rollout:% | options-rollout:% | source-rollout:% | show-ignore-rollout:% | ignore-tooltip:% | root-tooltip:% | root-single-line:% | ignore-width:% | ignore-single-line:% | script-rollout:% | soft-hard:% | sources:% | scripts:% | source-640:% | script-1280:% | source-mixed-ui:% | tristate-ui:% | loader-only:% | host-model:% | clean-filter:% | preset-ui:% | preset-neutral:% | preset-api:% | rollout-state:% | tree-menu:% | source-dialog-api:% | PASS:%\n" settings_path_ok version_ok global_version_ok title_ok main_action_ok main_action_style_ok main_action_direct_ok single_tree_init_ok preset_rollout_ok options_rollout_ok source_rollout_ok show_ignore_rollout_ok ignore_tooltip_ok root_tooltip_ok root_single_line_ok ignore_width_ok ignore_single_line_ok script_rollout_ok soft_hard_api_ok source_tree_ok script_tree_ok source_height_ok script_height_ok source_mixed_ui_ok tristate_ui_ok loader_only_ok host_model_ok clean_filter_ok preset_ui_ok preset_neutral_ok preset_api_ok rollout_state_ok context_menu_ok source_dialog_api_ok test_ok
     test_ok
     -- return
 )
@@ -1980,15 +1980,16 @@ function partOfTest32 =
             script_menu.Items.Item[7].Text == "EXPAND" and \
             script_menu.Items.Item[8].Text == "EXPAND ALL" and \
             script_menu.Items.Item[9].Text == "EXPAND ENABLED"
-        source_order_ok = source_menu != undefined and source_menu.Items.Count == 5 and \
-            source_menu.Items.Item[0].Text == "LOAD \\ RELOAD DIALOG" and \
-            source_menu.Items.Item[2].Text == "COLLAPSE ALL" and \
-            source_menu.Items.Item[4].Text == "EXPAND ALL"
+        source_order_ok = source_menu != undefined and script_manager.source_tree_group_color_item != undefined and \
+            script_manager.source_tree_group_color_item.Text == "GROUP COLOR" and \
+            script_manager.source_tree_load_dialog_item.Text == "LOAD \\ RELOAD DIALOG" and \
+            script_manager.source_tree_collapse_all_item.Text == "COLLAPSE ALL" and \
+            script_manager.source_tree_expand_all_item.Text == "EXPAND ALL"
         separators_ok = source_order_ok and script_order_ok and \
             (script_menu.Items.Item[3].GetType()).Name == "ToolStripSeparator" and \
             (script_menu.Items.Item[6].GetType()).Name == "ToolStripSeparator" and \
-            (source_menu.Items.Item[1].GetType()).Name == "ToolStripSeparator" and \
-            (source_menu.Items.Item[3].GetType()).Name == "ToolStripSeparator"
+            (script_manager.source_tree_open_separator.GetType()).Name == "ToolStripSeparator" and \
+            (script_manager.source_tree_expand_separator.GetType()).Name == "ToolStripSeparator"
 
         makeDir temporary_root
         makeDir (temporary_root + "Category\\")
@@ -2742,7 +2743,7 @@ function partOfTest44 =
         script_manager_options_ui.sr_ignore.rollouts[1] == script_manager_ignore_ui
 
     tree_ok = script_manager_scripts_ui.tv_scripts.pos == [6,60] and \
-        script_manager_scripts_ui.tv_scripts.height == 1032 and \
+        script_manager_scripts_ui.tv_scripts.height == 1280 and \
         script_manager_scripts_ui.btn_load_scripts.pos == [6,6]
 
     if production_text != undefined then
@@ -3179,6 +3180,70 @@ function partOfTest48 =
     -- return
 )
 
+/*
+Verifies SOURCES is 640 px and SCRIPTS remains 1280 px after layout.
+Checks the declared controls and the resized layout without loading any managed scripts.
+*/
+function partOfTest49 =
+(
+    source_tree = script_manager.getSourceTreeControl()
+    script_tree = script_manager.getScriptTreeControl()
+    source_ok = source_tree != undefined and source_tree.Height == 640 and script_manager.source_rollout_content_height == 652
+    script_ok = script_tree != undefined and script_tree.Height == 1280 and script_manager.script_rollout_content_height == 1344
+    minimum_ok = script_manager.script_tree_required_height >= 1280 and script_manager.getScriptTreeRequiredHeight() >= 1280
+
+    layout_ok = script_manager.layoutManager [script_manager_ui.width, script_manager_ui.height]
+    resized_ok = layout_ok and source_tree.Height == 640 and script_tree.Height == 1280
+    test_ok = source_ok and script_ok and minimum_ok and resized_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 49 | sources:% | scripts:% | minimum:% | resized:% | PASS:%\n" source_ok script_ok minimum_ok resized_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Checks the shared group palette UI and storage API without changing the live INI.
+No scripts are executed and no user group colors are assigned.
+*/
+function partOfTest50 =
+(
+    local production_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText production_path
+    local menu_ok = script_manager.source_tree_group_color_item != undefined and script_manager.source_tree_group_color_item.Text == "GROUP COLOR"
+    local service_ok = script_manager.ensureGroupPaletteService() and ::ColorPaletteService != undefined
+    local palette_ok = service_ok and (::ColorPaletteService.getEntries()).count > 0
+    local source_ok = source_text != undefined and (findString source_text "function saveGroupColorId host_path color_id") != undefined and (findString source_text "function getBatchDialogPathForScript script_path") != undefined
+    local title_ok = source_text != undefined and (findString source_text "this.styleHostDialogTitleButton host_dialog.btn_dialog_title host_path:host_path") != undefined
+    local picker_ok = isProperty script_manager_group_palette_ui #fp_colors and (findString source_text "scriptManagerGroupColorClickHandler") != undefined
+    local tests_ok = menu_ok and service_ok and palette_ok and source_ok and title_ok and picker_ok
+    if not tests_ok then script_manager_test_passed = false
+    format "PART 50 | menu:% | service:% | palette:% | source:% | title:% | picker:% | PASS:%\n" menu_ok service_ok palette_ok source_ok title_ok picker_ok tests_ok
+    tests_ok
+    -- return
+)
+
+/*
+Verifies GROUP COLOR picker text-only palette styling without editing user colors.
+All swatches and CLEAR share bold font and the same dark background.
+*/
+function partOfTest51 =
+(
+    local production_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText production_path
+    local start_index = findString source_text "function openSelectedSourceGroupColor ="
+    local end_index = if start_index != undefined then findString (substring source_text start_index (source_text.count - start_index + 1)) "function getBatchDialogColor host_path =" else undefined
+    local picker_source = if start_index != undefined and end_index != undefined then substring source_text start_index (end_index - 1) else ""
+    local style_ok = (findString picker_source "button_control.BackColor = dark_button_color") != undefined and (findString picker_source "button_control.Font = button_font") != undefined
+    local colors_ok = (findString picker_source "button_control.ForeColor = display_color.FromArgb (entry_value.color_value.r as integer)") != undefined
+    local no_swatch_background = (findString picker_source "button_control.BackColor = display_color.FromArgb (entry_value.color_value.r as integer)") == undefined
+    local clear_ok = (findString picker_source "button_control.Text = \"CLEAR\"") != undefined
+    local tests_ok = style_ok and colors_ok and no_swatch_background and clear_ok
+    if not tests_ok then script_manager_test_passed = false
+    format "PART 51 | dark-bold:% | palette-foreground:% | swatch-background-removed:% | clear:% | PASS:%\n" style_ok colors_ok no_swatch_background clear_ok tests_ok
+    tests_ok
+    -- return
+)
+
 partOfTest1()
 partOfTest2()
 partOfTest3()
@@ -3225,6 +3290,9 @@ partOfTest45()
 partOfTest46()
 partOfTest47()
 partOfTest48()
+partOfTest49()
+partOfTest50()
+partOfTest51()
 partOfTest21()
 partOfTest22()
 

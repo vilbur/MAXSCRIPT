@@ -1,5 +1,5 @@
 ﻿/*
-    Script-Manager 1.221
+    Script-Manager 1.225
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -122,8 +122,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.221,
-    project_version = 1.221,
+    file_version = 1.225,
+    project_version = 1.225,
     registry = undefined,
 
     /*
@@ -656,6 +656,11 @@ global script_manager_show_ui
 global script_manager_ignore_ui
 global script_manager_scripts_ui
 global script_manager_title
+global script_manager_group_palette_ui
+global script_manager_group_color_target
+global scriptManagerGroupColorClickHandler
+global scriptManagerSourceTreeGroupColorContextHandler
+global ColorPaletteService
 global script_manager_host_title
 global script_manager_version_text
 global SCRIPT_MANAGER_AUTO_OPEN
@@ -804,6 +809,36 @@ function scriptManagerSourceTreeLoadDialogContextHandler sender_value event_args
     if script_manager != undefined then script_manager.loadSelectedSourceDialog()
 )
 
+/*
+Opens the shared palette picker for the selected SOURCES parent group.
+Called by the persistent .NET context-menu event handler.
+*/
+function scriptManagerSourceTreeGroupColorContextHandler sender_value event_args =
+(
+    if script_manager != undefined then script_manager.openSelectedSourceGroupColor()
+    -- return
+)
+
+/*
+Applies a palette button's numeric Material ID to the selected group.
+The zero-ID button removes a custom assignment and restores neutral text.
+*/
+function scriptManagerGroupColorClickHandler sender_value event_args =
+(
+    if script_manager == undefined or sender_value == undefined then return false
+    if script_manager_group_color_target == undefined or script_manager_group_color_target == "" then return false
+    local palette_id = 0
+    try (palette_id = sender_value.Tag as integer) catch (palette_id = -1)
+    if palette_id < 0 then return false
+    local save_ok = script_manager.saveGroupColorId script_manager_group_color_target palette_id
+    if save_ok then
+    (
+        try (destroyDialog script_manager_group_palette_ui) catch ()
+    )
+    save_ok
+    -- return
+)
+
 if SCRIPT_MANAGER_STARTUP_LAUNCH == undefined then SCRIPT_MANAGER_STARTUP_LAUNCH = false
 if SCRIPT_MANAGER_STARTUP_PRESET_APPLIED == undefined then SCRIPT_MANAGER_STARTUP_PRESET_APPLIED = false
 
@@ -926,8 +961,8 @@ function scriptManagerPersistIgnoreMask manager_value requested_mask =
 
 struct script_manager_v
 (
-    file_version = 1.221,
-    project_version = 1.221,
+    file_version = 1.225,
+    project_version = 1.225,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -985,13 +1020,13 @@ struct script_manager_v
     script_rollout_open = true,
     preset_rollout_content_height = 72,
     options_rollout_content_height = 54,
-    source_rollout_content_height = 524,
+    source_rollout_content_height = 652,
     show_rollout_content_height = 30,
     ignore_rollout_content_height = 42,
-    script_rollout_content_height = 1096,
-    loader_content_height = 1942,
+    script_rollout_content_height = 1344,
+    loader_content_height = 2318,
     script_tree_file_count = 0,
-    script_tree_required_height = 1032,
+    script_tree_required_height = 1280,
     script_tree_base_font_height = 0,
     script_tree_font_height = 0,
     script_tree_font_pixel_increase = 2,
@@ -1014,6 +1049,10 @@ struct script_manager_v
     script_tree_expand_enabled_item = undefined,
     script_tree_collapse_all_item = undefined,
     source_tree_context_menu = undefined,
+    source_tree_group_color_item = undefined,
+    group_color_cache = undefined,
+    group_color_checked_sources = undefined,
+    group_color_host_cache = undefined,
     source_tree_open_separator = undefined,
     source_tree_expand_separator = undefined,
     source_tree_load_dialog_item = undefined,
@@ -5156,7 +5195,7 @@ function refreshConfiguredDiscovery =
     Returns the explicit checked SOURCES path that overrides the default batch dialog for one script.
     The first checked ancestor is discovery-only; the second checked ancestor is the batch-dialog marker.
     */
-    function getBatchOverridePathForScript script_path =
+    function getBatchOverridePathForScript script_path checked_sources:undefined =
     (
         if not(this.isSupportedScriptPath script_path) then return ""
 
@@ -5164,13 +5203,19 @@ function refreshConfiguredDiscovery =
         matching_checked_count = 0
         override_host_path = ""
 
-        for source_index = 1 to available_source_directories.count while override_host_path == "" do
-        (
-            source_directory = available_source_directories[source_index]
-            source_selectable = false
-            if source_index <= available_source_selectable.count then source_selectable = available_source_selectable[source_index]
+        local use_cached_sources = checked_sources != undefined
+        local source_paths = if use_cached_sources then checked_sources else available_source_directories
 
-            if source_selectable and this.getSourceEnabled source_directory then
+        for source_index = 1 to source_paths.count while override_host_path == "" do
+        (
+            source_directory = source_paths[source_index]
+            source_selectable = use_cached_sources
+            if not use_cached_sources and source_index <= available_source_selectable.count then
+            (
+                source_selectable = available_source_selectable[source_index]
+            )
+
+            if source_selectable and (use_cached_sources or this.getSourceEnabled source_directory) then
             (
                 normalized_source = ScriptManagerIntegration.normalizeDirectoryPath source_directory
                 source_contains_script = script_directory == normalized_source or this.isDirectoryBelowDirectory script_directory normalized_source
@@ -5196,14 +5241,14 @@ function refreshConfiguredDiscovery =
     Resolves the batch-dialog path for one script.
     An explicit second checked SOURCES ancestor overrides the normal parent-folder dialog.
     */
-    function getBatchDialogPathForScript script_path =
+    function getBatchDialogPathForScript script_path checked_sources:undefined =
     (
         if not(this.isSupportedScriptPath script_path) then return ""
 
         script_directory = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath script_path)
         group_path = this.getRelativeDirectoryPath script_directory
         default_host_path = this.getHostDialogPathForGroup group_path
-        override_host_path = this.getBatchOverridePathForScript script_path
+        override_host_path = this.getBatchOverridePathForScript script_path checked_sources:checked_sources
 
         if override_host_path != "" then override_host_path else default_host_path
         -- return
@@ -5262,6 +5307,163 @@ function refreshConfiguredDiscovery =
     ),
 
     /*
+    Loads the shared Globals color service without changing its palette data.
+    The service and its INI are resolved from the active Script-Manager repository.
+    */
+    function ensureGroupPaletteService =
+    (
+        local palette_path = (this.getProjectRootDirectory()) + "CODEBASE\\Globals\\ColorPaletteService.ms"
+        local ready = ::ColorPaletteService != undefined
+        if ready then
+        (
+            try (ready = (classOf (::ColorPaletteService.getEntries())) == Array) catch (ready = false)
+        )
+        if not ready then
+        (
+            if not (doesFileExist palette_path) then
+            (
+                format "[Script-Manager] GROUP COLOR | Missing shared palette service: %\n" palette_path
+                return false
+            )
+            try (fileIn palette_path quiet:true) catch
+            (
+                format "[Script-Manager] GROUP COLOR | Palette service failed: %\n" (getCurrentException())
+                return false
+            )
+        )
+        ::ColorPaletteService != undefined
+        -- return
+    ),
+
+    /*
+    Returns the saved palette ID for a root-relative organizational host.
+    Zero is the default uncolored state; unknown or invalid values are ignored.
+    */
+    function getSavedGroupColorId host_path =
+    (
+        if host_path == undefined or host_path == "" then return 0
+        local value_text = getINISetting ini_path "GroupColors" host_path
+        local color_id = 0
+        if value_text != "" then try (color_id = value_text as integer) catch (color_id = 0)
+        if color_id < 1 or color_id > 60000 then color_id = 0
+        color_id
+        -- return
+    ),
+
+    /*
+    Resolves a group color from the shared palette by persisted numeric ID.
+    A missing assignment leaves default SCRIPTS and host-title text unchanged.
+    */
+    function getGroupColorByHostPath host_path =
+    (
+        if host_path == undefined or host_path == "" then return undefined
+        local selected_path = host_path
+        local color_id = 0
+        while selected_path != "" and color_id == 0 do
+        (
+            color_id = this.getSavedGroupColorId selected_path
+            if color_id == 0 then selected_path = this.getParentRelativePath selected_path
+        )
+        if color_id == 0 then return undefined
+        if not (this.ensureGroupPaletteService()) then return undefined
+        ::ColorPaletteService.getColorById color_id
+        -- return
+    ),
+
+    /*
+    Applies a persisted shared-palette color to one group and refreshes live UI.
+    Zero resets the group; no Material or scene data are modified.
+    */
+    function saveGroupColorId host_path color_id =
+    (
+        if host_path == undefined or host_path == "" then return false
+        if classOf color_id != Integer or color_id < 0 then return false
+        if color_id > 0 then
+        (
+            if not (this.ensureGroupPaletteService()) then return false
+            if (::ColorPaletteService.getEntryById color_id) == undefined then return false
+        )
+        local saved_text = color_id as string
+        if not (setINISetting ini_path "GroupColors" host_path saved_text forceUTF16:false) then return false
+        if (getINISetting ini_path "GroupColors" host_path) != saved_text then return false
+        this.syncScriptTreeChecks()
+        for host_index = 1 to host_dialog_paths.count do
+        (
+            this.styleHostDialogTitleButton host_dialogs[host_index].btn_dialog_title host_path:host_dialog_paths[host_index]
+        )
+        true
+        -- return
+    ),
+
+    /*
+    Opens a lightweight non-modal palette of actual shared Globals colors.
+    A button selects its Material ID; CLEAR removes a saved group assignment.
+    */
+    function openSelectedSourceGroupColor =
+    (
+        local source_tree = this.getSourceTreeControl()
+        if source_tree == undefined or source_tree.SelectedNode == undefined then return false
+        if source_tree.SelectedNode.Nodes.Count == 0 then return false
+        if not (this.ensureGroupPaletteService()) then return false
+        local source_directory = ScriptManagerIntegration.normalizeDirectoryPath source_tree.SelectedNode.Tag
+        local host_path = this.getRelativeDirectoryPath source_directory
+        if host_path == "" then return false
+        script_manager_group_color_target = host_path
+        try (destroyDialog script_manager_group_palette_ui) catch ()
+        createDialog script_manager_group_palette_ui width:414 height:500 style:#(#style_titlebar, #style_sysmenu, #style_toolwindow)
+        local panel_control = script_manager_group_palette_ui.fp_colors
+        panel_control.AutoScroll = true
+        panel_control.WrapContents = true
+        panel_control.BackColor = (dotNetClass "System.Drawing.Color").FromArgb 45 45 48
+        local entries = ::ColorPaletteService.getEntries()
+        local display_color = dotNetClass "System.Drawing.Color"
+        local dark_button_color = display_color.FromArgb 55 55 59
+        local hover_button_color = display_color.FromArgb 68 68 72
+        local border_button_color = display_color.FromArgb 83 83 88
+        local font_style_type = dotNetClass "System.Drawing.FontStyle"
+        local button_font = dotNetObject "System.Drawing.Font" "Segoe UI" 9.0 font_style_type.Bold
+        local button_control = dotNetObject "System.Windows.Forms.Button"
+        button_control.Text = "CLEAR"
+        button_control.Tag = "0"
+        button_control.Width = 124
+        button_control.Height = 30
+        button_control.BackColor = dark_button_color
+        button_control.ForeColor = display_color.FromArgb 245 245 245
+        button_control.Font = button_font
+        button_control.FlatStyle = (dotNetClass "System.Windows.Forms.FlatStyle").Flat
+        button_control.UseVisualStyleBackColor = false
+        button_control.FlatAppearance.BorderColor = border_button_color
+        button_control.FlatAppearance.MouseOverBackColor = hover_button_color
+        button_control.FlatAppearance.MouseDownBackColor = hover_button_color
+        dotNet.addEventHandler button_control "Click" scriptManagerGroupColorClickHandler
+        panel_control.Controls.Add button_control
+        for entry_value in entries do
+        (
+            if not entry_value.is_transparent then
+            (
+                button_control = dotNetObject "System.Windows.Forms.Button"
+                button_control.Tag = entry_value.palette_id as string
+                button_control.Text = ((entry_value.palette_id as string) + " " + entry_value.name_text)
+                button_control.Width = 124
+                button_control.Height = 30
+                button_control.FlatStyle = (dotNetClass "System.Windows.Forms.FlatStyle").Flat
+                button_control.UseVisualStyleBackColor = false
+                button_control.BackColor = dark_button_color
+                button_control.ForeColor = display_color.FromArgb (entry_value.color_value.r as integer) (entry_value.color_value.g as integer) (entry_value.color_value.b as integer)
+                button_control.Font = button_font
+                button_control.FlatAppearance.BorderColor = border_button_color
+                button_control.FlatAppearance.MouseOverBackColor = hover_button_color
+                button_control.FlatAppearance.MouseDownBackColor = hover_button_color
+                dotNet.addEventHandler button_control "Click" scriptManagerGroupColorClickHandler
+                panel_control.Controls.Add button_control
+            )
+        )
+        script_manager_group_palette_ui.lbl_group.text = "GROUP: " + host_path
+        true
+        -- return
+    ),
+
+    /*
     Returns the display color for one batch-dialog path.
     The restrained palette repeats when more batch dialogs exist than palette entries.
     */
@@ -5292,9 +5494,43 @@ function refreshConfiguredDiscovery =
     function applyScriptTreeNodeColor tree_node =
     (
         if tree_node == undefined then return false
-
-        color_type = dotNetClass "System.Drawing.Color"
-        tree_node.ForeColor = color_type.FromArgb 225 225 225
+        local display_color = dotNetClass "System.Drawing.Color"
+        local group_color = undefined
+        local node_path = tree_node.Tag as string
+        if this.isSupportedScriptPath node_path then
+        (
+            local host_path = ""
+            if group_color_host_cache == undefined then
+            (
+                host_path = this.getBatchDialogPathForScript node_path
+            )
+            else
+            (
+                local directory_key = toLower (getFilenamePath node_path)
+                if HasDictValue group_color_host_cache directory_key then
+                (
+                    host_path = GetDictValue group_color_host_cache directory_key
+                )
+                else
+                (
+                    host_path = this.getBatchDialogPathForScript node_path checked_sources:group_color_checked_sources
+                    PutDictValue group_color_host_cache directory_key host_path
+                )
+            )
+            if host_path != "" then
+            (
+                if group_color_cache != undefined and HasDictValue group_color_cache (toLower host_path) then
+                (
+                    group_color = GetDictValue group_color_cache (toLower host_path)
+                )
+                else
+                (
+                    group_color = this.getGroupColorByHostPath host_path
+                    if group_color_cache != undefined then PutDictValue group_color_cache (toLower host_path) group_color
+                )
+            )
+        )
+        tree_node.ForeColor = if group_color != undefined then display_color.FromArgb (group_color.r as integer) (group_color.g as integer) (group_color.b as integer) else display_color.FromArgb 225 225 225
         true
         -- return
     ),
@@ -5362,10 +5598,23 @@ function refreshConfiguredDiscovery =
         sync_ok = true
         script_tree_batch_palette = undefined
         script_tree_batch_hosts = undefined
-
         try
         (
-            /* Checked-state formatting is disabled; no HOST palette/INI lookup is needed. */
+            group_color_cache = Dictionary #string
+            group_color_host_cache = Dictionary #string
+            group_color_checked_sources = #()
+
+            /* Keep discovery order so the second checked ancestor still owns the host. */
+            for source_index = 1 to (amin available_source_directories.count available_source_selectable.count) do
+            (
+                if available_source_selectable[source_index] then
+                (
+                    local source_directory = available_source_directories[source_index]
+                    if this.getSourceEnabled source_directory then append group_color_checked_sources source_directory
+                )
+            )
+
+            /* Palette assignment is independent of the OFF/HOST/DIRECT checkbox. */
             for root_index = 0 to (tree_control.Nodes.Count - 1) do
             (
                 this.syncScriptTreeNodeChecks tree_control.Nodes.Item[root_index]
@@ -5379,6 +5628,9 @@ function refreshConfiguredDiscovery =
 
         script_tree_batch_palette = undefined
         script_tree_batch_hosts = undefined
+        group_color_cache = undefined
+        group_color_host_cache = undefined
+        group_color_checked_sources = undefined
         script_tree_syncing_checks = false
         sync_ok
         -- return
@@ -5460,6 +5712,15 @@ function refreshConfiguredDiscovery =
     (
         if source_tree_load_dialog_item == undefined then return false
 
+        local tree_control = this.getSourceTreeControl()
+        local has_parent = tree_control != undefined and tree_control.SelectedNode != undefined
+        if has_parent then has_parent = tree_control.SelectedNode.Nodes.Count > 0
+        if source_tree_group_color_item != undefined then
+        (
+            source_tree_group_color_item.Visible = has_parent
+            source_tree_group_color_item.Enabled = has_parent
+        )
+
         dialog_path = this.getSelectedSourceDialogPath()
         show_dialog_action = dialog_path != ""
         source_tree_load_dialog_item.Visible = show_dialog_action
@@ -5476,6 +5737,11 @@ function refreshConfiguredDiscovery =
     function clearSourceTreeContextMenu =
     (
         cleanup_ok = true
+
+        if source_tree_group_color_item != undefined then
+        (
+            try (dotNet.removeEventHandler source_tree_group_color_item "Click" scriptManagerSourceTreeGroupColorContextHandler) catch (cleanup_ok = false)
+        )
 
         if source_tree_load_dialog_item != undefined then
         (
@@ -5537,6 +5803,7 @@ function refreshConfiguredDiscovery =
         source_tree_open_separator = undefined
         source_tree_expand_separator = undefined
         source_tree_load_dialog_item = undefined
+        source_tree_group_color_item = undefined
         source_tree_expand_all_item = undefined
         source_tree_collapse_all_item = undefined
         cleanup_ok
@@ -5559,6 +5826,7 @@ function refreshConfiguredDiscovery =
         source_tree_context_menu.BackColor = color_type.FromArgb 45 45 48
         source_tree_context_menu.ForeColor = color_type.FromArgb 225 225 225
 
+        source_tree_group_color_item = source_tree_context_menu.Items.Add "GROUP COLOR"
         source_tree_load_dialog_item = source_tree_context_menu.Items.Add "LOAD \\ RELOAD DIALOG"
         source_tree_open_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
         source_tree_context_menu.Items.Add source_tree_open_separator
@@ -5566,6 +5834,9 @@ function refreshConfiguredDiscovery =
         source_tree_expand_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
         source_tree_context_menu.Items.Add source_tree_expand_separator
         source_tree_expand_all_item = source_tree_context_menu.Items.Add "EXPAND ALL"
+        source_tree_group_color_item.BackColor = source_tree_context_menu.BackColor
+        source_tree_group_color_item.ForeColor = source_tree_context_menu.ForeColor
+        source_tree_group_color_item.Visible = false
         source_tree_load_dialog_item.BackColor = source_tree_context_menu.BackColor
         source_tree_load_dialog_item.ForeColor = source_tree_context_menu.ForeColor
         source_tree_load_dialog_item.ToolTipText = "Load or hard reload only the HOST scripts assigned to this batch dialog."
@@ -5575,6 +5846,7 @@ function refreshConfiguredDiscovery =
         source_tree_collapse_all_item.BackColor = source_tree_context_menu.BackColor
         source_tree_collapse_all_item.ForeColor = source_tree_context_menu.ForeColor
 
+        dotNet.addEventHandler source_tree_group_color_item "Click" scriptManagerSourceTreeGroupColorContextHandler
         dotNet.addEventHandler source_tree_load_dialog_item "Click" scriptManagerSourceTreeLoadDialogContextHandler
         dotNet.addEventHandler source_tree_expand_all_item "Click" scriptManagerSourceTreeExpandAllContextHandler
         dotNet.addEventHandler source_tree_collapse_all_item "Click" scriptManagerSourceTreeCollapseAllContextHandler
@@ -6199,12 +6471,12 @@ This reads existing node-state images without rescanning files or repeatedly rea
     function getScriptTreeRequiredHeight =
     (
         tree_control = this.getScriptTreeControl()
-        if tree_control == undefined then return 1032
+        if tree_control == undefined then return 1280
 
         tree_node_count = tree_control.GetNodeCount true
         required_height = 12 + (tree_node_count * tree_control.ItemHeight)
 
-        if required_height < 1032 then required_height = 1032
+        if required_height < 1280 then required_height = 1280
 
         required_height
         -- return
@@ -7292,7 +7564,7 @@ function appendScriptFromTree script_path =
             tree_control.EndUpdate()
 
             script_tree_required_height = this.getScriptTreeRequiredHeight()
-            loader_content_height = 1942
+            loader_content_height = 2318
         )
         catch
         (
@@ -7653,7 +7925,7 @@ function appendScriptFromTree script_path =
         options_text += ")"
 
         source_text = "rollout script_manager_sources_ui \"SOURCES\" width:288 height:" + (source_rollout_content_height as string) + "\n(\n"
-        source_text += "    dotNetControl tv_sources \"System.Windows.Forms.TreeView\" pos:[6,6] width:276 height:512\n"
+        source_text += "    dotNetControl tv_sources \"System.Windows.Forms.TreeView\" pos:[6,6] width:276 height:640\n"
         source_text += "    on tv_sources NodeMouseClick click_args do (if script_manager != undefined then script_manager.handleSourceTreeNodeClick click_args)\n"
         source_text += "    on tv_sources AfterCheck check_args do (if script_manager != undefined then script_manager.handleSourceTreeAfterCheck check_args)\n"
         source_text += "    on tv_sources AfterExpand event_args do (if script_manager != undefined then script_manager.handleSourceTreeExpandedState event_args)\n"
@@ -7684,7 +7956,7 @@ function appendScriptFromTree script_path =
         script_text += "    checkbutton btn_save_toolbar_ui \"SAVE UI\" pos:[214,6] width:68 height:24 checked:true tooltip:\"ON: Save the generated toolbar back to the active CUIX.\\n\\nOFF: Keep it only in the temporary CUIX loaded for this session.\"\n"
         script_text += "    label lbl_scripts_filter \"FILTER:\" pos:[6,37] width:50 height:16\n"
         script_text += "    editText edt_scripts_filter \"\" pos:[58,36] width:224 height:16 text:\"\" tooltip:\"Filter visible scripts and their parent folder names as you type.\\nCase-insensitive; clearing restores the full SCRIPTS tree.\\nNo source rescan, script execution, or INI changes.\"\n"
-        script_text += "    dotNetControl tv_scripts \"System.Windows.Forms.TreeView\" pos:[6,60] width:276 height:1032\n"
+        script_text += "    dotNetControl tv_scripts \"System.Windows.Forms.TreeView\" pos:[6,60] width:276 height:1280\n"
         script_text += "    on btn_load_scripts pressed do (if script_manager != undefined then script_manager.updateScripts())\n"
         script_text += "    on btn_load_scripts rightclick do (if script_manager != undefined then script_manager.loadScripts())\n"
         script_text += "    on btn_create_toolbar pressed do (if script_manager != undefined then script_manager.handleCreateToolbar save_ui:btn_save_toolbar_ui.checked)\n"
@@ -8913,7 +9185,7 @@ function applyHostDockState host_path dock_text =
             if source_tree != undefined then
             (
                 source_tree.Width = amax 20 (usable_width - 12)
-                source_tree.Height = 512
+                source_tree.Height = 640
             )
         )
 
@@ -8943,7 +9215,7 @@ function applyHostDockState host_path dock_text =
             if tree_control != undefined then
             (
                 tree_control.Width = amax 20 (usable_width - 12)
-                tree_control.Height = 1032
+                tree_control.Height = 1280
             )
         )
 
@@ -8983,9 +9255,15 @@ function styleToolTitleButton button_control =
     /*
     Applies the canonical tool title button appearance to generated host dialogs.
     */
-function styleHostDialogTitleButton button_control =
+function styleHostDialogTitleButton button_control host_path:"" =
 (
     this.styleToolTitleButton button_control
+    local group_color = this.getGroupColorByHostPath host_path
+    if group_color != undefined then
+    (
+        button_control.ForeColor = (dotNetClass "System.Drawing.Color").FromArgb (group_color.r as integer) (group_color.g as integer) (group_color.b as integer)
+    )
+    true
     -- return
 ),
 
@@ -10344,7 +10622,7 @@ function createHostDialog host_path =
         -- Use the working CODEBASE correction while the rollout is still unregistered.
         if not(scriptManagerApplyPreRegistrationOffset host_dialog dialog_position dock_text) then throw "Host CUI pre-registration positioning failed"
         scriptManagerTraceDialogPosition host_path "BEFORE-CUI-REGISTER" host_dialog saved_position:dialog_position dock_text:dock_text
-        this.styleHostDialogTitleButton host_dialog.btn_dialog_title
+        this.styleHostDialogTitleButton host_dialog.btn_dialog_title host_path:host_path
     )
     catch
     (
@@ -10454,6 +10732,13 @@ function ensureHostDialog host_path =
 function destroyManagerDialog =
 (
     cleanup_ok = true
+
+    try
+    (
+        if script_manager_group_palette_ui != undefined and script_manager_group_palette_ui.inDialog then destroyDialog script_manager_group_palette_ui
+    )
+    catch (cleanup_ok = false)
+    script_manager_group_color_target = ""
 
     if not(this.cancelInitialLoaderInitialization()) then cleanup_ok = false
 
@@ -10877,6 +11162,16 @@ rollout script_manager_ui script_manager_title width:336 height:1970 autoLayoutO
         if script_manager != undefined then script_manager.reloadLatestManagerScript()
     )
 
+)
+
+/*
+Palette buttons are supplied dynamically by Globals/ColorPaletteService.ms.
+This non-modal dialog changes only Script-Manager group display preferences.
+*/
+rollout script_manager_group_palette_ui "GROUP COLOR" width:414 height:500
+(
+    label lbl_group "GROUP:" pos:[8,8] width:395 height:20
+    dotNetControl fp_colors "System.Windows.Forms.FlowLayoutPanel" pos:[6,32] width:400 height:454
 )
 
 script_manager = script_manager_v()
