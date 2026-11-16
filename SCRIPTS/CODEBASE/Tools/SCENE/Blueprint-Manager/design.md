@@ -1,4 +1,4 @@
-﻿# Blueprint Manager — design v0.035
+﻿# Blueprint Manager — design v0.036
 
 
 ## Scope
@@ -35,11 +35,11 @@ Input filename `*left*` uses the left viewport convention; `*right*` uses the ri
 ## Alignment to world origin
 
 
-The ALIGNMENT child rollout appears between OPTIONS and POSITIONS inside one shared subrollout slot. It displays three independent vertical radio-button columns (left: Z, centre: Y, right: X), saved in the tool INI as Vertical, Depth and Horizontal (defaults: centre):
+The ALIGNMENT child rollout appears between OPTIONS and POSITIONS inside one shared subrollout slot. It displays three independent vertical radio-button columns (left: Z, centre: Y, right: X), saved in the tool INI as Vertical, Depth and Horizontal (defaults: GROUND on Z, CENTER on Y/X; stored valid preferences are preserved):
 
 
 - TOP/CENTER/GROUND aligns the group’s maximum/centre/minimum Z to world Z=0.
-- FRONT/CENTER/BACK aligns the group’s maximum/centre/minimum Y to world Y=0.
+- FRONT/CENTER/BACK aligns the group’s minimum/centre/maximum Y to world Y=0. This intentionally reverses the previous FRONT/BACK Y-axis alignment mapping without moving or rotating the individual FRONT/BACK plane definitions.
 - LEFT/CENTER/RIGHT aligns the group’s maximum/centre/minimum X to world X=0.
 
 
@@ -134,3 +134,8 @@ Generic SIDE images without `left` or `right` in their basename now use the RIGH
 - OPTIONS repositions the `mm` unit label to x=118 and the Opacity slider to x=146, retaining the first-row RATIO/Opacity and second-row Layer Name controls.
 - ALIGNMENT native radio columns start at y=16 (+2 px), without changing saved selections or axis logic.
 - SIDE no longer creates inverted Normal modifiers. On APPLY, the legacy tool-created named Normal modifier on a tagged SIDE Plane has `flip=false`, restoring the native inward-facing normal without mirroring UVs. No unrelated modifiers are deleted.
+
+## v0.036 — Default ground alignment and Y-axis alignment inversion
+
+- Default `[Alignment] Vertical` to option 3 (GROUND, minimum world Z = 0) when the INI value is missing or invalid. Keep saved valid alignment settings; Y and X still default to CENTER.
+- Invert only the Y-axis alignment selection: FRONT aligns the minimum Y group boundary to 0; BACK aligns the maximum Y group boundary to 0; CENTER is unchanged. The FRONT and BACK scene Plane transforms, filenames and position sliders are unchanged.

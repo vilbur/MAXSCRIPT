@@ -1,9 +1,9 @@
 ﻿/*
-Blueprint Manager v0.035 — five reference-image planes in 3ds Max.
+Blueprint Manager v0.036 — five reference-image planes in 3ds Max.
 Runtime requires the canonical shared MaxScript UI/Default framework.
 */
 (
-    local project_version = "0.035"
+    local project_version = "0.036"
     local script_path = getSourceFileName()
     if script_path == undefined or script_path == "" then
     (
@@ -69,7 +69,7 @@ Runtime requires the canonical shared MaxScript UI/Default framework.
         image_paths = #("", "", "", "", ""),
         image_candidates = #(#(), #(), #(), #(), #()),
         position_offsets_mm = #(0.0, 0.0, 0.0, 0.0, 0.0),
-        alignment_modes = #(2, 2, 2),
+        alignment_modes = #(3, 2, 2),
         layer_name = "_BLUEPRINTS",
 
 
@@ -454,8 +454,8 @@ Runtime requires the canonical shared MaxScript UI/Default framework.
 
         /*
         Aligns the managed Plane group on one world axis only.
-        1 = positive boundary, 2 = middle, 3 = negative boundary.
-        Axis 1 is Z, axis 2 is Y, and axis 3 is X.
+        For Z and X: 1 = maximum, 2 = centre, 3 = minimum.
+        For Y (FRONT/BACK): 1 = minimum, 2 = centre, 3 = maximum.
         */
         function alignBlueprintAxis axis_index align_state =
         (
@@ -484,9 +484,9 @@ Runtime requires the canonical shared MaxScript UI/Default framework.
             )
             local reference_coord = case align_state of
             (
-                1: max_coord
+                1: (if axis_index == 2 then min_coord else max_coord)
                 2: ((min_coord + max_coord) / 2.0)
-                3: min_coord
+                3: (if axis_index == 2 then max_coord else min_coord)
             )
             local shift_value = -reference_coord
 
@@ -1034,14 +1034,14 @@ Runtime requires the canonical shared MaxScript UI/Default framework.
         local updating_alignment_controls = false
 
 
-        radiobuttons rdo_align_vertical labels:#("TOP", "CENTER", "GROUND") columns:1 default:2 pos:[8,16] width:80 height:84 align:#left tooltip:"LMB: Align group top, middle or ground to world Z = 0."
+        radiobuttons rdo_align_vertical labels:#("TOP", "CENTER", "GROUND") columns:1 default:3 pos:[8,16] width:80 height:84 align:#left tooltip:"LMB: Align group top, middle or ground to world Z = 0."
         radiobuttons rdo_align_depth labels:#("FRONT", "CENTER", "BACK") columns:1 default:2 pos:[92,16] width:80 height:84 align:#left tooltip:"LMB: Align group front, middle or back to world Y = 0."
         radiobuttons rdo_align_horizontal labels:#("LEFT", "CENTER", "RIGHT") columns:1 default:2 pos:[176,16] width:80 height:84 align:#left tooltip:"LMB: Align group left, middle or right to world X = 0."
 
 
         /*
         Loads axis choices from the existing tool INI without moving scene nodes.
-        CENTER is used for missing or invalid saved values.
+        GROUND defaults the Z axis; the other two axes default to CENTER.
         */
         function loadAlignmentState =
         (
@@ -1049,8 +1049,9 @@ Runtime requires the canonical shared MaxScript UI/Default framework.
             local setting_names = #("Vertical", "Depth", "Horizontal")
             for axis_index = 1 to 3 do
             (
-                local saved_state = IniSettings.getInteger ini_path "Alignment" setting_names[axis_index] default_value:2
-                if saved_state < 1 or saved_state > 3 then saved_state = 2
+                local default_state = if axis_index == 1 then 3 else 2
+                local saved_state = IniSettings.getInteger ini_path "Alignment" setting_names[axis_index] default_value:default_state
+                if saved_state < 1 or saved_state > 3 then saved_state = default_state
                 BlueprintManager.alignment_modes[axis_index] = saved_state
             )
             rdo_align_vertical.state = BlueprintManager.alignment_modes[1]

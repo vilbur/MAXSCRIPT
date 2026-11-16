@@ -1,5 +1,11 @@
 ﻿# Changes
 
+## 2026-11-16 — v0.036
+
+- Set GROUND (Z minimum) as the default vertical alignment for missing or invalid INI values; preserve valid saved selections. Y/X defaults remain CENTER.
+- Reverse the FRONT/BACK radio alignment mapping on world Y: FRONT uses group minimum Y, BACK uses group maximum Y; CENTER unchanged. Do not alter plane transforms or position sliders.
+- Static syntax/delimiter checks passed; 3ds Max runtime test pending.
+
 
 ## 2026-11-16 — v0.035
 

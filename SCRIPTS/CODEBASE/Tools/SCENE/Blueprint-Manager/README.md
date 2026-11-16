@@ -27,7 +27,7 @@ The UI state (including APPLY/SETUP, FREEZE and TWO-SIDED), blueprint paths, and
 ## Controls
 
 
-**ALIGNMENT:** The collapsible section between OPTIONS and POSITIONS has three vertical radio-button columns: TOP / CENTER / GROUND (Z) on the left, FRONT / CENTER / BACK (Y) in the centre, and LEFT / CENTER / RIGHT (X) on the right. The chosen edge or centre of the managed Plane group’s world-space bounds moves to world 0 on that axis; other axes are unaffected. Choices persist under `[Alignment]` in `Blueprint-Manager.ini` and are applied again on APPLY.
+**ALIGNMENT:** The collapsible section between OPTIONS and POSITIONS has three vertical radio-button columns: TOP / CENTER / GROUND (Z) on the left, FRONT / CENTER / BACK (Y) in the centre, and LEFT / CENTER / RIGHT (X) on the right. The chosen edge or centre of the managed Plane group’s world-space bounds moves to world 0 on that axis; other axes are unaffected. New settings default to GROUND on Z and CENTER on Y/X; previously saved choices remain unchanged. FRONT aligns the minimum Y boundary to world zero; BACK aligns the maximum Y boundary. Choices persist under `[Alignment]` in `Blueprint-Manager.ini` and are applied again on APPLY.
 
 
 The thumbnail cross contains TOP, FRONT, SIDE, BACK, and BOTTOM. Preview width is 80 px; each preview's height follows its image aspect ratio, with scrolling enabled only when the images overflow the preview canvas. The dialog is registered as a CUI bar while floating, so it can be dragged and docked left or right; its width remains 288 px. The floating preview canvas grows up to 300 px. The docked canvas is 300 px high.
