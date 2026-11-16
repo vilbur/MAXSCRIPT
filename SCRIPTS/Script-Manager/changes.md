@@ -1,4 +1,60 @@
-﻿## 2026-11-15 — 1.225
+﻿## 2026-11-15 — 1.237
+
+- Fix SCRIPTS context-menu `ADD TO TOOLBAR` .NET error at former line 6006: `ToolStripItemCollection` could be wrapped multiple times by repeatedly accessing `DropDownItems`.
+- Cache the toolbar submenu collection once when the SCRIPTS context menu is constructed; reuse it for item creation, clearing, and handler disposal, and release the cached reference when the menu is destroyed. Preserve toolbar behavior and all unrelated v1.236 features.
+- On upgrade from 1.236, skip only the old broken submenu wrapper during old-manager teardown; the parent menu still disposes the submenu.
+- Regression test v1.209 / part 52 repeatedly adds and clears submenu items. Live 3ds Max validation pending.
+
+## 2026-11-15 — 1.236
+
+- Add SCRIPTS item context menu: ADD TO TOOLBAR > Toolbar-Creator custom toolbar names. Refresh names when opening the menu.
+- Append the clicked script through Toolbar-Creator, preserving existing buttons and skipping duplicate paths. Load the backend without opening its UI.
+- Runtime validation pending: MCP Python execution is blocked by safe mode.
+
+## 2026-11-15 — 1.235
+
+- Remove repeated right-side width deductions from PRESETS, OPTIONS, SHOW, IGNORE, SOURCES and SCRIPTS. Reserve the outer scrollbar once and only when required. Expand nested slots and their controls within the existing dialog.
+- Keep the BROWSE vertical offset and IGNORE horizontal position.
+
+## 2026-11-15 — 1.234
+
+- Give SOURCES and SCRIPTS more width when the loader fits without a vertical scrollbar. Keep full scrollbar clearance when it needs to scroll.
+
+## 2026-11-15 — 1.233
+
+- Widen the SOURCES and SCRIPTS trees by another 16 px. Add the matching space to the dialog while preserving the OPTIONS layout.
+
+## 2026-11-15 — 1.232
+
+- Align the IGNORE field with its label and reserve room for the nested rollout gutter and side margins.
+
+## 2026-11-15 — 1.231
+
+- Apply the additional 16 px to the subrollouts as well as the lists. Keep the BROWSE and IGNORE offsets.
+
+## 2026-11-15 — 1.230
+
+- Widen the SOURCES and SCRIPTS lists by 16 px. Add the same width to the main dialog and loader to retain scrollbar clearance.
+- Move BROWSE up 4 px and the IGNORE field left 8 px.
+
+## 2026-11-15 — 1.229
+
+- Add 16 px directly to the nested SHOW and IGNORE slots at creation and during layout.
+
+## 2026-11-15 — 1.228
+
+- Widen the loader slot and its nested SHOW and IGNORE slots by 16 px inside the existing 352 px dialog. Use 4 px outer loader margins and retain the scrollbar gutter.
+
+## 2026-11-15 — 1.227
+
+- Widen the main dialog and loader by 16 px so subrollouts gain 16 px with the existing scrollbar clearance.
+
+## 2026-11-15 — 1.226
+
+- Reserve the Windows scrollbar width plus padding inside the Script-Manager loader. Size nested OPTIONS panels and their controls to the remaining width.
+- Move COLLAPSE DIRS to a second row in SHOW so the label stays visible.
+
+## 2026-11-15 — 1.225
 
 - Read checked SOURCES once per SCRIPTS state refresh and reuse resolved group hosts by script directory. Group coloring previously repeated source INI reads for every script row.
 - Keep the existing second checked ancestor rule and palette inheritance. Clear the temporary lookups after each refresh so subsequent checkbox and color changes take effect.

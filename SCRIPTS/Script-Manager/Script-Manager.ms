@@ -1,5 +1,5 @@
 ﻿/*
-    Script-Manager 1.225
+    Script-Manager 1.237
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -122,8 +122,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.225,
-    project_version = 1.225,
+    file_version = 1.237,
+    project_version = 1.237,
     registry = undefined,
 
     /*
@@ -742,6 +742,17 @@ function scriptManagerTreeStartupContextHandler sender_value event_args =
     if script_manager != undefined then script_manager.toggleSelectedScriptStartup()
 )
 
+/* Adds the captured script to the chosen Toolbar-Creator toolbar.
+*/
+function scriptManagerTreeToolbarContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.addScriptToManagedToolbar (sender_value.Text as string) (sender_value.Tag as string)
+    )
+    -- return
+)
+
 /*
 Dispatches the main .NET title button MouseUp by the actual mouse button.
 LMB commits pending IGNORE and ROOT PATH edits; RMB keeps the version reload behavior.
@@ -848,6 +859,13 @@ if SCRIPT_MANAGER_AUTO_OPEN then
 (
     if script_manager != undefined then
     (
+        /* The old 1.236 submenu wrapper can throw during its own teardown.
+        The parent menu still disposes its children when the root menu closes.
+        */
+        if script_manager.file_version == 1.236 then
+        (
+            script_manager.script_tree_toolbar_item = undefined
+        )
         cleanup_ok = false
 
         try
@@ -961,8 +979,8 @@ function scriptManagerPersistIgnoreMask manager_value requested_mask =
 
 struct script_manager_v
 (
-    file_version = 1.225,
-    project_version = 1.225,
+    file_version = 1.237,
+    project_version = 1.237,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -1021,7 +1039,7 @@ struct script_manager_v
     preset_rollout_content_height = 72,
     options_rollout_content_height = 54,
     source_rollout_content_height = 652,
-    show_rollout_content_height = 30,
+    show_rollout_content_height = 54,
     ignore_rollout_content_height = 42,
     script_rollout_content_height = 1344,
     loader_content_height = 2318,
@@ -1041,6 +1059,8 @@ struct script_manager_v
     script_tree_open_group_item = undefined,
     script_tree_load_item = undefined,
     script_tree_startup_item = undefined,
+    script_tree_toolbar_item = undefined,
+    script_tree_toolbar_children = undefined,
     last_tree_load_error = "",
     script_tree_open_explorer_item = undefined,
     script_tree_expand_item = undefined,
@@ -5943,12 +5963,140 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
+    /* Loads only the Toolbar-Creator backend from an accessible CODEBASE.
+    */
+    function ensureToolbarCreatorBackend =
+    (
+        global listManagedScriptToolbars
+        global getManagedScriptToolbarButtons
+        global collectToolbarScripts
+        global manageScriptToolbar
+        global toolbarCreatorToPortablePath
+        if listManagedScriptToolbars != undefined and getManagedScriptToolbarButtons != undefined and collectToolbarScripts != undefined and manageScriptToolbar != undefined and toolbarCreatorToPortablePath != undefined then return true
+
+        local candidate_paths = #()
+        local parent_directory = getFilenamePath manager_source_path
+        for parent_index = 1 to 8 while parent_directory != "" do
+        (
+            append candidate_paths (parent_directory + @"CODEBASE\Functions\UI\Toolbar-Creator\Toolbar-Creator-FN.ms")
+            local next_directory = getFilenamePath (trimRight parent_directory "\\/")
+            if next_directory == parent_directory then parent_directory = "" else parent_directory = next_directory
+        )
+        for drive_root in #(@"C:\GoogleDrive\", @"D:\GoogleDrive\", @"G:\") do
+        (
+            append candidate_paths (drive_root + @"CODE\MAXSCRIPT\SCRIPTS\CODEBASE\Functions\UI\Toolbar-Creator\Toolbar-Creator-FN.ms")
+        )
+        local backend_path = undefined
+        for candidate_path in candidate_paths while backend_path == undefined do
+        (
+            if doesFileExist candidate_path then backend_path = candidate_path
+        )
+        if backend_path == undefined then return false
+        try
+        (
+            fileIn backend_path quiet:true
+        )
+        catch
+        (
+            format "[Script-Manager] Toolbar-Creator load failed: %\n" (getCurrentException())
+            return false
+        )
+        listManagedScriptToolbars != undefined and getManagedScriptToolbarButtons != undefined and collectToolbarScripts != undefined and manageScriptToolbar != undefined and toolbarCreatorToPortablePath != undefined
+        -- return
+    ),
+
+    /* Releases toolbar entries using the cached .NET collection reference.
+    Avoids repeated ToolStripItemCollection wrapper registration in MAXScript.
+    */
+    function clearToolbarSubmenu =
+    (
+        if script_tree_toolbar_children != undefined then
+        (
+            while script_tree_toolbar_children.Count > 0 do
+            (
+                local child_item = script_tree_toolbar_children.Item[0]
+                dotNet.removeAllEventHandlers child_item
+                script_tree_toolbar_children.Remove child_item
+                child_item.Dispose()
+            )
+        )
+        true
+        -- return
+    ),
+
+    /* Refreshes custom toolbar names and captures the right-clicked script path.
+    */
+    function refreshToolbarSubmenu script_path =
+    (
+        this.clearToolbarSubmenu()
+        script_tree_toolbar_item.Visible = script_path != undefined
+        if script_path == undefined then return false
+        local toolbar_names = undefined
+        if this.ensureToolbarCreatorBackend() then
+        (
+            try (toolbar_names = listManagedScriptToolbars()) catch
+            (
+                format "[Script-Manager] Toolbar listing failed: %\n" (getCurrentException())
+            )
+        )
+        if toolbar_names == undefined or toolbar_names.count == 0 then
+        (
+            local empty_item = script_tree_toolbar_children.Add (if toolbar_names == undefined then "Toolbar-Creator unavailable" else "No custom toolbars")
+            empty_item.Enabled = false
+        )
+        else
+        (
+            for toolbar_name in toolbar_names do
+            (
+                local toolbar_item = script_tree_toolbar_children.Add toolbar_name
+                toolbar_item.Tag = script_path
+                toolbar_item.BackColor = script_tree_context_menu.BackColor
+                toolbar_item.ForeColor = script_tree_context_menu.ForeColor
+                dotNet.addEventHandler toolbar_item "Click" scriptManagerTreeToolbarContextHandler
+            )
+        )
+        true
+        -- return
+    ),
+
+    /* Appends one script while preserving existing toolbar button data and order.
+    */
+    function addScriptToManagedToolbar toolbar_name script_path =
+    (
+        if not(this.ensureToolbarCreatorBackend()) then return false
+        if not(this.isSupportedScriptPath script_path) or not(doesFileExist script_path) then return false
+        try
+        (
+            local saved_buttons = getManagedScriptToolbarButtons toolbar_name
+            if saved_buttons == undefined then throw "Existing toolbar buttons could not be read; toolbar was not changed."
+            local script_key = toLower (toolbarCreatorToPortablePath script_path)
+            for saved_button in saved_buttons do
+            (
+                if (toLower (toolbarCreatorToPortablePath saved_button[1])) == script_key then return true
+            )
+            local new_buttons = collectToolbarScripts #(script_path) recursive:false
+            if new_buttons == undefined or new_buttons.count != 1 then throw "Script could not be collected; toolbar was not changed."
+            append saved_buttons new_buttons[1]
+            if not(manageScriptToolbar #update toolbar_name button_data:saved_buttons save_ui:true) then throw "Toolbar-Creator update failed; see Listener."
+            true
+        )
+        catch
+        (
+            local error_text = getCurrentException()
+            format "[Script-Manager] ADD TO TOOLBAR failed: %\n" error_text
+            messageBox error_text title:"ADD TO TOOLBAR"
+            false
+        )
+        -- return
+    ),
+
     /*
     Removes .NET handlers and disposes the SCRIPTS context menu before the loader rollout is rebuilt.
     Cleanup failures are intentionally harmless because the old UI is being destroyed.
     */
     function clearScriptTreeContextMenu =
     (
+        this.clearToolbarSubmenu()
         cleanup_ok = true
 
         if script_tree_open_group_item != undefined then
@@ -6096,6 +6244,8 @@ function refreshConfiguredDiscovery =
         script_tree_open_group_item = undefined
         script_tree_load_item = undefined
         script_tree_startup_item = undefined
+        script_tree_toolbar_item = undefined
+        script_tree_toolbar_children = undefined
         script_tree_open_explorer_item = undefined
         script_tree_expand_item = undefined
         script_tree_collapse_item = undefined
@@ -6125,6 +6275,8 @@ function refreshConfiguredDiscovery =
         script_tree_open_group_item = script_tree_context_menu.Items.Add "OPEN GROUP"
         script_tree_load_item = script_tree_context_menu.Items.Add "LOAD SCRIPT"
         script_tree_startup_item = script_tree_context_menu.Items.Add "ADD TO STARTUP SCRIPTS"
+        script_tree_toolbar_item = script_tree_context_menu.Items.Add "ADD TO TOOLBAR"
+        script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
         script_tree_open_explorer_item = script_tree_context_menu.Items.Add "OPEN IN EXPLORER"
         script_tree_open_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
         script_tree_context_menu.Items.Add script_tree_open_separator
@@ -6136,7 +6288,7 @@ function refreshConfiguredDiscovery =
         script_tree_expand_all_item = script_tree_context_menu.Items.Add "EXPAND ALL"
         script_tree_expand_enabled_item = script_tree_context_menu.Items.Add "EXPAND ENABLED"
 
-        for menu_item in #(script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
+        for menu_item in #(script_tree_toolbar_item, script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
         (
             menu_item.BackColor = script_tree_context_menu.BackColor
             menu_item.ForeColor = script_tree_context_menu.ForeColor
@@ -6175,6 +6327,8 @@ function refreshConfiguredDiscovery =
 
         script_tree_open_group_item.Visible = has_selection and not selected_is_script
         script_tree_open_group_item.Enabled = has_children
+
+        this.refreshToolbarSubmenu (if selected_is_script then selected_node.ToolTipText else undefined)
 
         script_tree_load_item.Visible = selected_is_script
         script_tree_load_item.Enabled = selected_is_script
@@ -7917,15 +8071,15 @@ function appendScriptFromTree script_path =
         options_text = "rollout script_manager_options_ui \"OPTIONS\" width:288 height:" + ((options_rollout_content_height + options_inner_offset) as string) + "\n(\n"
         options_text += "    label lbl_source_root \"ROOT PATH:\" pos:[6,6] width:90 height:18\n"
         options_text += "    editText edt_source_root \"\" pos:[6,24] width:210 height:16 text:\"\" tooltip:\"Root directory shown in SOURCES.\\nType a path or use BROWSE.\\n\\nTyped edits are saved and applied with LMB REFRESH. BROWSE applies immediately.\"\n"
-        options_text += "    button btn_source_root_browse \"BROWSE\" pos:[222,24] width:60 height:24 tooltip:\"Choose and apply the SOURCES root directory.\\n\\nSelection is saved and both trees are rebuilt immediately.\"\n"
-        options_text += "    subRollout sr_show \"\" pos:[0,54] width:288 height:" + (show_slot_height as string) + "\n"
-        options_text += "    subRollout sr_ignore \"\" pos:[0," + ((58 + show_slot_height) as string) + "] width:288 height:" + (ignore_slot_height as string) + "\n"
+        options_text += "    button btn_source_root_browse \"BROWSE\" pos:[222,20] width:60 height:24 tooltip:\"Choose and apply the SOURCES root directory.\\n\\nSelection is saved and both trees are rebuilt immediately.\"\n"
+        options_text += "    subRollout sr_show \"\" pos:[0,54] width:336 height:" + (show_slot_height as string) + "\n"
+        options_text += "    subRollout sr_ignore \"\" pos:[0," + ((58 + show_slot_height) as string) + "] width:336 height:" + (ignore_slot_height as string) + "\n"
         options_text += "    on btn_source_root_browse pressed do (if script_manager != undefined then script_manager.browseSourceRootDirectory())\n"
         options_text += "    on script_manager_options_ui rolledUp state do (if script_manager != undefined then script_manager.setOptionsRolloutOpen state)\n"
         options_text += ")"
 
         source_text = "rollout script_manager_sources_ui \"SOURCES\" width:288 height:" + (source_rollout_content_height as string) + "\n(\n"
-        source_text += "    dotNetControl tv_sources \"System.Windows.Forms.TreeView\" pos:[6,6] width:276 height:640\n"
+        source_text += "    dotNetControl tv_sources \"System.Windows.Forms.TreeView\" pos:[6,6] width:308 height:640\n"
         source_text += "    on tv_sources NodeMouseClick click_args do (if script_manager != undefined then script_manager.handleSourceTreeNodeClick click_args)\n"
         source_text += "    on tv_sources AfterCheck check_args do (if script_manager != undefined then script_manager.handleSourceTreeAfterCheck check_args)\n"
         source_text += "    on tv_sources AfterExpand event_args do (if script_manager != undefined then script_manager.handleSourceTreeExpandedState event_args)\n"
@@ -7934,17 +8088,17 @@ function appendScriptFromTree script_path =
         source_text += "    on script_manager_sources_ui rolledUp state do (if script_manager != undefined then script_manager.setSourceRolloutOpen state)\n"
         source_text += ")"
 
-        show_text = "rollout script_manager_show_ui \"SHOW\" width:288 height:" + (show_rollout_content_height as string) + "\n(\n"
+        show_text = "rollout script_manager_show_ui \"SHOW\" width:320 height:" + (show_rollout_content_height as string) + "\n(\n"
         show_text += "    checkbox chk_show_versions \"VERSIONED FILES\" pos:[6,6] width:110 height:24 checked:" + (show_versioned_files as string) + " tooltip:\"Show every versioned script instead of only the canonical file or newest version.\"\n"
         show_text += "    checkbox chk_clean_scripts \"CLEAN SCRIPTS\" pos:[116,6] width:94 height:24 triState:" + ((this.getCleanScriptsMode()) as string) + " tooltip:\"OFF: Normal script listing.\\nON: Show only the unversioned script matching its parent folder.\\nMIXED: Same as ON, but show all scripts in folders without a name match.\"\n"
-        show_text += "    checkbox chk_collapse_dirs \"COLLAPSE DIRS\" pos:[210,6] width:96 height:24 checked:" + (collapse_script_dirs as string) + " tooltip:\"ON: Hide only redundant same-named tool directories containing one script and no other visible branches.\\nOFF: Show the full SCRIPTS directory hierarchy.\"\n"
+        show_text += "    checkbox chk_collapse_dirs \"COLLAPSE DIRS\" pos:[6,30] width:116 height:24 checked:" + (collapse_script_dirs as string) + " tooltip:\"ON: Hide only redundant same-named tool directories containing one script and no other visible branches.\\nOFF: Show the full SCRIPTS directory hierarchy.\"\n"
         show_text += "    on chk_show_versions changed state do (if script_manager != undefined then script_manager.handleShowVersionedChanged state)\n"
         show_text += "    on chk_clean_scripts changed state do (if script_manager != undefined then script_manager.handleShowCleanScriptsChanged state)\n"
         show_text += "    on chk_collapse_dirs changed state do (if script_manager != undefined then script_manager.handleCollapseScriptDirsChanged state)\n"
         show_text += "    on script_manager_show_ui rolledUp state do (if script_manager != undefined then script_manager.setShowRolloutOpen state)\n"
         show_text += ")"
 
-        ignore_text = "rollout script_manager_ignore_ui \"IGNORE\" width:288 height:" + (ignore_rollout_content_height as string) + "\n(\n"
+        ignore_text = "rollout script_manager_ignore_ui \"IGNORE\" width:320 height:" + (ignore_rollout_content_height as string) + "\n(\n"
         ignore_text += "    label lbl_script_ignore \"IGNORE:\" pos:[6,6] width:90 height:18\n"
         ignore_text += "    editText edt_script_ignore \"\" pos:[6,24] width:276 height:16 text:\"\" tooltip:\"Filter SCRIPTS tree items by name.\\nSeparate multiple entries with |.\\n\\nPlain names match exactly; * and ? are wildcards.\\nExample: .git|*-OLD|*-DELETED\\n\\nMatching folders hide their complete SCRIPTS subtree.\\nThe value is saved to script_manager.ini and applied only when you press LMB REFRESH.\"\n"
         ignore_text += "    on script_manager_ignore_ui rolledUp state do (if script_manager != undefined then script_manager.setIgnoreRolloutOpen state)\n"
@@ -7956,7 +8110,7 @@ function appendScriptFromTree script_path =
         script_text += "    checkbutton btn_save_toolbar_ui \"SAVE UI\" pos:[214,6] width:68 height:24 checked:true tooltip:\"ON: Save the generated toolbar back to the active CUIX.\\n\\nOFF: Keep it only in the temporary CUIX loaded for this session.\"\n"
         script_text += "    label lbl_scripts_filter \"FILTER:\" pos:[6,37] width:50 height:16\n"
         script_text += "    editText edt_scripts_filter \"\" pos:[58,36] width:224 height:16 text:\"\" tooltip:\"Filter visible scripts and their parent folder names as you type.\\nCase-insensitive; clearing restores the full SCRIPTS tree.\\nNo source rescan, script execution, or INI changes.\"\n"
-        script_text += "    dotNetControl tv_scripts \"System.Windows.Forms.TreeView\" pos:[6,60] width:276 height:1280\n"
+        script_text += "    dotNetControl tv_scripts \"System.Windows.Forms.TreeView\" pos:[6,60] width:308 height:1280\n"
         script_text += "    on btn_load_scripts pressed do (if script_manager != undefined then script_manager.updateScripts())\n"
         script_text += "    on btn_load_scripts rightclick do (if script_manager != undefined then script_manager.loadScripts())\n"
         script_text += "    on btn_create_toolbar pressed do (if script_manager != undefined then script_manager.handleCreateToolbar save_ui:btn_save_toolbar_ui.checked)\n"
@@ -9124,8 +9278,12 @@ function applyHostDockState host_path dock_text =
     (
         if script_manager_ui == undefined then return false
 
-        usable_width = dialog_size.x - 24
-        if usable_width < 264 then usable_width = 264
+        local slot_width = amax 312 (dialog_size.x - 8)
+        local forms_metrics = dotNetClass "System.Windows.Forms.SystemInformation"
+        local scrollbar_gutter = forms_metrics.VerticalScrollBarWidth
+        local content_width = slot_width
+        local list_content_width = content_width + 4
+        local nested_width = content_width
 
         slot_top = 42
         bottom_action_height = 12
@@ -9143,78 +9301,91 @@ function applyHostDockState host_path dock_text =
         if maximum_loader_height < (loader_collapsed_height * 4) then maximum_loader_height = loader_collapsed_height * 4
         loader_slot_height = amin desired_loader_height maximum_loader_height
 
+        /* Reserve the outer scrollbar once, only when the loader needs to scroll. */
+        if desired_loader_height > maximum_loader_height then
+        (
+            content_width -= scrollbar_gutter
+            list_content_width = content_width + 4
+            nested_width = content_width
+        )
+
         script_manager_ui.btn_refresh_restart.pos = [12,12]
-        script_manager_ui.btn_refresh_restart.width = usable_width
+        script_manager_ui.btn_refresh_restart.width = slot_width - 16
         script_manager_ui.btn_refresh_restart.height = 18
 
-        script_manager_ui.sr_loader.pos = [12, slot_top]
-        script_manager_ui.sr_loader.width = usable_width
+        script_manager_ui.sr_loader.pos = [4, slot_top]
+        script_manager_ui.sr_loader.width = slot_width
         script_manager_ui.sr_loader.height = loader_slot_height
 
         if preset_rollout != undefined then
         (
-            preset_rollout.width = usable_width
+            preset_rollout.width = content_width
             preset_rollout.height = preset_rollout_content_height
+            preset_rollout.ddl_presets.width = amax 20 (content_width - 108)
+            preset_rollout.btn_preset_save_remove.pos = [content_width - 96, 6]
+            preset_rollout.btn_preset_startup.pos = [content_width - 92, 42]
         )
 
         if options_rollout != undefined then
         (
-            options_rollout.width = usable_width
+            options_rollout.width = content_width
             options_rollout.height = options_rollout_content_height + options_inner_offset
 
             options_rollout.sr_show.pos = [0,54]
-            options_rollout.sr_show.width = usable_width
+            options_rollout.sr_show.width = nested_width
             options_rollout.sr_show.height = show_slot_height
             options_rollout.sr_ignore.pos = [0,58 + show_slot_height]
-            options_rollout.sr_ignore.width = usable_width
+            options_rollout.sr_ignore.width = nested_width
             options_rollout.sr_ignore.height = ignore_slot_height
 
             root_control = this.getSourceRootPathControl()
-            if root_control != undefined then root_control.width = amax 20 (usable_width - 78)
+            if root_control != undefined then root_control.width = amax 20 (content_width - 78)
 
-            options_rollout.btn_source_root_browse.pos = [usable_width - 66, 24]
+            options_rollout.btn_source_root_browse.pos = [content_width - 66, 20]
 
         )
 
         if source_rollout != undefined then
         (
-            source_rollout.width = usable_width
+            source_rollout.width = list_content_width
             source_rollout.height = source_rollout_content_height
 
             source_tree = this.getSourceTreeControl()
             if source_tree != undefined then
             (
-                source_tree.Width = amax 20 (usable_width - 12)
+                source_tree.Width = amax 20 (list_content_width - 12)
                 source_tree.Height = 640
             )
         )
 
         if show_rollout != undefined then
         (
-            show_rollout.width = usable_width
+            show_rollout.width = nested_width
             show_rollout.height = show_rollout_content_height
         )
 
         if ignore_rollout != undefined then
         (
-            ignore_rollout.width = usable_width
+            ignore_rollout.width = nested_width
             ignore_rollout.height = ignore_rollout_content_height
 
             script_ignore_control = this.getScriptIgnoreMaskControl()
-            if script_ignore_control != undefined then script_ignore_control.width = amax 20 (usable_width - 12)
+            if script_ignore_control != undefined then script_ignore_control.width = amax 20 (nested_width - 24)
         )
 
         if script_rollout != undefined then
         (
-            script_rollout.width = usable_width
+            script_rollout.width = list_content_width
             script_rollout.height = script_rollout_content_height
 
-            script_rollout.edt_scripts_filter.width = amax 20 (usable_width - 64)
+            script_rollout.btn_save_toolbar_ui.pos = [content_width - 74, 6]
+            script_rollout.btn_create_toolbar.width = amax 20 (content_width - 180)
+            script_rollout.edt_scripts_filter.width = amax 20 (content_width - 64)
 
             tree_control = this.getScriptTreeControl()
             if tree_control != undefined then
             (
-                tree_control.Width = amax 20 (usable_width - 12)
+                tree_control.Width = amax 20 (list_content_width - 12)
                 tree_control.Height = 1280
             )
         )
@@ -10945,7 +11116,7 @@ function destroyManagerDialog =
         try
         (
             createDialog script_manager_ui \
-                width:336 height:dialog_height pos:registration_position \
+                width:384 height:dialog_height pos:registration_position \
                 style:#(#style_titlebar, #style_sysmenu, #style_toolwindow, #style_resizing) \
                 lockWidth:true lockHeight:false autoLayoutOnResize:true
 
@@ -10965,7 +11136,7 @@ function destroyManagerDialog =
         try
         (
             cui.RegisterDialogBar script_manager_ui \
-                minSize:[336,1024] \
+                minSize:[384,1024] \
                 style:(this.getDialogBarStyles())
         )
         catch
@@ -11106,12 +11277,12 @@ function destroyManagerDialog =
 script_manager_version_text = formattedPrint script_manager_project_version format:"1.3f"
 script_manager_title = "Script-Manager " + script_manager_version_text
 
-rollout script_manager_ui script_manager_title width:336 height:1970 autoLayoutOnResize:true
+rollout script_manager_ui script_manager_title width:384 height:1970 autoLayoutOnResize:true
 (
     local refresh_restart_tooltip
 
-    dotNetControl btn_refresh_restart "System.Windows.Forms.Button" pos:[12,12] width:312 height:18
-    subRollout sr_loader "" pos:[12,42] width:312 height:1916
+    dotNetControl btn_refresh_restart "System.Windows.Forms.Button" pos:[12,12] width:360 height:18
+    subRollout sr_loader "" pos:[4,42] width:376 height:1916
 
     /*
     Handles both LMB refresh and RMB version reload through one .NET MouseUp handler.

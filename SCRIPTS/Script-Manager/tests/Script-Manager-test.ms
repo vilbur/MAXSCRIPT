@@ -1,10 +1,10 @@
 ﻿/*
-    Script-Manager regression test 1.208.
+    Script-Manager regression test 1.209.
     Tests production version identity, source selection, filters, persistent tri-state load modes, toolbar generation, tree menus, and dedicated script-load behavior.
 */
 
-global script_manager_test_file_version = 1.208
-global script_manager_test_project_version = 1.224
+global script_manager_test_file_version = 1.209
+global script_manager_test_project_version = 1.237
 global script_manager_test_root = getFilenamePath (getSourceFileName())
 global script_manager_test_passed = true
 global script_manager_test_original_root
@@ -3244,6 +3244,43 @@ function partOfTest51 =
     -- return
 )
 
+/*
+Checks that toolbar submenu items can be added and cleared repeatedly without
+reacquiring the ToolStripItemCollection and raising the duplicate .NET wrapper error.
+*/
+function partOfTest52 =
+(
+    local source_text = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager.ms")
+    local cache_ok = source_text != undefined and (findString source_text "script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems") != undefined
+    local collection_ok = script_manager.script_tree_toolbar_children != undefined
+    local reuse_ok = cache_ok and collection_ok
+
+    if reuse_ok then
+    (
+        try
+        (
+            for attempt_index = 1 to 3 do
+            (
+                script_manager.clearToolbarSubmenu()
+                local test_item = script_manager.script_tree_toolbar_children.Add ("__SCRIPT_MANAGER_TOOLBAR_TEST__" + (attempt_index as string))
+                if test_item == undefined or script_manager.script_tree_toolbar_children.Count != 1 then throw "Toolbar submenu add failed."
+            )
+        )
+        catch
+        (
+            reuse_ok = false
+            format "PART 52 | toolbar submenu error: %\n" (getCurrentException())
+        )
+        try (script_manager.clearToolbarSubmenu()) catch (reuse_ok = false)
+        try (script_manager.updateScriptTreeContextMenuState()) catch (reuse_ok = false)
+    )
+    local test_ok = cache_ok and collection_ok and reuse_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 52 | cached-collection:% | available:% | repeated-add-clear:% | PASS:%\n" cache_ok collection_ok reuse_ok test_ok
+    test_ok
+    -- return
+)
+
 partOfTest1()
 partOfTest2()
 partOfTest3()
@@ -3293,6 +3330,7 @@ partOfTest48()
 partOfTest49()
 partOfTest50()
 partOfTest51()
+partOfTest52()
 partOfTest21()
 partOfTest22()
 
