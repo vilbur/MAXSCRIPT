@@ -1,5 +1,5 @@
 ﻿/*
-    Script-Manager 1.237
+    Script-Manager 1.252
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -122,8 +122,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.237,
-    project_version = 1.237,
+    file_version = 1.253,
+    project_version = 1.253,
     registry = undefined,
 
     /*
@@ -656,6 +656,8 @@ global script_manager_show_ui
 global script_manager_ignore_ui
 global script_manager_scripts_ui
 global script_manager_title
+global toolbarCreatorResolveScriptPath
+global script_manager_group_loader_ui
 global script_manager_group_palette_ui
 global script_manager_group_color_target
 global scriptManagerGroupColorClickHandler
@@ -672,6 +674,7 @@ global scriptManagerTreeExpandAllContextHandler
 global scriptManagerTreeExpandEnabledContextHandler
 global scriptManagerTreeCollapseAllContextHandler
 global scriptManagerTreeLoadContextHandler
+global scriptManagerTreeNewToolbarContextHandler
 global scriptManagerTreeStartupContextHandler
 global scriptManagerRefreshButtonMouseUpHandler
 global scriptManagerInitialLoaderTickHandler
@@ -742,6 +745,14 @@ function scriptManagerTreeStartupContextHandler sender_value event_args =
     if script_manager != undefined then script_manager.toggleSelectedScriptStartup()
 )
 
+/* Opens the group loader from the SCRIPTS context menu.
+*/
+function scriptManagerGroupLoaderContextHandler sender_value event_args =
+(
+    if script_manager != undefined then script_manager.showGroupLoader()
+    -- return
+)
+
 /* Adds the captured script to the chosen Toolbar-Creator toolbar.
 */
 function scriptManagerTreeToolbarContextHandler sender_value event_args =
@@ -749,6 +760,40 @@ function scriptManagerTreeToolbarContextHandler sender_value event_args =
     if script_manager != undefined and sender_value != undefined then
     (
         script_manager.addScriptToManagedToolbar (sender_value.Text as string) (sender_value.Tag as string)
+    )
+    -- return
+)
+
+/* Adds the captured script to the selected saved user group without altering toolbar membership.
+Existing group references in custom toolbars resolve the updated INI membership on next load.
+*/
+function scriptManagerTreeGroupContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.addScriptToNamedUserGroup (sender_value.Text as string) (sender_value.Tag as string)
+    )
+    -- return
+)
+
+/* Creates a named user group seeded with the captured right-clicked script.
+Cancel or an existing group name leaves all saved group data unchanged.
+*/
+function scriptManagerTreeNewGroupContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.createUserGroupFromScriptPath (sender_value.Tag as string)
+    )
+    -- return
+)
+
+/* Creates one new managed toolbar starting with the right-clicked script. */
+function scriptManagerTreeNewToolbarContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.createToolbarFromScriptSelection (sender_value.Tag as string)
     )
     -- return
 )
@@ -979,8 +1024,8 @@ function scriptManagerPersistIgnoreMask manager_value requested_mask =
 
 struct script_manager_v
 (
-    file_version = 1.237,
-    project_version = 1.237,
+    file_version = 1.253,
+    project_version = 1.253,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -1039,7 +1084,7 @@ struct script_manager_v
     preset_rollout_content_height = 72,
     options_rollout_content_height = 54,
     source_rollout_content_height = 652,
-    show_rollout_content_height = 54,
+    show_rollout_content_height = 30,
     ignore_rollout_content_height = 42,
     script_rollout_content_height = 1344,
     loader_content_height = 2318,
@@ -1053,7 +1098,12 @@ struct script_manager_v
     script_tree_batch_palette = undefined,
     script_tree_batch_hosts = undefined,
     source_tree_state_images = undefined,
+    source_tree_selected_paths = #(),
+    script_tree_selected_paths = #(),
+    source_tree_selection_anchor = "",
+    script_tree_selection_anchor = "",
     script_tree_context_menu = undefined,
+    script_tree_context_items = undefined,
     script_tree_open_separator = undefined,
     script_tree_expand_separator = undefined,
     script_tree_open_group_item = undefined,
@@ -1061,6 +1111,19 @@ struct script_manager_v
     script_tree_startup_item = undefined,
     script_tree_toolbar_item = undefined,
     script_tree_toolbar_children = undefined,
+    script_tree_group_item = undefined,
+    script_tree_group_children = undefined,
+    script_tree_toolbar_group_loader_separator = undefined,
+    script_tree_toolbar_new_item = undefined,
+    script_tree_toolbar_new_separator = undefined,
+    script_tree_group_loader_item = undefined,
+    group_loader_group_items = undefined,
+    group_loader_toolbar_items = undefined,
+    group_loader_records = #(),
+    group_loader_toolbar_names = #(),
+    group_loader_selected_group = "",
+    group_loader_selected_toolbar = "",
+    group_loader_selection_syncing = false,
     last_tree_load_error = "",
     script_tree_open_explorer_item = undefined,
     script_tree_expand_item = undefined,
@@ -4649,7 +4712,7 @@ struct script_manager_v
 
     /*
     Builds explicit dark-UI-safe SOURCES row images.
-    Image 0 is transparent for display-only tool rows; images 1/2 are unchecked/checked source glyphs.
+    Image 0 is transparent; 1=unchecked, 2=explicitly enabled, 3=unchecked parent with enabled descendants.
     */
     function buildSourceTreeStateImages =
     (
@@ -4671,7 +4734,7 @@ struct script_manager_v
         blank_graphics.Dispose()
         image_list.Images.Add blank_bitmap
 
-        for state_index = 0 to 1 do
+        for state_index = 0 to 2 do
         (
             bitmap_value = dotNetObject "System.Drawing.Bitmap" 16 16
             graphics_value = graphics_type.FromImage bitmap_value
@@ -4686,6 +4749,12 @@ struct script_manager_v
                 active_pen_value = dotNetObject "System.Drawing.Pen" active_color 2.0
                 graphics_value.DrawLine active_pen_value 4 8 7 11
                 graphics_value.DrawLine active_pen_value 7 11 12 5
+                active_pen_value.Dispose()
+            )
+            else if state_index == 2 then
+            (
+                active_pen_value = dotNetObject "System.Drawing.Pen" active_color 2.0
+                graphics_value.DrawLine active_pen_value 4 8 11 8
                 active_pen_value.Dispose()
             )
 
@@ -4718,6 +4787,46 @@ struct script_manager_v
         image_index = if enabled then 2 else 1
         tree_node.ImageIndex = image_index
         tree_node.SelectedImageIndex = image_index
+        true
+        -- return
+    ),
+
+    /*
+    Derives a SOURCES parent indicator without altering saved source enable flags.
+    An explicitly enabled source remains checked; an unchecked source with enabled descendants is intermediate.
+    */
+    function syncSourceTreeNodeChecks tree_node =
+    (
+        if tree_node == undefined then return false
+
+        local descendant_enabled = false
+        for child_index = 0 to (tree_node.Nodes.Count - 1) do
+        (
+            if this.syncSourceTreeNodeChecks tree_node.Nodes.Item[child_index] then descendant_enabled = true
+        )
+
+        if not(this.isSourceTreeNodeSelectable tree_node) then return descendant_enabled
+
+        local explicitly_enabled = tree_node.ImageIndex == 2
+        local state_index = if explicitly_enabled then 2 else if descendant_enabled then 3 else 1
+        tree_node.ImageIndex = state_index
+        tree_node.SelectedImageIndex = state_index
+        (explicitly_enabled or descendant_enabled)
+        -- return
+    ),
+
+    /*
+    Updates all SOURCES ancestor state images from their descendants without modifying saved settings.
+    */
+    function syncSourceTreeChecks =
+    (
+        local tree_control = this.getSourceTreeControl()
+        if tree_control == undefined then return false
+
+        for root_index = 0 to (tree_control.Nodes.Count - 1) do
+        (
+            this.syncSourceTreeNodeChecks tree_control.Nodes.Item[root_index]
+        )
         true
         -- return
     ),
@@ -4762,6 +4871,8 @@ struct script_manager_v
             if source_tree_context_menu == undefined then this.buildSourceTreeContextMenu()
             source_tree.BeginUpdate()
             source_tree.Nodes.Clear()
+            source_tree_selected_paths = #()
+            source_tree_selection_anchor = ""
             source_tree.ShowNodeToolTips = true
             source_tree.HideSelection = false
             source_tree.FullRowSelect = true
@@ -4805,6 +4916,7 @@ struct script_manager_v
                 append source_node_values source_node
             )
 
+            this.syncSourceTreeChecks()
             tree_expansion_syncing = true
 
             if restore_expansion then
@@ -5556,8 +5668,8 @@ function refreshConfiguredDiscovery =
     ),
 
     /*
-    Recursively synchronizes one SCRIPTS node and returns whether it or any descendant script is active.
-    Script leaves use 0=#skip, 1=#host, 2=#direct. Every folder ancestor shows a checkmark when any descendant is active so collapsed branches expose configured content.
+    Recursively synchronizes SCRIPTS images while retaining the Boolean subtree-activity return value.
+    Leaf 0=SKIP, 1=HOST, 2=DIRECT; folder 0=none, 1=all active, 2=some active.
     */
     function syncScriptTreeNodeChecks tree_node =
     (
@@ -5578,25 +5690,21 @@ function refreshConfiguredDiscovery =
         (
             active_count = 0
             child_count = tree_node.Nodes.Count
+            all_children_active = child_count > 0
 
             if child_count > 0 then
             (
                 for child_index = 0 to (child_count - 1) do
                 (
                     child_node = tree_node.Nodes.Item[child_index]
-                    if this.syncScriptTreeNodeChecks child_node then active_count += 1
+                    child_active = this.syncScriptTreeNodeChecks child_node
+                    if child_active then active_count += 1 else all_children_active = false
+                    if child_active and not(this.isSupportedScriptPath child_node.ToolTipText) and child_node.StateImageIndex == 2 then all_children_active = false
                 )
             )
 
-            if active_count > 0 then
-            (
-                this.setScriptTreeNodeVisualState tree_node 1
-            )
-            else
-            (
-                this.setScriptTreeNodeVisualState tree_node 0
-            )
-
+            parent_state = if active_count == 0 then 0 else if all_children_active then 1 else 2
+            this.setScriptTreeNodeVisualState tree_node parent_state
             node_active = active_count > 0
         )
 
@@ -5875,6 +5983,139 @@ function refreshConfiguredDiscovery =
     ),
 
     /*
+    Collects the currently visible TreeView rows in display order for SHIFT range selection.
+    The traversal avoids WinForms single-selection limitations and never scans the filesystem.
+    */
+    function getVisibleTreeNodes tree_control =
+    (
+        local visible_nodes = #()
+        if tree_control == undefined then return visible_nodes
+
+        local node_stack = #()
+        for root_index = (tree_control.Nodes.Count - 1) to 0 by -1 do append node_stack tree_control.Nodes.Item[root_index]
+        while node_stack.count > 0 do
+        (
+            local tree_node = node_stack[node_stack.count]
+            deleteItem node_stack node_stack.count
+            append visible_nodes tree_node
+            if tree_node.IsExpanded then
+            (
+                for child_index = (tree_node.Nodes.Count - 1) to 0 by -1 do append node_stack tree_node.Nodes.Item[child_index]
+            )
+        )
+        visible_nodes
+        -- return
+    ),
+
+    /*
+    Returns a stable case-insensitive row identifier for an individual SCRIPTS or SOURCES node.
+    */
+    function getTreeSelectionKey tree_node =
+    (
+        if tree_node == undefined then return ""
+        local node_path = tree_node.ToolTipText as string
+        if node_path == "" then node_path = tree_node.FullPath
+        toLower node_path
+        -- return
+    ),
+
+    /*
+    Selects one row, toggles CTRL rows or adds/replaces the visible SHIFT range.
+    The selection is visual and independent of SOURCES checkboxes and SCRIPTS load modes.
+    */
+    function updateTreeMultiSelection tree_control clicked_node source_tree:false ctrl_pressed:false shift_pressed:false =
+    (
+        if tree_control == undefined or clicked_node == undefined then return false
+        local selected_keys = if source_tree then source_tree_selected_paths else script_tree_selected_paths
+        local anchor_key = if source_tree then source_tree_selection_anchor else script_tree_selection_anchor
+        local clicked_key = this.getTreeSelectionKey clicked_node
+        if clicked_key == "" then return false
+
+        local visible_nodes = this.getVisibleTreeNodes tree_control
+        if shift_pressed and anchor_key != "" then
+        (
+            local anchor_index = 0
+            local clicked_index = 0
+            for index = 1 to visible_nodes.count do
+            (
+                local current_key = this.getTreeSelectionKey visible_nodes[index]
+                if current_key == anchor_key then anchor_index = index
+                if current_key == clicked_key then clicked_index = index
+            )
+            if anchor_index > 0 and clicked_index > 0 then
+            (
+                if not ctrl_pressed then selected_keys = #()
+                for index = (amin anchor_index clicked_index) to (amax anchor_index clicked_index) do
+                (
+                    local item_key = this.getTreeSelectionKey visible_nodes[index]
+                    if (findItem selected_keys item_key) == 0 then append selected_keys item_key
+                )
+            )
+            else
+            (
+                selected_keys = #(clicked_key)
+                anchor_key = clicked_key
+            )
+        )
+        else if ctrl_pressed then
+        (
+            local selected_index = findItem selected_keys clicked_key
+            if selected_index > 0 then deleteItem selected_keys selected_index else append selected_keys clicked_key
+            anchor_key = clicked_key
+        )
+        else
+        (
+            selected_keys = #(clicked_key)
+            anchor_key = clicked_key
+        )
+
+        if source_tree then
+        (
+            source_tree_selected_paths = selected_keys
+            source_tree_selection_anchor = anchor_key
+        )
+        else
+        (
+            script_tree_selected_paths = selected_keys
+            script_tree_selection_anchor = anchor_key
+        )
+
+        local color_type = dotNetClass "System.Drawing.Color"
+        local selected_color = color_type.FromArgb 66 87 117
+        local background_color = color_type.FromArgb 45 45 48
+        tree_control.BeginUpdate()
+        for tree_node in visible_nodes do
+        (
+            local row_color = if (findItem selected_keys (this.getTreeSelectionKey tree_node)) > 0 then selected_color else background_color
+            tree_node.BackColor = row_color
+        )
+        tree_control.EndUpdate()
+        true
+        -- return
+    ),
+
+    /*
+    Applies the keyboard modifier state to a TreeView click without modifying checkboxes.
+    */
+    function selectClickedTreeNode tree_control tree_node source_tree:false preserve_on_right:false =
+    (
+        local clicked_key = this.getTreeSelectionKey tree_node
+        local current_keys = if source_tree then source_tree_selected_paths else script_tree_selected_paths
+        if preserve_on_right and (findItem current_keys clicked_key) > 0 then return true
+
+        local modifier_text = ((dotNetClass "System.Windows.Forms.Control").ModifierKeys).ToString()
+        local ctrl_pressed = (findString modifier_text "Control") != undefined
+        local shift_pressed = (findString modifier_text "Shift") != undefined
+        if preserve_on_right then
+        (
+            ctrl_pressed = false
+            shift_pressed = false
+        )
+        this.updateTreeMultiSelection tree_control tree_node source_tree:source_tree ctrl_pressed:ctrl_pressed shift_pressed:shift_pressed
+        -- return
+    ),
+
+    /*
     Handles a SOURCES TreeView mouse click and opens its right-click menu.
     */
     function handleSourceTreeNodeClick click_args =
@@ -5889,6 +6130,7 @@ function refreshConfiguredDiscovery =
         if click_args.Button == mouse_buttons.Right then
         (
             tree_control.SelectedNode = click_args.Node
+            this.selectClickedTreeNode tree_control click_args.Node source_tree:true preserve_on_right:true
             if source_tree_context_menu != undefined then
             (
                 this.updateSourceTreeContextMenuState()
@@ -5900,6 +6142,7 @@ function refreshConfiguredDiscovery =
         if click_args.Button != mouse_buttons.Left then return false
 
         tree_control.SelectedNode = click_args.Node
+        this.selectClickedTreeNode tree_control click_args.Node source_tree:true
         if not(this.isSourceTreeNodeSelectable click_args.Node) then return true
 
         hit_info = tree_control.HitTest click_args.Location
@@ -5914,6 +6157,7 @@ function refreshConfiguredDiscovery =
         enabled = not(this.getSourceEnabled source_directory)
         if not(this.saveSourceEnabled source_directory enabled) then return false
         if not(this.setSourceTreeNodeVisualState click_args.Node enabled) then return false
+        this.syncSourceTreeChecks()
 
         this.refreshConfiguredDiscovery()
         -- return
@@ -5963,6 +6207,703 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
+    /* Normalizes a user-created group name for safe INI storage and dialog IDs.
+    Names are independent from folder paths and must not include INI or path separators.
+    */
+    function normalizeUserGroupName group_name =
+    (
+        local normalized_name = this.normalizePresetName group_name
+        if normalized_name == undefined then return undefined
+        for forbidden_text in #("\\", "/", ":") do
+        (
+            if findString normalized_name forbidden_text != undefined then return undefined
+        )
+        normalized_name
+        -- return
+    ),
+
+    /* Returns explicitly saved user group names, never directory-derived rows.
+    Each group is a section under UserGroup|<name> in script_manager.ini.
+    */
+    function getUserGroupNames =
+    (
+        local group_names = #()
+        local all_sections = getINISetting ini_path
+        if classOf all_sections != Array then return group_names
+        local prefix_text = "UserGroup|"
+        for section_name in all_sections do
+        (
+            if section_name.count > prefix_text.count and (substring section_name 1 prefix_text.count) == prefix_text then
+            (
+                local group_name = substring section_name (prefix_text.count + 1) (section_name.count - prefix_text.count)
+                if (this.normalizeUserGroupName group_name) != undefined then append group_names group_name
+            )
+        )
+        sort group_names
+        group_names
+        -- return
+    ),
+
+    /*
+    Builds a stable Toolbar-Creator reference to a named, explicitly saved group.
+    The referenced manager path is the canonical entrypoint, not a version snapshot.
+    */
+    function makeToolbarUserGroupReference group_name =
+    (
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined then return undefined
+        local manager_path = this.getCanonicalManagerScriptPath()
+        if manager_path == undefined or manager_path == "" then return undefined
+        "__SCRIPT_MANAGER_GROUP__|" + (toolbarCreatorToPortablePath manager_path) + "|" + normalized_name
+        -- return
+    ),
+
+    /*
+    Recognizes the dedicated Toolbar-Creator reference format for user groups.
+    No script or group is loaded while inspecting the reference.
+    */
+    function isToolbarUserGroupReference source_path =
+    (
+        classOf source_path == String and source_path.count > 26 and (substring source_path 1 25) == "__SCRIPT_MANAGER_GROUP__|"
+        -- return
+    ),
+
+    /*
+    Reads the manager path and user-defined group name from a saved toolbar reference.
+    Returns undefined if the reference is incomplete or invalid.
+    */
+    function parseToolbarUserGroupReference source_path =
+    (
+        if not(this.isToolbarUserGroupReference source_path) then return undefined
+        local body_text = substring source_path 26 (source_path.count - 25)
+        local separator_index = findString body_text "|"
+        if separator_index == undefined or separator_index < 2 or separator_index >= body_text.count then return undefined
+        local portable_manager_path = substring body_text 1 (separator_index - 1)
+        local group_name = substring body_text (separator_index + 1) (body_text.count - separator_index)
+        if group_name == "" then return undefined
+        local manager_script_path = toolbarCreatorResolveScriptPath portable_manager_path
+        #(manager_script_path, group_name, portable_manager_path)
+        -- return
+    ),
+
+    /*
+    Resolves current user-group membership and executes it inside one host dialog.
+    This does not modify the persisted OFF/HOST/DIRECT checkbox modes.
+    */
+    function openUserGroupByName group_name =
+    (
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined then return false
+        local current_data = this.resolveUserGroupScripts normalized_name
+        if current_data[2].count > 0 then
+        (
+            format "[Script-Manager] USER GROUP load failed | group:% | invalid:%\n" normalized_name current_data[2][1]
+            return false
+        )
+        if current_data[1].count == 0 then
+        (
+            format "[Script-Manager] USER GROUP has no scripts: %\n" normalized_name
+            return false
+        )
+        this.openScriptPathGroup ("__USER_GROUP__\\" + normalized_name) current_data[1]
+        -- return
+    ),
+
+
+    /* Stores script references relative to ROOT PATH when possible.
+    Absolute paths outside ROOT PATH remain supported without modifying scripts.
+    */
+    function encodeUserGroupScriptPath script_path =
+    (
+        if classOf script_path != String or script_path == "" then return ""
+        local canonical_path = substituteString script_path "/" "\\"
+        local root_path = ScriptManagerIntegration.normalizeDirectoryPath root_directory
+        if root_path != "" and canonical_path.count > root_path.count then
+        (
+            if (toLower (substring canonical_path 1 root_path.count)) == (toLower root_path) then
+            (
+                return "ROOT:" + (substring canonical_path (root_path.count + 1) (canonical_path.count - root_path.count))
+            )
+        )
+        "ABS:" + canonical_path
+        -- return
+    ),
+
+    /* Resolves a persisted group reference against the active ROOT PATH.
+    Missing scripts are kept in the group so loading can report them accurately.
+    */
+    function decodeUserGroupScriptPath stored_path =
+    (
+        if classOf stored_path != String or stored_path == "" then return ""
+        if (substring stored_path 1 5) == "ROOT:" then
+        (
+            return (ScriptManagerIntegration.normalizeDirectoryPath root_directory) + (substring stored_path 6 (stored_path.count - 5))
+        )
+        if (substring stored_path 1 4) == "ABS:" then return substring stored_path 5 (stored_path.count - 4)
+        stored_path
+        -- return
+    ),
+
+    /* Reads the ordered script list from one explicit user group.
+    Groups with zero scripts are valid and remain available for later additions.
+    */
+    function getUserGroupScripts group_name =
+    (
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined then return #()
+        local section_name = "UserGroup|" + normalized_name
+        if not(hasINISetting ini_path section_name) then return #()
+        local count_text = getINISetting ini_path section_name "Count"
+        local script_count = 0
+        try (script_count = count_text as integer) catch (script_count = 0)
+        if script_count < 0 or script_count > 4096 then return #()
+        local paths = #()
+        for index = 1 to script_count do
+        (
+            local encoded_path = getINISetting ini_path section_name ("Script" + (index as string))
+            local script_path = this.decodeUserGroupScriptPath encoded_path
+            if script_path != "" then append paths script_path
+        )
+        paths
+        -- return
+    ),
+
+    /* Expands saved script or folder references into current usable script paths.
+    A saved directory remains dynamic: scripts added inside it are included later.
+    */
+    function resolveUserGroupScripts group_name =
+    (
+        local resolved_paths = #()
+        local invalid_paths = #()
+        local seen_paths = #()
+        for member_path in (this.getUserGroupScripts group_name) do
+        (
+            local candidates = #()
+            if doesDirectoryExist member_path then
+            (
+                this.collectScriptPathsRecursive member_path candidates
+                if candidates.count == 0 then append invalid_paths ("Empty directory: " + member_path)
+            )
+            else
+            (
+                append candidates member_path
+            )
+            for script_path in candidates do
+            (
+                local path_key = toLower (substituteString script_path "/" "\\")
+                if findItem seen_paths path_key == 0 then
+                (
+                    append seen_paths path_key
+                    if this.isSupportedScriptPath script_path and doesFileExist script_path then
+                    (
+                        append resolved_paths script_path
+                    )
+                    else
+                    (
+                        append invalid_paths script_path
+                    )
+                )
+            )
+        )
+        #(resolved_paths, invalid_paths)
+        -- return
+    ),
+
+    /* Saves one named group with de-duplicated ordered script paths.
+    Existing data is restored if a new INI section fails verification.
+    */
+    function saveUserGroupScripts group_name script_paths =
+    (
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined or classOf script_paths != Array then return false
+        local section_name = "UserGroup|" + normalized_name
+        local previous_entries = this.getIniSectionEntries section_name
+        local dedup_paths = #()
+        local seen_paths = #()
+        for script_path in script_paths do
+        (
+            if classOf script_path == String and script_path != "" then
+            (
+                local normalized_path = substituteString script_path "/" "\\"
+                local path_key = toLower normalized_path
+                if (findItem seen_paths path_key) == 0 then
+                (
+                    append seen_paths path_key
+                    append dedup_paths normalized_path
+                )
+            )
+        )
+        local new_entries = #(#("Count",dedup_paths.count as string))
+        for index = 1 to dedup_paths.count do
+        (
+            append new_entries #("Script" + (index as string),this.encodeUserGroupScriptPath dedup_paths[index])
+        )
+        local save_ok = this.replaceIniSection section_name new_entries
+        if save_ok then save_ok = (getINISetting ini_path section_name "Count") == (dedup_paths.count as string)
+        if not save_ok then
+        (
+            if previous_entries.count > 0 then this.replaceIniSection section_name previous_entries else delINISetting ini_path section_name
+        )
+        save_ok
+        -- return
+    ),
+
+    /* Removes only the selected user-group configuration from the INI.
+    The original scripts, directories and toolbar data are left intact.
+    */
+    function removeUserGroup group_name =
+    (
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined then return false
+        local section_name = "UserGroup|" + normalized_name
+        if not(hasINISetting ini_path section_name) then return false
+        delINISetting ini_path section_name
+        not(hasINISetting ini_path section_name)
+        -- return
+    ),
+
+    /* Returns one selected SCRIPTS file or folder reference for group membership.
+    Folders are stored as directories and expanded only when a group is loaded.
+    */
+    function getSelectedTreeScriptsForUserGroup =
+    (
+        local tree_control = this.getScriptTreeControl()
+        if tree_control == undefined then return #()
+        local selected_keys = script_tree_selected_paths
+        if selected_keys.count == 0 and tree_control.SelectedNode != undefined then selected_keys = #(this.getTreeSelectionKey tree_control.SelectedNode)
+        local selected_paths = #()
+        for tree_node in (this.getVisibleTreeNodes tree_control) do
+        (
+            if (findItem selected_keys (this.getTreeSelectionKey tree_node)) > 0 then
+            (
+                local node_path = tree_node.ToolTipText
+                if this.isSupportedScriptPath node_path then
+                (
+                    append selected_paths node_path
+                )
+                else
+                (
+                    local group_data = this.getScriptTreeGroupLoadData tree_node
+                    if group_data[2].count > 0 then append selected_paths node_path
+                )
+            )
+        )
+        selected_paths
+        -- return
+    ),
+
+    /* Prompts for a group name using the same native dialog as preset naming.
+    Cancel or an invalid name leaves the INI and currently selected group untouched.
+    */
+    function askUserGroupName =
+    (
+        local name_dialog = dotNetObject "MaxCustomControls.RenameInstanceDialog" ""
+        name_dialog.text = "Create User Group"
+        local modal_result = name_dialog.ShowModal()
+        if modal_result.ToString() != "OK" then return undefined
+        local group_name = this.normalizeUserGroupName name_dialog.InstanceName
+        if group_name == undefined then messageBox "Enter a group name without [ ], |, \\, /, :, or line breaks." title:"GROUP MANAGER"
+        group_name
+        -- return
+    ),
+
+    /* Creates only an explicit named group, optionally seeded from SCRIPTS selection.
+    Tree folders never become user groups just because they contain scripts.
+    */
+    function createUserGroupFromSelection =
+    (
+        local group_name = this.askUserGroupName()
+        if group_name == undefined then return false
+        local group_names = this.getUserGroupNames()
+        for saved_name in group_names do
+        (
+            if (toLower saved_name) == (toLower group_name) then
+            (
+                messageBox "Group already exists. Select it and use ADD TREE SELECTION." title:"GROUP MANAGER"
+                return false
+            )
+        )
+        local script_paths = this.getSelectedTreeScriptsForUserGroup()
+        if not(this.saveUserGroupScripts group_name script_paths) then return false
+        group_loader_selected_group = group_name
+        group_loader_selected_toolbar = ""
+        this.refreshGroupLoader()
+        true
+        -- return
+    ),
+
+    /* Adds selected SCRIPTS leaf or directory contents to the named group.
+    Existing members retain their order, and duplicates are ignored.
+    */
+    function addTreeSelectionToUserGroup =
+    (
+        if script_manager_group_loader_ui == undefined then return false
+        local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
+        if group_index < 1 or group_index > group_loader_records.count then return false
+        local group_name = group_loader_records[group_index][1]
+        local additions = this.getSelectedTreeScriptsForUserGroup()
+        if additions.count == 0 then
+        (
+            messageBox "Select a script or a nonempty folder in the SCRIPTS tree first." title:"GROUP MANAGER"
+            return false
+        )
+        local paths = this.getUserGroupScripts group_name
+        join paths additions
+        if not(this.saveUserGroupScripts group_name paths) then return false
+        this.refreshGroupLoader()
+        true
+        -- return
+    ),
+
+    /* Adds one right-clicked script to a named group, preserving all existing entries.
+    Group toolbar buttons use the saved INI group and pick up changes on next execution.
+    */
+    function addScriptToNamedUserGroup group_name script_path =
+    (
+        if not(this.isSupportedScriptPath script_path) then return false
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined then return false
+        if not(hasINISetting ini_path ("UserGroup|" + normalized_name)) then return false
+        local saved_paths = this.getUserGroupScripts normalized_name
+        append saved_paths script_path
+        local save_ok = this.saveUserGroupScripts normalized_name saved_paths
+        if save_ok then
+        (
+            group_loader_selected_group = normalized_name
+            this.refreshGroupLoader()
+        )
+        save_ok
+        -- return
+    ),
+
+    /* Creates a named group from one captured right-clicked script path.
+    Does not rely on current selection after the context menu closes.
+    */
+    function createUserGroupFromScriptPath script_path =
+    (
+        if not(this.isSupportedScriptPath script_path) then return false
+        local group_name = this.askUserGroupName()
+        if group_name == undefined then return false
+        for existing_name in (this.getUserGroupNames()) do
+        (
+            if (toLower existing_name) == (toLower group_name) then
+            (
+                messageBox "Group already exists. Choose it in ADD TO GROUP." title:"GROUP MANAGER"
+                return false
+            )
+        )
+        local save_ok = this.saveUserGroupScripts group_name #(script_path)
+        if save_ok then
+        (
+            group_loader_selected_group = group_name
+            this.refreshGroupLoader()
+        )
+        save_ok
+        -- return
+    ),
+
+    /* Removes one explicitly named group after user confirmation.
+    Does not delete any script or physical directory.
+    */
+    function deleteSelectedUserGroup =
+    (
+        if script_manager_group_loader_ui == undefined then return false
+        local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
+        if group_index < 1 or group_index > group_loader_records.count then return false
+        local group_name = group_loader_records[group_index][1]
+        local delete_approved = queryBox ("Delete group '" + group_name + "'? Scripts will not be deleted.") title:"GROUP MANAGER"
+        if not delete_approved then return false
+        if not(this.removeUserGroup group_name) then return false
+        group_loader_selected_group = ""
+        this.refreshGroupLoader()
+        true
+        -- return
+    ),
+
+    /* Resolves one custom toolbar's ordered button scripts without executing them.
+    Invalid or missing records remain in the returned error list so loads cannot silently omit scripts.
+    */
+    function resolveGroupLoaderToolbarScripts toolbar_name =
+    (
+        if toolbar_name == undefined or toolbar_name == "" then return undefined
+        if not(this.ensureToolbarCreatorBackend()) then return undefined
+        local button_data = getManagedScriptToolbarButtons toolbar_name
+        if button_data == undefined then return undefined
+
+        local script_paths = #()
+        local invalid_paths = #()
+        local path_keys = #()
+        for button_record in button_data do
+        (
+            local source_path = ""
+            if classOf button_record == Array and button_record.count > 0 and classOf button_record[1] == String then source_path = button_record[1]
+            if source_path == "" then
+            (
+                append invalid_paths "Empty toolbar script path"
+            )
+            else if this.isToolbarUserGroupReference source_path then
+            (
+                local group_reference = this.parseToolbarUserGroupReference source_path
+                if group_reference == undefined then
+                (
+                    append invalid_paths ("Invalid toolbar group reference: " + source_path)
+                )
+                else
+                (
+                    local group_name = group_reference[2]
+                    local group_data = this.resolveUserGroupScripts group_name
+                    if group_data[1].count == 0 and group_data[2].count == 0 then append invalid_paths ("Empty user group: " + group_name)
+                    for invalid_path in group_data[2] do append invalid_paths ("GROUP " + group_name + ": " + invalid_path)
+                    for script_path in group_data[1] do
+                    (
+                        local path_key = toLower (substituteString script_path "/" "\\")
+                        if path_key != "" and (findItem path_keys path_key) == 0 then
+                        (
+                            append path_keys path_key
+                            if this.isSupportedScriptPath script_path and doesFileExist script_path then append script_paths script_path else append invalid_paths ("GROUP " + group_name + ": " + script_path)
+                        )
+                    )
+                )
+            )
+            else
+            (
+                local script_path = toolbarCreatorResolveScriptPath source_path
+                if script_path == undefined then script_path = ""
+                local path_key = toLower (substituteString script_path "/" "\\")
+                if path_key == "" then
+                (
+                    append invalid_paths "Empty toolbar script path"
+                )
+                else if (findItem path_keys path_key) == 0 then
+                (
+                    append path_keys path_key
+                    if this.isSupportedScriptPath script_path and doesFileExist script_path then append script_paths script_path else append invalid_paths script_path
+                )
+            )
+        )
+        #(script_paths, invalid_paths)
+        -- return
+    ),
+
+    /* Updates the GROUP MANAGER preview and button states from the selected list.
+    Only one source can be active; this method never launches scripts.
+    */
+    function updateGroupLoaderSelection source_kind =
+    (
+        if script_manager_group_loader_ui == undefined then return false
+        if group_loader_selection_syncing then return true
+        group_loader_selection_syncing = true
+        local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
+        local toolbar_index = script_manager_group_loader_ui.lb_toolbars.SelectedIndex + 1
+        local group_preview = ""
+        local toolbar_preview = ""
+        group_loader_selected_group = ""
+        group_loader_selected_toolbar = ""
+        script_manager_group_loader_ui.btn_load_group.enabled = false
+        script_manager_group_loader_ui.btn_add_group.enabled = false
+        script_manager_group_loader_ui.btn_delete_group.enabled = (group_index > 0 and group_index <= group_loader_records.count)
+        script_manager_group_loader_ui.btn_add_group_to_toolbar.enabled = false
+        script_manager_group_loader_ui.btn_load_toolbar.enabled = false
+        local preview_text = "Select a user group or toolbar to view its scripts."
+        if group_index > 0 and group_index <= group_loader_records.count then
+        (
+            local group_record = group_loader_records[group_index]
+            group_loader_selected_group = group_record[1]
+            local valid_count = group_record[3].count
+            local invalid_count = group_record[4].count
+            script_manager_group_loader_ui.btn_load_group.enabled = (valid_count > 0 and invalid_count == 0)
+            script_manager_group_loader_ui.btn_add_group.enabled = true
+            group_preview = "USER GROUP: " + group_record[1] + " | " + (valid_count as string) + " scripts"
+            if invalid_count > 0 then group_preview += " | " + (invalid_count as string) + " missing/invalid"
+        )
+        if toolbar_index > 0 and toolbar_index <= group_loader_toolbar_names.count then
+        (
+            group_loader_selected_toolbar = group_loader_toolbar_names[toolbar_index]
+            local toolbar_data = this.resolveGroupLoaderToolbarScripts group_loader_selected_toolbar
+            if toolbar_data == undefined then
+            (
+                toolbar_preview = "TOOLBAR: " + group_loader_selected_toolbar + " | unavailable (see Listener)"
+            )
+            else
+            (
+                local valid_count = toolbar_data[1].count
+                local invalid_count = toolbar_data[2].count
+                script_manager_group_loader_ui.btn_load_toolbar.enabled = valid_count > 0 and invalid_count == 0
+                toolbar_preview = "TOOLBAR: " + group_loader_selected_toolbar + " | " + (valid_count as string) + " scripts"
+                if invalid_count > 0 then toolbar_preview += " | " + (invalid_count as string) + " missing/invalid"
+            )
+        )
+        if group_loader_selected_group != "" and group_loader_selected_toolbar != "" then script_manager_group_loader_ui.btn_add_group_to_toolbar.enabled = true
+        if source_kind == #toolbar and toolbar_preview != "" then preview_text = toolbar_preview
+        else if source_kind == #tree and group_preview != "" then preview_text = group_preview
+        else if group_preview != "" then preview_text = group_preview
+        else if toolbar_preview != "" then preview_text = toolbar_preview
+        script_manager_group_loader_ui.lbl_selection.text = preview_text
+        group_loader_selection_syncing = false
+        true
+        -- return
+    ),
+
+    /* Refreshes only explicitly saved user groups and custom toolbars.
+    Directory nodes do not become group entries; active selections are preserved.
+    */
+    function refreshGroupLoader =
+    (
+        if script_manager_group_loader_ui == undefined then return false
+        if group_loader_group_items == undefined or group_loader_toolbar_items == undefined then return false
+        local previous_group = group_loader_selected_group
+        local previous_toolbar = group_loader_selected_toolbar
+        group_loader_selection_syncing = true
+        group_loader_records = #()
+        group_loader_toolbar_names = #()
+        group_loader_group_items.Clear()
+        group_loader_toolbar_items.Clear()
+        for group_name in (this.getUserGroupNames()) do
+        (
+            local group_data = this.resolveUserGroupScripts group_name
+            append group_loader_records #(group_name, "__USER_GROUP__\\" + group_name, group_data[1], group_data[2])
+            group_loader_group_items.Add (group_name + "  [" + (group_data[1].count as string) + "]")
+        )
+        local toolbar_names = undefined
+        if this.ensureToolbarCreatorBackend() then
+        (
+            try (toolbar_names = listManagedScriptToolbars sync_live:true) catch
+            (
+                format "[Script-Manager] GROUP MANAGER toolbar list failed: %\n" (getCurrentException())
+            )
+        )
+        if toolbar_names != undefined then
+        (
+            for toolbar_name in toolbar_names do
+            (
+                append group_loader_toolbar_names toolbar_name
+                group_loader_toolbar_items.Add toolbar_name
+            )
+        )
+        local chosen_kind = #none
+        script_manager_group_loader_ui.lb_groups.SelectedIndex = -1
+        script_manager_group_loader_ui.lb_toolbars.SelectedIndex = -1
+        if previous_group != "" then
+        (
+            for index = 1 to group_loader_records.count do
+            (
+                if group_loader_records[index][1] == previous_group then
+                (
+                    script_manager_group_loader_ui.lb_groups.SelectedIndex = index - 1
+                    if chosen_kind == #none then chosen_kind = #tree
+                    exit
+                )
+            )
+        )
+        if previous_toolbar != "" then
+        (
+            for index = 1 to group_loader_toolbar_names.count do
+            (
+                if group_loader_toolbar_names[index] == previous_toolbar then
+                (
+                    script_manager_group_loader_ui.lb_toolbars.SelectedIndex = index - 1
+                    if chosen_kind == #none then chosen_kind = #toolbar
+                    exit
+                )
+            )
+        )
+        group_loader_selection_syncing = false
+        this.updateGroupLoaderSelection chosen_kind
+        script_manager_group_loader_ui.lbl_status.text = ((group_loader_records.count as string) + " user groups | " + (group_loader_toolbar_names.count as string) + " custom toolbars")
+        if toolbar_names == undefined then script_manager_group_loader_ui.lbl_status.text += " | Toolbar-Creator unavailable"
+        true
+        -- return
+    ),
+
+    /* Loads a selected group or toolbar as one shared dialog without modifying saved script modes.
+    Toolbar scripts are validated in button order before an existing host dialog can be replaced.
+    */
+    function loadGroupLoaderSelection source_kind =
+    (
+        if script_manager_group_loader_ui == undefined then return false
+        local load_ok = false
+        local group_label = ""
+        local host_path = ""
+        local script_paths = #()
+        try
+        (
+            if source_kind == #tree then
+            (
+                local selected_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
+                if selected_index < 1 or selected_index > group_loader_records.count then return false
+                local group_record = group_loader_records[selected_index]
+                group_label = group_record[1]
+                host_path = group_record[2]
+                local current_data = this.resolveUserGroupScripts group_label
+                if current_data[2].count > 0 then throw ((current_data[2].count as string) + " invalid group members; first: " + current_data[2][1])
+                script_paths = current_data[1]
+            )
+            else
+            (
+                local selected_index = script_manager_group_loader_ui.lb_toolbars.SelectedIndex + 1
+                if selected_index < 1 or selected_index > group_loader_toolbar_names.count then return false
+                group_label = group_loader_toolbar_names[selected_index]
+                local toolbar_data = this.resolveGroupLoaderToolbarScripts group_label
+                if toolbar_data == undefined then throw "Toolbar-Creator could not read the toolbar's scripts."
+                if toolbar_data[2].count > 0 then throw ((toolbar_data[2].count as string) + " missing/invalid scripts; first: " + toolbar_data[2][1])
+                script_paths = toolbar_data[1]
+                host_path = "__TOOLBAR__\\" + group_label
+            )
+            if script_paths.count == 0 then throw "This group contains no scripts."
+            for script_path in script_paths do
+            (
+                if not(this.isSupportedScriptPath script_path) or not(doesFileExist script_path) then throw ("Missing or unsupported script: " + script_path)
+            )
+            load_ok = this.openScriptPathGroup host_path script_paths
+            script_manager_group_loader_ui.lbl_status.text = (if load_ok then "Loaded: " else "Load failed; see Listener: ") + group_label
+        )
+        catch
+        (
+            local error_text = getCurrentException() as string
+            format "[Script-Manager] GROUP MANAGER failed | source:% | group:% | error:%\n" source_kind group_label error_text
+            script_manager_group_loader_ui.lbl_status.text = "FAILED: " + error_text
+        )
+        load_ok
+        -- return
+    ),
+
+    /*
+    Opens the resizable GROUP MANAGER dialog from its dedicated UI module.
+    The backend remains in Script-Manager and no grouped scripts are executed on open.
+    */
+    function showGroupLoader =
+    (
+        try (destroyDialog script_manager_group_loader_ui) catch ()
+        local manager_directory = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath manager_source_path)
+        local ui_path = manager_directory + "Script-Manager-Group-Loader-UI.ms"
+        if not(doesFileExist ui_path) then
+        (
+            local manager_folder = substring manager_directory 1 (manager_directory.count - 1)
+            local parent_directory = ScriptManagerIntegration.normalizeDirectoryPath (pathConfig.removePathLeaf manager_folder)
+            ui_path = parent_directory + "Script-Manager-Group-Loader-UI.ms"
+        )
+        if not(doesFileExist ui_path) then
+        (
+            format "[Script-Manager][GROUP MANAGER] Missing UI module: %\n" ui_path
+            return false
+        )
+        try
+        (
+            fileIn ui_path quiet:true
+            createDialog script_manager_group_loader_ui width:520 height:642 \
+                style:#(#style_titlebar,#style_sysmenu,#style_toolwindow,#style_resizing) \
+                lockWidth:true lockHeight:false
+            -- The UI module's open event performs the initial layout and refresh.
+            script_manager_group_loader_ui.inDialog
+        )
+        catch
+        (
+            format "[Script-Manager][GROUP MANAGER] UI creation failed: % | file:%\n" (getCurrentException()) ui_path
+            false
+        )
+        -- return
+    ),
+
     /* Loads only the Toolbar-Creator backend from an accessible CODEBASE.
     */
     function ensureToolbarCreatorBackend =
@@ -5972,7 +6913,11 @@ function refreshConfiguredDiscovery =
         global collectToolbarScripts
         global manageScriptToolbar
         global toolbarCreatorToPortablePath
-        if listManagedScriptToolbars != undefined and getManagedScriptToolbarButtons != undefined and collectToolbarScripts != undefined and manageScriptToolbar != undefined and toolbarCreatorToPortablePath != undefined then return true
+        global toolbarCreatorFileVersion
+        global toolbarCreatorIsScriptManagerGroupReference
+        local backend_ready = listManagedScriptToolbars != undefined and getManagedScriptToolbarButtons != undefined and collectToolbarScripts != undefined and manageScriptToolbar != undefined and toolbarCreatorToPortablePath != undefined
+        if backend_ready then backend_ready = toolbarCreatorFileVersion != undefined and toolbarCreatorFileVersion >= 0.17 and toolbarCreatorIsScriptManagerGroupReference != undefined
+        if backend_ready then return true
 
         local candidate_paths = #()
         local parent_directory = getFilenamePath manager_source_path
@@ -6001,7 +6946,7 @@ function refreshConfiguredDiscovery =
             format "[Script-Manager] Toolbar-Creator load failed: %\n" (getCurrentException())
             return false
         )
-        listManagedScriptToolbars != undefined and getManagedScriptToolbarButtons != undefined and collectToolbarScripts != undefined and manageScriptToolbar != undefined and toolbarCreatorToPortablePath != undefined
+        listManagedScriptToolbars != undefined and getManagedScriptToolbarButtons != undefined and collectToolbarScripts != undefined and manageScriptToolbar != undefined and toolbarCreatorToPortablePath != undefined and toolbarCreatorIsScriptManagerGroupReference != undefined and toolbarCreatorFileVersion >= 0.17
         -- return
     ),
 
@@ -6010,6 +6955,8 @@ function refreshConfiguredDiscovery =
     */
     function clearToolbarSubmenu =
     (
+        /* Refresh the wrapper from its owner; two cached .NET submenu wrappers may alias. */
+        if script_tree_toolbar_item != undefined then script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
         if script_tree_toolbar_children != undefined then
         (
             while script_tree_toolbar_children.Count > 0 do
@@ -6020,21 +6967,90 @@ function refreshConfiguredDiscovery =
                 child_item.Dispose()
             )
         )
+        script_tree_group_loader_item = undefined
+        script_tree_toolbar_group_loader_separator = undefined
+        script_tree_toolbar_new_item = undefined
+        script_tree_toolbar_new_separator = undefined
         true
         -- return
     ),
 
-    /* Refreshes custom toolbar names and captures the right-clicked script path.
+    /* Rebuilds the dark ADD TO GROUP submenu from persisted user-group names.
+    Captures the right-clicked script path in each item, independent of tree selection.
+    */
+    function refreshGroupSubmenu script_path =
+    (
+        /* Rebind to the actual owner, never to an earlier detached .NET collection. */
+        if script_tree_group_item != undefined then script_tree_group_children = script_tree_group_item.DropDownItems
+        if script_tree_group_children == undefined then return false
+        while script_tree_group_children.Count > 0 do
+        (
+            local child_item = script_tree_group_children.Item[0]
+            dotNet.removeAllEventHandlers child_item
+            script_tree_group_children.Remove child_item
+            child_item.Dispose()
+        )
+        script_tree_group_item.Visible = script_path != undefined
+        if script_path == undefined then return true
+        local manager_item = script_tree_group_children.Add "GROUP MANAGER"
+        manager_item.BackColor = script_tree_context_menu.BackColor
+        manager_item.ForeColor = script_tree_context_menu.ForeColor
+        dotNet.addEventHandler manager_item "Click" scriptManagerGroupLoaderContextHandler
+        local manager_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        manager_separator.BackColor = script_tree_context_menu.BackColor
+        script_tree_group_children.Add manager_separator
+        local group_names = this.getUserGroupNames()
+        if group_names.count == 0 then
+        (
+            local empty_item = script_tree_group_children.Add "No user groups"
+            empty_item.Enabled = false
+            empty_item.BackColor = script_tree_context_menu.BackColor
+            empty_item.ForeColor = script_tree_context_menu.ForeColor
+        )
+        else
+        (
+            for group_name in group_names do
+            (
+                local group_item = script_tree_group_children.Add group_name
+                group_item.Tag = script_path
+                group_item.BackColor = script_tree_context_menu.BackColor
+                group_item.ForeColor = script_tree_context_menu.ForeColor
+                dotNet.addEventHandler group_item "Click" scriptManagerTreeGroupContextHandler
+            )
+        )
+        local group_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        group_separator.BackColor = script_tree_context_menu.BackColor
+        script_tree_group_children.Add group_separator
+        local new_group_item = script_tree_group_children.Add "NEW GROUP"
+        new_group_item.Tag = script_path
+        new_group_item.BackColor = script_tree_context_menu.BackColor
+        new_group_item.ForeColor = script_tree_context_menu.ForeColor
+        dotNet.addEventHandler new_group_item "Click" scriptManagerTreeNewGroupContextHandler
+        true
+        -- return
+    ),
+
+    /* Places GROUP MANAGER first in ADD TO TOOLBAR, followed by custom toolbars.
+    Folders retain access to GROUP MANAGER without script-specific toolbar actions.
     */
     function refreshToolbarSubmenu script_path =
     (
         this.clearToolbarSubmenu()
-        script_tree_toolbar_item.Visible = script_path != undefined
-        if script_path == undefined then return false
+        script_tree_toolbar_item.Visible = true
+        script_tree_group_loader_item = script_tree_toolbar_children.Add "GROUP MANAGER"
+        script_tree_group_loader_item.BackColor = script_tree_context_menu.BackColor
+        script_tree_group_loader_item.ForeColor = script_tree_context_menu.ForeColor
+        dotNet.addEventHandler script_tree_group_loader_item "Click" scriptManagerGroupLoaderContextHandler
+        if script_path == undefined then return true
+
+        script_tree_toolbar_group_loader_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        script_tree_toolbar_group_loader_separator.BackColor = script_tree_context_menu.BackColor
+        script_tree_toolbar_children.Add script_tree_toolbar_group_loader_separator
+
         local toolbar_names = undefined
         if this.ensureToolbarCreatorBackend() then
         (
-            try (toolbar_names = listManagedScriptToolbars()) catch
+            try (toolbar_names = listManagedScriptToolbars sync_live:true) catch
             (
                 format "[Script-Manager] Toolbar listing failed: %\n" (getCurrentException())
             )
@@ -6042,6 +7058,8 @@ function refreshConfiguredDiscovery =
         if toolbar_names == undefined or toolbar_names.count == 0 then
         (
             local empty_item = script_tree_toolbar_children.Add (if toolbar_names == undefined then "Toolbar-Creator unavailable" else "No custom toolbars")
+            empty_item.BackColor = script_tree_context_menu.BackColor
+            empty_item.ForeColor = script_tree_context_menu.ForeColor
             empty_item.Enabled = false
         )
         else
@@ -6055,6 +7073,108 @@ function refreshConfiguredDiscovery =
                 dotNet.addEventHandler toolbar_item "Click" scriptManagerTreeToolbarContextHandler
             )
         )
+        script_tree_toolbar_new_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        script_tree_toolbar_new_separator.BackColor = script_tree_context_menu.BackColor
+        script_tree_toolbar_children.Add script_tree_toolbar_new_separator
+        script_tree_toolbar_new_item = script_tree_toolbar_children.Add "NEW TOOLBAR"
+        script_tree_toolbar_new_item.Tag = script_path
+        script_tree_toolbar_new_item.BackColor = script_tree_context_menu.BackColor
+        script_tree_toolbar_new_item.ForeColor = script_tree_context_menu.ForeColor
+        script_tree_toolbar_new_item.Enabled = this.ensureToolbarCreatorBackend()
+        dotNet.addEventHandler script_tree_toolbar_new_item "Click" scriptManagerTreeNewToolbarContextHandler
+        true
+        -- return
+    ),
+
+    /*
+    Prompts for a unique Toolbar-Creator name and creates a toolbar containing
+    one initial script or user-group button. Cancel leaves the CUIX untouched.
+    */
+    function createNewManagedToolbar first_button default_name:"" =
+    (
+        if not(this.ensureToolbarCreatorBackend()) then
+        (
+            messageBox "Toolbar-Creator backend is unavailable." title:"NEW TOOLBAR"
+            return undefined
+        )
+        if classOf first_button != Array or first_button.count < 2 then return undefined
+        local proposed_name = if default_name == "" then this.getDefaultToolbarName() else default_name
+        local toolbar_name = this.askToolbarName default_value:proposed_name
+        if toolbar_name == undefined then return undefined
+        local existing_names = listManagedScriptToolbars sync_live:true
+        if existing_names == undefined then
+        (
+            messageBox "Could not read custom toolbars. Nothing was created." title:"NEW TOOLBAR"
+            return undefined
+        )
+        for existing_name in existing_names do
+        (
+            if (toLower existing_name) == (toLower toolbar_name) then
+            (
+                messageBox ("Toolbar already exists: " + toolbar_name) title:"NEW TOOLBAR"
+                return undefined
+            )
+        )
+        local create_ok = false
+        try
+        (
+            create_ok = manageScriptToolbar #create toolbar_name button_data:#(first_button) save_ui:true
+        )
+        catch
+        (
+            format "[Script-Manager] NEW TOOLBAR failed | name:% | error:%\n" toolbar_name (getCurrentException())
+        )
+        if not create_ok then
+        (
+            messageBox ("Could not create toolbar '" + toolbar_name + "'. See the MAXScript Listener.") title:"NEW TOOLBAR"
+            return undefined
+        )
+        toolbar_name
+        -- return
+    ),
+
+    /* Creates a new Toolbar-Creator toolbar with the clicked SCRIPTS file. */
+    function createToolbarFromScriptSelection script_path =
+    (
+        if not(this.isSupportedScriptPath script_path) or not(doesFileExist script_path) then return false
+        if not(this.ensureToolbarCreatorBackend()) then return false
+        local first_buttons = collectToolbarScripts #(script_path) recursive:false
+        if first_buttons == undefined or first_buttons.count != 1 then return false
+        local new_name = this.createNewManagedToolbar first_buttons[1] default_name:((getFilenameFile script_path) + " Toolbar")
+        new_name != undefined
+        -- return
+    ),
+
+    /*
+    Creates a new toolbar from the selected USER GROUP. If no group is selected,
+    starts with a Script-Manager launcher so the toolbar remains editable.
+    */
+    function createToolbarFromGroupLoader =
+    (
+        if script_manager_group_loader_ui == undefined then return false
+        if not(this.ensureToolbarCreatorBackend()) then return false
+        local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
+        local first_button = undefined
+        local default_name = this.getDefaultToolbarName()
+        if group_index > 0 and group_index <= group_loader_records.count then
+        (
+            local group_name = group_loader_records[group_index][1]
+            local reference_text = this.makeToolbarUserGroupReference group_name
+            if reference_text == undefined then return false
+            first_button = #(reference_text,group_name,("Load user group: " + group_name))
+            default_name = group_name + " Toolbar"
+        )
+        else
+        (
+            local first_buttons = collectToolbarScripts #(manager_source_path) recursive:false
+            if first_buttons == undefined or first_buttons.count != 1 then return false
+            first_button = first_buttons[1]
+        )
+        local new_name = this.createNewManagedToolbar first_button default_name:default_name
+        if new_name == undefined then return false
+        group_loader_selected_toolbar = new_name
+        this.refreshGroupLoader()
+        script_manager_group_loader_ui.lbl_status.text = "Created toolbar: " + new_name
         true
         -- return
     ),
@@ -6091,11 +7211,97 @@ function refreshConfiguredDiscovery =
     ),
 
     /*
+    Adds one named user group as one persistent custom-toolbar button.
+    Existing toolbar buttons retain their order; duplicate group buttons are skipped.
+    */
+    function addUserGroupToManagedToolbar toolbar_name group_name =
+    (
+        if not(this.ensureToolbarCreatorBackend()) then return false
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined then return false
+        local group_exists = false
+        for existing_name in (this.getUserGroupNames()) while not group_exists do
+        (
+            if (toLower existing_name) == (toLower normalized_name) then group_exists = true
+        )
+        if not group_exists then return false
+        local button_reference = this.makeToolbarUserGroupReference normalized_name
+        if button_reference == undefined then return false
+        try
+        (
+            local saved_buttons = getManagedScriptToolbarButtons toolbar_name
+            if saved_buttons == undefined then throw "Existing toolbar buttons could not be read; toolbar was not changed."
+            local reference_key = toLower button_reference
+            for saved_button in saved_buttons do
+            (
+                if classOf saved_button == Array and saved_button.count > 0 and classOf saved_button[1] == String then
+                (
+                    if (toLower saved_button[1]) == reference_key then return true
+                )
+            )
+            append saved_buttons #(button_reference, normalized_name, ("Load user group: " + normalized_name))
+            if not(manageScriptToolbar #update toolbar_name button_data:saved_buttons save_ui:true) then throw "Toolbar-Creator update failed; see Listener."
+            true
+        )
+        catch
+        (
+            local error_text = getCurrentException()
+            format "[Script-Manager] ADD GROUP TO TOOLBAR failed: %\n" error_text
+            messageBox error_text title:"ADD GROUP TO TOOLBAR"
+            false
+        )
+        -- return
+    ),
+
+    /*
+    Adds the selected user-defined group to the selected custom toolbar.
+    The GROUP MANAGER keeps both list selections during this operation.
+    */
+    function addSelectedUserGroupToToolbar =
+    (
+        if script_manager_group_loader_ui == undefined then return false
+        local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
+        local toolbar_index = script_manager_group_loader_ui.lb_toolbars.SelectedIndex + 1
+        if group_index < 1 or group_index > group_loader_records.count then
+        (
+            messageBox "Select one USER GROUP first." title:"GROUP MANAGER"
+            return false
+        )
+        if toolbar_index < 1 or toolbar_index > group_loader_toolbar_names.count then
+        (
+            messageBox "Select one CUSTOM TOOLBAR first." title:"GROUP MANAGER"
+            return false
+        )
+        local group_name = group_loader_records[group_index][1]
+        local toolbar_name = group_loader_toolbar_names[toolbar_index]
+        local add_ok = this.addUserGroupToManagedToolbar toolbar_name group_name
+        if add_ok then
+        (
+            group_loader_selected_group = group_name
+            group_loader_selected_toolbar = toolbar_name
+            this.refreshGroupLoader()
+            script_manager_group_loader_ui.lbl_status.text = "Added group '" + group_name + "' to toolbar '" + toolbar_name + "'."
+        )
+        add_ok
+        -- return
+    ),
+
+    /*
     Removes .NET handlers and disposes the SCRIPTS context menu before the loader rollout is rebuilt.
     Cleanup failures are intentionally harmless because the old UI is being destroyed.
     */
     function clearScriptTreeContextMenu =
     (
+        if script_tree_group_children != undefined then
+        (
+            while script_tree_group_children.Count > 0 do
+            (
+                local child_item = script_tree_group_children.Item[0]
+                dotNet.removeAllEventHandlers child_item
+                script_tree_group_children.Remove child_item
+                child_item.Dispose()
+            )
+        )
         this.clearToolbarSubmenu()
         cleanup_ok = true
 
@@ -6239,6 +7445,7 @@ function refreshConfiguredDiscovery =
         )
 
         script_tree_context_menu = undefined
+        script_tree_context_items = undefined
         script_tree_open_separator = undefined
         script_tree_expand_separator = undefined
         script_tree_open_group_item = undefined
@@ -6246,6 +7453,11 @@ function refreshConfiguredDiscovery =
         script_tree_startup_item = undefined
         script_tree_toolbar_item = undefined
         script_tree_toolbar_children = undefined
+        script_tree_group_item = undefined
+        script_tree_group_children = undefined
+        script_tree_toolbar_group_loader_separator = undefined
+        script_tree_toolbar_new_item = undefined
+        script_tree_toolbar_new_separator = undefined
         script_tree_open_explorer_item = undefined
         script_tree_expand_item = undefined
         script_tree_collapse_item = undefined
@@ -6271,24 +7483,46 @@ function refreshConfiguredDiscovery =
         script_tree_context_menu.ShowImageMargin = false
         script_tree_context_menu.BackColor = color_type.FromArgb 45 45 48
         script_tree_context_menu.ForeColor = color_type.FromArgb 225 225 225
+        /* Cache the context-menu item collection once, like the toolbar submenu.
+        Repeated .Items wrapper access can drop the first menu item in MAXScript.
+        */
+        script_tree_context_items = script_tree_context_menu.Items
 
-        script_tree_open_group_item = script_tree_context_menu.Items.Add "OPEN GROUP"
-        script_tree_load_item = script_tree_context_menu.Items.Add "LOAD SCRIPT"
-        script_tree_startup_item = script_tree_context_menu.Items.Add "ADD TO STARTUP SCRIPTS"
-        script_tree_toolbar_item = script_tree_context_menu.Items.Add "ADD TO TOOLBAR"
+        script_tree_open_group_item = script_tree_context_items.Add "OPEN GROUP"
+        script_tree_load_item = script_tree_context_items.Add "LOAD SCRIPT"
+        script_tree_group_item = script_tree_context_items.Add "ADD TO GROUP"
+        local group_popup = script_tree_group_item.DropDown
+        group_popup.BackColor = script_tree_context_menu.BackColor
+        group_popup.ForeColor = script_tree_context_menu.ForeColor
+        group_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
+        group_popup.ShowImageMargin = false
+        script_tree_group_children = script_tree_group_item.DropDownItems
+        /* Materialize the first submenu before accessing a second .NET DropDownItems.
+        MAXScript may otherwise bind both cached collections to the first menu.
+        Both placeholders are removed by their normal submenu refresh methods.
+        */
+        script_tree_group_children.Add "__GROUP_MENU_INIT__"
+        script_tree_toolbar_item = script_tree_context_items.Add "ADD TO TOOLBAR"
+        local toolbar_popup = script_tree_toolbar_item.DropDown
+        toolbar_popup.BackColor = script_tree_context_menu.BackColor
+        toolbar_popup.ForeColor = script_tree_context_menu.ForeColor
+        toolbar_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
+        toolbar_popup.ShowImageMargin = false
         script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
-        script_tree_open_explorer_item = script_tree_context_menu.Items.Add "OPEN IN EXPLORER"
+        script_tree_toolbar_children.Add "__TOOLBAR_MENU_INIT__"
+        script_tree_open_explorer_item = script_tree_context_items.Add "OPEN IN EXPLORER"
         script_tree_open_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
-        script_tree_context_menu.Items.Add script_tree_open_separator
-        script_tree_collapse_item = script_tree_context_menu.Items.Add "COLLAPSE"
-        script_tree_collapse_all_item = script_tree_context_menu.Items.Add "COLLAPSE ALL"
+        script_tree_context_items.Add script_tree_open_separator
+        script_tree_collapse_item = script_tree_context_items.Add "COLLAPSE"
+        script_tree_collapse_all_item = script_tree_context_items.Add "COLLAPSE ALL"
         script_tree_expand_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
-        script_tree_context_menu.Items.Add script_tree_expand_separator
-        script_tree_expand_item = script_tree_context_menu.Items.Add "EXPAND"
-        script_tree_expand_all_item = script_tree_context_menu.Items.Add "EXPAND ALL"
-        script_tree_expand_enabled_item = script_tree_context_menu.Items.Add "EXPAND ENABLED"
+        script_tree_context_items.Add script_tree_expand_separator
+        script_tree_expand_item = script_tree_context_items.Add "EXPAND"
+        script_tree_expand_all_item = script_tree_context_items.Add "EXPAND ALL"
+        script_tree_expand_enabled_item = script_tree_context_items.Add "EXPAND ENABLED"
+        script_tree_startup_item = script_tree_context_items.Add "ADD TO STARTUP SCRIPTS"
 
-        for menu_item in #(script_tree_toolbar_item, script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
+        for menu_item in #(script_tree_group_item, script_tree_toolbar_item, script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
         (
             menu_item.BackColor = script_tree_context_menu.BackColor
             menu_item.ForeColor = script_tree_context_menu.ForeColor
@@ -6328,6 +7562,10 @@ function refreshConfiguredDiscovery =
         script_tree_open_group_item.Visible = has_selection and not selected_is_script
         script_tree_open_group_item.Enabled = has_children
 
+        /* Refresh in submenu-construction order. Reversing the order can alias
+        the .NET ToolStripItemCollection wrappers and detach ADD TO TOOLBAR.
+        */
+        this.refreshGroupSubmenu (if selected_is_script then selected_node.ToolTipText else undefined)
         this.refreshToolbarSubmenu (if selected_is_script then selected_node.ToolTipText else undefined)
 
         script_tree_load_item.Visible = selected_is_script
@@ -6410,14 +7648,14 @@ function refreshConfiguredDiscovery =
     ),
 
     /*
-Expands a folder branch only when its already-synchronized tri-state image marks active descendants.
-The SCRIPTS TreeView stores folder state 1 if it contains HOST or DIRECT scripts.
+Expands a folder branch if either checked or intermediate shows active descendants.
+The SCRIPTS TreeView stores folder state 1 for all-active and 2 for partially-active.
     */
     function expandEnabledScriptTreeBranch tree_node =
     (
         if tree_node == undefined then return false
         if tree_node.Nodes.Count == 0 then return false
-        if tree_node.StateImageIndex != 1 then return false
+        if tree_node.StateImageIndex == 0 then return false
 
         tree_node.Expand()
 
@@ -7346,6 +8584,7 @@ function appendScriptFromTree script_path =
         if click_args.Button == mouse_buttons_type.Right then
         (
             tree_control.SelectedNode = click_args.Node
+            this.selectClickedTreeNode tree_control click_args.Node preserve_on_right:true
             this.updateScriptTreeContextMenuState()
 
             if script_tree_context_menu != undefined then
@@ -7359,6 +8598,7 @@ function appendScriptFromTree script_path =
         if click_args.Button != mouse_buttons_type.Left then return false
 
         tree_control.SelectedNode = click_args.Node
+        this.selectClickedTreeNode tree_control click_args.Node
         hit_info = tree_control.HitTest click_args.Location
         if hit_info == undefined then return true
 
@@ -7616,6 +8856,8 @@ function appendScriptFromTree script_path =
 
             tree_control.BeginUpdate()
             tree_control.Nodes.Clear()
+            script_tree_selected_paths = #()
+            script_tree_selection_anchor = ""
             tree_control.ShowNodeToolTips = true
             tree_control.HideSelection = false
             tree_control.FullRowSelect = true
@@ -7741,6 +8983,13 @@ function appendScriptFromTree script_path =
         timing_elapsed_ms = timestamp() - timing_start
         format "[Script-Manager][TIMING] SCRIPTS RENDER PHASES | folders:% ms | files:% ms | states:% ms\n" timing_folders_ms timing_files_ms timing_states_ms
         format "[Script-Manager][TIMING] SCRIPTS TREE RENDER | % ms | folders:% | scripts:% | success:%\n" timing_elapsed_ms available_group_paths.count script_tree_file_count populate_ok
+        if populate_ok and group_loader_group_items != undefined and script_manager_group_loader_ui != undefined then
+        (
+            if script_manager_group_loader_ui.inDialog then
+            (
+                try (this.refreshGroupLoader()) catch (format "[Script-Manager] GROUP MANAGER refresh after SCRIPTS build failed: %\n" (getCurrentException()))
+            )
+        )
         populate_ok
         -- return
     ),
@@ -8091,7 +9340,7 @@ function appendScriptFromTree script_path =
         show_text = "rollout script_manager_show_ui \"SHOW\" width:320 height:" + (show_rollout_content_height as string) + "\n(\n"
         show_text += "    checkbox chk_show_versions \"VERSIONED FILES\" pos:[6,6] width:110 height:24 checked:" + (show_versioned_files as string) + " tooltip:\"Show every versioned script instead of only the canonical file or newest version.\"\n"
         show_text += "    checkbox chk_clean_scripts \"CLEAN SCRIPTS\" pos:[116,6] width:94 height:24 triState:" + ((this.getCleanScriptsMode()) as string) + " tooltip:\"OFF: Normal script listing.\\nON: Show only the unversioned script matching its parent folder.\\nMIXED: Same as ON, but show all scripts in folders without a name match.\"\n"
-        show_text += "    checkbox chk_collapse_dirs \"COLLAPSE DIRS\" pos:[6,30] width:116 height:24 checked:" + (collapse_script_dirs as string) + " tooltip:\"ON: Hide only redundant same-named tool directories containing one script and no other visible branches.\\nOFF: Show the full SCRIPTS directory hierarchy.\"\n"
+        show_text += "    checkbox chk_collapse_dirs \"COLLAPSE DIRS\" pos:[210,6] width:96 height:24 checked:" + (collapse_script_dirs as string) + " tooltip:\"ON: Hide only redundant same-named tool directories containing one script and no other visible branches.\\nOFF: Show the full SCRIPTS directory hierarchy.\"\n"
         show_text += "    on chk_show_versions changed state do (if script_manager != undefined then script_manager.handleShowVersionedChanged state)\n"
         show_text += "    on chk_clean_scripts changed state do (if script_manager != undefined then script_manager.handleShowCleanScriptsChanged state)\n"
         show_text += "    on chk_collapse_dirs changed state do (if script_manager != undefined then script_manager.handleCollapseScriptDirsChanged state)\n"
@@ -9459,8 +10708,8 @@ function layoutHostDialog host_path dialog_size =
     host_dialog.btn_dialog_title.width = usable_width
     host_dialog.btn_dialog_title.height = title_height
 
-    host_dialog.sr_tools.pos = [12,tools_top]
-    host_dialog.sr_tools.width = usable_width
+    host_dialog.sr_tools.pos = [-4,tools_top]
+    host_dialog.sr_tools.width = usable_width + 32
     host_dialog.sr_tools.height = tools_height
 
     true
@@ -9613,11 +10862,17 @@ This one-time load forces hosted execution but does not modify saved OFF/HOST/DI
 */
 function openScriptTreeGroup tree_node =
 (
-    if is_reloading then return false
+    local group_data = this.getScriptTreeGroupLoadData tree_node
+    this.openScriptPathGroup group_data[1] group_data[2]
+    -- return
+),
 
-    group_data = this.getScriptTreeGroupLoadData tree_node
-    host_path = group_data[1]
-    script_paths = group_data[2]
+/* Loads an explicit ordered script set into one shared host dialog.
+Preserves the existing tree group lifecycle and saved OFF/HOST/DIRECT modes.
+*/
+function openScriptPathGroup host_path script_paths =
+(
+    if is_reloading then return false
 
     if host_path == "" or script_paths.count == 0 then
     (
@@ -9999,6 +11254,50 @@ function clearLoadedRollouts =
     ),
 
     /*
+    Formats one hosted script rollout title, removing a trailing numeric | vX.Y version.
+    Existing decorations are removed before applying the consistent three-dash frame.
+    */
+function formatHostedRolloutTitle rollout_title fallback_name:"" =
+(
+    title_text = if rollout_title == undefined then "" else (trimRight (trimLeft (rollout_title as string)))
+    decoration = "———"
+
+    if title_text.count >= 8 then
+    (
+        if (substring title_text 1 4) == (decoration + " ") and (substring title_text (title_text.count - 3) 4) == (" " + decoration) then
+        (
+            title_text = trimRight (trimLeft (substring title_text 5 (title_text.count - 8)))
+        )
+    )
+
+    version_marker = findString (toLower title_text) " | v"
+    if version_marker != undefined then
+    (
+        version_text = substring title_text (version_marker + 4) (title_text.count - version_marker - 3)
+        version_is_numeric = version_text.count > 0
+
+        if version_is_numeric then
+        (
+            if (findString "0123456789" (substring version_text 1 1)) == undefined then version_is_numeric = false
+        )
+
+        for char_index = 1 to version_text.count while version_is_numeric do
+        (
+            version_char = substring version_text char_index 1
+            if (findString "0123456789." version_char) == undefined then version_is_numeric = false
+        )
+
+        if version_is_numeric then title_text = trimRight (substring title_text 1 (version_marker - 1))
+    )
+
+    if title_text == "" then title_text = trimRight (trimLeft fallback_name)
+    if title_text == "" then title_text = "Script"
+
+    decoration + " " + title_text + " " + decoration
+    -- return
+),
+
+    /*
     Loads one current backend script and an optional sibling <BackendName>-UI.ms companion.
     Hosted mode embeds declared rollouts, optionally forcing a chosen shared dialog without changing stored script modes.
     Direct mode fileIns only the selected script in #standalone and never adds rollouts to shared dialogs.
@@ -10181,6 +11480,7 @@ function loadManagedScript script_path script_name:"" script_key:"" group_path:"
             try
             (
                 addSubRollout target_slot rollout_value rolledUp:(not rollout_open)
+                rollout_value.title = this.formatHostedRolloutTitle rollout_value.title fallback_name:(if script_name != "" then script_name else (getFilenameFile script_path))
                 append embedded_rollouts rollout_value
                 append embedded_rollout_names rollout_name
             )
@@ -10761,7 +12061,7 @@ function createHostDialog host_path =
 
     source_text = "rollout " + symbol_name + " \"" + caption_text + "\" width:336 height:720 autoLayoutOnResize:true\n(\n"
     source_text += "    dotNetControl btn_dialog_title \"System.Windows.Forms.Button\" pos:[12,12] width:312 height:24\n"
-    source_text += "    subRollout sr_tools \"\" pos:[12,48] width:312 height:660\n"
+    source_text += "    subRollout sr_tools \"\" pos:[-4,48] width:344 height:660\n"
     source_text += "    on btn_dialog_title Click sender event_args do (if script_manager != undefined then script_manager.reloadHostDialogScripts \"" + handler_path + "\")\n"
     source_text += "    on " + symbol_name + " open do (btn_dialog_title.Text = \"" + caption_text + "\"; if script_manager != undefined then script_manager.layoutHostDialog \"" + handler_path + "\" [" + symbol_name + ".width," + symbol_name + ".height])\n"
     source_text += "    on " + symbol_name + " moved dialog_position do (if script_manager != undefined then (scriptManagerTraceDialogPosition \"" + handler_path + "\" \"MOVED-EVENT\" " + symbol_name + " dock_text:\"event\"; if not script_manager.is_reloading and not script_manager.is_destroying_host and script_manager.dialog_restore_depth == 0 then script_manager.saveHostDialogState \"" + handler_path + "\" save_rollouts:false))\n"
@@ -10903,6 +12203,7 @@ function ensureHostDialog host_path =
 function destroyManagerDialog =
 (
     cleanup_ok = true
+    try (destroyDialog script_manager_group_loader_ui) catch ()
 
     try
     (
@@ -11274,7 +12575,11 @@ function destroyManagerDialog =
     )
 )
 
-script_manager_version_text = formattedPrint script_manager_project_version format:"1.3f"
+/*
+Uses the loaded Script-Manager implementation version for the visible UI, not
+an older cached or externally registered project version.
+*/
+script_manager_version_text = formattedPrint ScriptManagerIntegration.file_version format:"1.3f"
 script_manager_title = "Script-Manager " + script_manager_version_text
 
 rollout script_manager_ui script_manager_title width:384 height:1970 autoLayoutOnResize:true

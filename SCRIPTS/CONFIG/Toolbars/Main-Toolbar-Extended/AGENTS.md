@@ -9,17 +9,18 @@ The designated Google Drive folder `Main-Toolbar-Extended` is the canonical repo
 ## Project layout
 
 - `Main-Toolbar-Extended.ms` — canonical unversioned installer/entry point, containing `installMainToolbarExtended`.
+- `versions/Main-Toolbar-Extended_<version>.ms` — immutable versioned script releases.
 - `Main-Toolbar-Extended-Test.ms` — test for native setting transitions and restoration.
 - `Actions/*.ms` — small independently loadable fallback actions referenced by Toolbar-Creator.
 - `Icons/Dark/MainToolbarExtended/*.svg` and `Icons/Light/MainToolbarExtended/*.svg` — placeholder toolbar icons.
-- `README.md` — installation, use, and troubleshooting.
+- `README.md` — user-facing purpose and main features only; no implementation or developer procedures.
 - `design.md` — feature and implementation contracts.
 - `changes.md` — dated change log.
-- `Main-Toolbar-Extended_0.001.zip` — historical distribution snapshot, not the canonical editable source.
+- Do not create or distribute whole-repository ZIP archives. Keep source assets directly accessible in the repository.
 
 ## Core dependency
 
-Reuse the existing shared `Toolbar-Creator.ms` public function `manageScriptToolbar` without copying or editing the shared implementation. The tool depends on Toolbar-Creator being evaluated in 3ds Max first. This repository is a downstream consumer, not the owner of toolbar-Creator or any shared Functions/Operations/Tools/Toolsets layers. Treat shared layers as read-only unless the user explicitly authorizes a specific protected edit in the current prompt.
+Reuse the existing shared `Toolbar-Creator.ms` public function `manageScriptToolbar` without copying or editing the shared implementation. The tool depends on Toolbar-Creator being evaluated in 3ds Max first. This repository is a downstream consumer, not the owner of Toolbar-Creator or any shared Functions/Operations/Tools/Toolsets layers. Treat shared layers as read-only unless the user explicitly authorizes a specific protected edit in the current prompt.
 
 ## Behavioural contract
 

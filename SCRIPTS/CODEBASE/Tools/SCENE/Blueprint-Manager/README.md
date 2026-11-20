@@ -1,4 +1,4 @@
-﻿# Blueprint Manager
+# Blueprint Manager
 
 
 First MaxScript implementation of the scene blueprint reference manager for Autodesk 3ds Max.
@@ -8,6 +8,13 @@ First MaxScript implementation of the scene blueprint reference manager for Auto
 
 
 Open `Blueprint-Manager.ms` in 3ds Max and run it with **Scripting > Run Script**. The script is not a standalone Windows application.
+
+The entry script uses MAXScript compile-time `include` to load two sibling files from the same folder. Keep all three `.ms` files together; run only `Blueprint-Manager.ms`. Do not `fileIn` the included modules directly.
+
+- `Blueprint-Manager.ms` — canonical entry and shared UI-framework bootstrap, then dialog creation.
+- `Blueprint-Manager-FN.ms` — `BlueprintManager_v` scene operations, blueprint geometry/materials, layer and alignment logic.
+- `Blueprint-Manager-UI.ms` — OPTIONS/ALIGNMENT/POSITIONS/main rollouts, WinForms preview controls, UI state and event handlers.
+
 
 
 The canonical shared UI framework is a **runtime dependency**. The script searches these local Windows folders in order:
@@ -34,6 +41,7 @@ The thumbnail cross contains TOP, FRONT, SIDE, BACK, and BOTTOM. Preview width i
 
 
 - **LMB, empty preview:** select an image.
+- **DBL LMB, any preview:** toggle all managed blueprint planes. A single click is recognised after the Windows double-click interval so a double-click does not accidentally perform the single-click action.
 - **LMB, assigned preview:** toggle that scene plane's visibility (only after APPLY).
 - **CTRL+LMB, any preview:** show all managed planes if any is hidden; otherwise hide all.
 - **RMB, any preview:** choose a filename at the top of the menu. The active filename starts with ✔. A separator divides the filenames from **Browse Directory**, **Add Image**, **Reset Blueprint**, and **Show Unused Slots**.
@@ -43,7 +51,8 @@ The thumbnail cross contains TOP, FRONT, SIDE, BACK, and BOTTOM. Preview width i
 - **Position sliders:** offset the matching Plane inward along its local Z (its inward-facing normal), measured from the original virtual-box wall. Each slider runs from 0 to the corresponding neighboring blueprint span. FRONT/BACK primarily use SIDE width; SIDE primarily uses FRONT width; TOP/BOTTOM use the greatest assigned upright-view height. If no perpendicular reference is assigned, the relevant slider is disabled.
 - **APPLY (green, right-hand action button):** create/update assigned Plane objects without creating a Box, then hide unassigned image buttons and sliders; trim the preview canvas to the visible images. The same button changes to orange SETUP, and the floating dialog shrinks to fit the compact content.
 - **SETUP (orange):** LMB restores all image slots and POSITION sliders for editing. RMB asks for confirmation, deletes only managed blueprint planes and removes their layers only when empty (unrelated nodes are preserved).
-- **ON \ OFF (left-hand action button):** LMB shows all managed blueprint planes; RMB hides them. Both action buttons are 38 px high.
+- **Blueprint layer visibility:** when all managed planes on a dedicated blueprint layer are hidden, the tool hides the layer; when any plane is shown, the layer is shown again. To avoid hiding unrelated objects, it will not hide a layer that also contains unmanaged nodes.
+- **ON \ OFF (left-hand action button):** LMB shows all managed blueprint planes; RMB hides them. Text is green when at least one managed blueprint is visible and red when none is visible (including layer-hidden blueprints). Colour updates on startup, visibility actions, and external scene changes. Both action buttons are 38 px high.
 - **FREEZE checkbutton:** checked freezes all managed planes; unchecked unfreezes them while preserving image color.
 - **TWO-SIDED checkbutton:** checked displays front and back faces, unchecked enables backface culling. It also synchronizes Standard-material two-sided display.
 - **OPTIONS:** collapsible section below the action buttons and FREEZE/TWO-SIDED. RATIO 1px (mm per pixel) and Opacity (0–100%) share a single horizontal row; **Layer Name** is a second-row text field, default `_BLUEPRINTS`. APPLY creates or reuses that layer and moves managed blueprint planes into it. Changes persist in `Blueprint-Manager.ini`. One `subRollout` slot contains OPTIONS → ALIGNMENT → POSITIONS, with no inserted spacing. ALIGNMENT radio columns are shifted down 2 px, and OPTIONS uses tighter unit-label/slider spacing.
@@ -67,7 +76,7 @@ Plane objects are tagged with `BM_ROLE`, `BM_LAYER`, `BM_FILE`, and `BM_OFFSET_M
 ## Files
 
 
-- `Blueprint-Manager.ms` — canonical entry script.
+- `Blueprint-Manager.ms` — canonical entry script (includes `Blueprint-Manager-FN.ms` and `Blueprint-Manager-UI.ms`).
 - `versions/` — numbered source snapshots for rollback.
 - `design.md` — scope, scene-space conventions, and behaviour contract.
 - `changes.md` — change log.

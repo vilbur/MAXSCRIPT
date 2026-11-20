@@ -1,4 +1,11 @@
-﻿## 2026-11-11 — Restore CUI docking and remembered left/right side (project 1.01)
+﻿## 2026-11-16 — Canonical Surface-Intersections.ini filename (project 1.02)
+
+- UI **0.71 → 0.72**, shared project **1.01 → 1.02**. The geometry backend **0.46**, DialogHost **0.02**, Generate/Update, SMART mouse-release callbacks and docking behavior are unchanged. Stable baseline remains **0.91**.
+- Persist UI, SMART and docking options exclusively in the unversioned tool-root `Surface-Intersections.ini`.
+- Before opening the dialog, rename `Surface-Intersections-UI.ini` to `Surface-Intersections.ini` if the canonical file is absent; retain the original file and block initialization if migration fails. When the new file exists, do not overwrite its contents. Preserve all INI sections and values through a filesystem rename.
+- Reuse the same canonical INI on every future reload/version, without creating a second version-suffixed settings file.
+
+## 2026-11-11 — Restore CUI docking and remembered left/right side (project 1.01)
 
 - UI **0.70 → 0.71**, `Surface-Intersections-UI/DialogHost.ms` **0.01 → 0.02**; project **1.00 → 1.01** development. Backend **0.46**, CUI offset helper, actual source/result geometry, SMART mouse-release updates, saved hierarchy, and 288px layout are unchanged. Stable baseline remains **0.91**.
 - Retain the tool-local CUI `style:#(#cui_dock_vert,#cui_floatable,#cui_handles)` and default floating dialog. Fix the restore path that previously left saved `SavedState=unregistered` rollouts unregistered, preventing user docking after reopening. Verify `.dialogBar` and the requested CUI dock state before reporting a successful open.

@@ -1,4 +1,4 @@
-﻿# Blueprint Manager — design v0.036
+# Blueprint Manager — design v0.039
 
 
 ## Scope
@@ -139,3 +139,25 @@ Generic SIDE images without `left` or `right` in their basename now use the RIGH
 
 - Default `[Alignment] Vertical` to option 3 (GROUND, minimum world Z = 0) when the INI value is missing or invalid. Keep saved valid alignment settings; Y and X still default to CENTER.
 - Invert only the Y-axis alignment selection: FRONT aligns the minimum Y group boundary to 0; BACK aligns the maximum Y group boundary to 0; CENTER is unchanged. The FRONT and BACK scene Plane transforms, filenames and position sliders are unchanged.
+
+
+## v0.037 — entry, scene functions and UI modules
+
+- `Blueprint-Manager.ms` is the only runnable entry file. It resolves `getSourceFileName()` and the shared UI/Default framework, then compiles `Blueprint-Manager-FN.ms` and `Blueprint-Manager-UI.ms` with literal `include` statements. Dialog construction and CUI registration stay in the entry script.
+- `Blueprint-Manager-FN.ms` contains the complete `BlueprintManager_v` struct and instance. It has no UI rollout definitions.
+- `Blueprint-Manager-UI.ms` contains the existing four rollouts and their handlers, including OPTIONS → ALIGNMENT → POSITIONS within one `sr_sections` subrollout slot.
+- MAXScript compile-time `include` retains the entry file lexical scope, unlike `fileIn`. This preserves existing local state, INI paths, rollout references, event handlers, object lifetime and scene operations without new globals or duplicate helpers.
+- Both included modules must be beside the entry file. The runtime dependency on canonical shared UI/Default remains unchanged; `Blueprint-Manager.ini` stays beside the entry file. No scene or UI behaviour is intentionally changed by the split.
+
+## v0.038 — Preview double-click and automatic layer visibility
+
+- `Blueprint-Manager-UI.ms` uses a short native timer based on `System.Windows.Forms.SystemInformation.DoubleClickTime` and the OS double-click size to distinguish two left mouse-downs on the same preview button. This avoids relying on an unsupported WinForms Button `DoubleClick` event and defers the existing single-click image-selection or individual visibility action until the double-click interval expires. CTRL+LMB is immediate.
+- DBL LMB toggles all managed blueprint planes using the existing `toggleAll()` semantics (show all if any is hidden; otherwise hide all); the preview refresh runs once after the action.
+- `Blueprint-Manager-FN.ms` synchronizes each layer referenced by managed Plane `BM_LAYER` user properties. It sets `LayerProperties.ishidden = true` when the layer contains managed blueprints and all those nodes have `isNodeHidden = true`, then restores the layer when any managed blueprint becomes visible. The tool does not hide a layer that contains unrelated nodes, protecting unrelated scene content.
+- Automatic sync runs on APPLY and both single-node and all-node visibility changes; no new scene objects or separate INI keys are introduced.
+
+
+## v0.039 — ON \ OFF state colour
+
+- ON \ OFF foreground is green RGB (64,212,96) while at least one managed Plane is effectively visible (node and layer shown), otherwise red RGB (255,76,76). No managed planes means red.
+- Refresh colour on each preview layout update (including APPLY, SETUP, single/double-click and ON \ OFF commands) and on the existing dialog-state timer for external scene/layer visibility changes. Keep shared dark button background and style unchanged.

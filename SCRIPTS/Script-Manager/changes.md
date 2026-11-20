@@ -1,4 +1,114 @@
-﻿## 2026-11-15 — 1.237
+﻿## 2026-11-20 — 1.253
+
+- Repair SCRIPTS right-click **ADD TO TOOLBAR** and **ADD TO GROUP** submenus. MAXScript can hold detached .NET `ToolStripItemCollection` wrappers after another submenu is created; refresh from each actual parent submenu before modifying the children. Initialize both collections before first refresh.
+- Restore **GROUP MANAGER** as the first command in both submenus, preserving custom toolbar and saved-group entries, NEW TOOLBAR and NEW GROUP. Move **ADD TO STARTUP SCRIPTS / REMOVE FROM STARTUP SCRIPTS** to the last root-menu position.
+- Retain 1.252 loaded-script host slot widening and formatted rollout titles. Regression test 1.224 adds part 65 for repeated submenu rebuilding and STARTUP ordering; 3ds Max 2026 live menu-state checks passed.
+
+## 2026-11-20 — 1.252
+
+- Widen the loaded-script host `sr_tools` slot by 32 px and shift it 16 px left in both the original dynamic UI declaration and resize layout. Keep the host width, title button and saved geometry unchanged.
+- Format hosted script rollout captions as `——— {original rollout title} ———`, stripping a trailing numeric `| vX.Y` suffix. Re-embedding remains idempotent; source rollouts, filenames, INI keys, script execution and standalone dialogs are untouched.
+- Regression suite 1.223 adds part 64 for title cleanup, consistent decoration, slot creation and resize wiring. Native runtime validation pending.
+
+## 2026-11-20 — 1.251
+
+- Add **ADD TO GROUP** to the SCRIPTS item right-click menu, parallel to **ADD TO TOOLBAR**. Populate its dark submenu dynamically from saved USER GROUPS and provide **NEW GROUP** at the bottom.
+- Add the right-clicked script to the chosen group while retaining existing members, ignoring duplicates, and preserving saved script checkbox modes and toolbar membership. Newly created groups start with the selected script. Group toolbar buttons resolve the updated INI membership on their next run.
+- Bump Script-Manager to 1.251 and regression suite to 1.222 (part 63). Runtime verification in 3ds Max remains pending.
+
+## 2026-11-20 — 1.250
+
+- Rename visible GROUP LOADER to GROUP MANAGER in the SCRIPTS → ADD TO TOOLBAR submenu, dialog caption, refresh title, confirmation dialogs and diagnostics.
+- Keep internal functions, UI module filename, group data and toolbar behavior unchanged. Regression test 1.221.
+
+## 2026-11-19 — 1.250
+
+- Rename the visible **GROUP LOADER** action to **GROUP MANAGER** in SCRIPTS → ADD TO TOOLBAR (first submenu item), native dialog caption, title/refresh button, confirmation dialogs and diagnostics.
+- Keep internal group-loader function names and separate `Script-Manager-Group-Loader-UI.ms` module filename unchanged for compatibility. No changes to group definitions, toolbar actions, storage, or dialog layout.
+- Update Script-Manager UI version to 1.250 and regression tests to 1.221.
+
+## 2026-11-19 — 1.249
+
+- Move **GROUP LOADER** from the SCRIPTS right-click root menu into the first position of **ADD TO TOOLBAR**. Place a separator before existing toolbar names; keep **NEW TOOLBAR** as the final submenu item.
+- Keep **ADD TO TOOLBAR → GROUP LOADER** available when right-clicking folders and scripts. Folder selections show only GROUP LOADER; script selections retain toolbar assignment and creation.
+- Reuse the cached .NET submenu collection and existing GROUP LOADER click handler. Regression test 1.220 checks order, separator, repeated menu rebuilds, and folder/script selection. UI version is 1.249.
+
+## 2026-11-19 — 1.248
+
+- Repair native Customize User Interface rename refresh after subsequent toolbar renames. Toolbar-Creator backend 0.16 removed `sync_live` and was silently reading stale CUIX metadata even though Script-Manager requested `listManagedScriptToolbars sync_live:true`.
+- Toolbar-Creator backend 0.17 / shared project 0.33 restores the explicit live synchronization API, calls native `cui.saveConfig()` before reading current managed-toolbar names, and uses the actual CUI `name` attribute rather than interpreting the MacroScript filename as a title.
+- Script-Manager requires backend 0.17 so older loaded code is replaced. If native CUIX retains old and new toolbar entries with identical action IDs, the toolbar list displays the most recent entry without deleting either toolbar. Existing buttons remain associated by stable MacroScript action IDs. A two-successive-renames regression test and live-sync contract check were added in test suite 1.219; no existing toolbar is automatically renamed.
+
+## 2026-11-19 — 1.247
+
+- Display the exact loaded Script-Manager implementation version in the main dialog title and REFRESH / RESTART title button. Do not derive this label from a previously registered project version.
+- Show the same version in the separately maintained GROUP LOADER dialog title and its REFRESH title button. Both labels are calculated when the UI module loads, so no version text needs manual editing on future releases.
+- Replace obsolete hard-coded v1.244 UI expectations in the regression test with checks derived from the current file version; add read-only part 61 for both dialog titles. No group/toolbar behavior or dialog geometry changed.
+
+## 2026-11-19 — 1.246
+
+- Detect native **Customize User Interface → Toolbars → Rename** edits when the Script-Manager toolbar lists refresh. Explicit UI refresh uses `cui.saveConfig()` to synchronize the active CUIX before reading names; no temporary CUIX is activated.
+- Toolbar-Creator backend v0.15 / project 0.27 reads the native `name` attribute (with `objectName` fallback) and resolves renamed toolbars by either attribute. Locate the original generated MacroScript through the unchanged action IDs, so changing a title does not break button readback or group assignment.
+- Do not rename or regenerate existing MacroScript files just to display a native rename. Reject ambiguous/mixed action mappings rather than overwriting buttons. Preserve existing toolbar content, groups, CUIX operations, and previous versions. Regression test v1.217 adds part 60 for native-rename metadata and generated MacroScript action-ID matching.
+
+## 2026-11-19 — 1.245
+
+- Fix missing **GROUP LOADER** in the SCRIPTS right-click menu. MAXScript could return a different .NET `ToolStripItemCollection` wrapper on repeated `ContextMenuStrip.Items` accesses, leaving the first item unattached.
+- Cache the root context-menu Items collection exactly once during construction, just like the existing ADD TO TOOLBAR submenu. Reuse the cached collection for every menu item and clear the reference during teardown, preventing the repeated collection-wrapper exception on rebuild.
+- Regression test 1.216 adds part 59: rebuild the menu twice and confirm GROUP LOADER is item zero and remains available. Preserve all existing menu commands, GROUP LOADER UI, and custom toolbar behavior.
+
+## 2026-11-18 — 1.244
+
+- Add **NEW TOOLBAR** after a dark separator at the bottom of SCRIPTS → ADD TO TOOLBAR, even when no custom toolbars exist. The action asks for a toolbar name and creates a Toolbar-Creator-managed toolbar initialized with the clicked script.
+- Add **NEW TOOLBAR** to the separate, vertically resizable GROUP LOADER UI. The action initializes a new toolbar with the selected user-defined group; without a group selection, it initializes with the Script-Manager script so a new toolbar can still be created. Refresh the toolbar list and select the result.
+- Reuse Toolbar-Creator `manageScriptToolbar #create` (never overwrite an existing toolbar). Keep existing custom toolbars and script-mode settings unchanged. Regression test v1.215 adds non-destructive part 58; live CUIX write/toolbar-button interaction remains to be verified.
+
+## 2026-11-18 — 1.243
+
+- Integrate GROUP LOADER user-defined groups with existing Toolbar-Creator custom toolbars. Select one user group and one toolbar, then ADD SELECTED GROUP TO TOOLBAR to append exactly one group button, preserving the existing buttons and their order. Multiple group buttons can share a toolbar; duplicates are ignored.
+- Toolbar-Creator backend 0.14 recognizes explicit `__SCRIPT_MANAGER_GROUP__|<manager>|<group>` references, generates a MacroScript for each group button, and retains `target_script_path` metadata for toolbar readback and later edits. Individual script-button behavior remains unchanged.
+- Clicking a group button reloads current group members from `script_manager.ini` and opens them in a single shared host dialog without changing OFF/HOST/DIRECT modes. GROUP LOADER can also resolve group buttons when loading a toolbar as one group.
+- Keep GROUP LOADER UI in `Script-Manager-Group-Loader-UI.ms`, preserving its vertical resizing and all v1.242 multi-selection improvements. Add non-destructive regression part 57; runtime testing required for CUIX changes.
+
+## 2026-11-17 — 1.242
+
+- Add Ctrl-click toggle, Shift-click visible range and Ctrl+Shift-click add-range selection to both SOURCES and SCRIPTS. Use independent highlighted row sets; checkbox image clicks still perform their original source-enable and SKIP/HOST/DIRECT actions.
+- Display intermediate checkbox glyph for SOURCES parents with enabled descendants but no explicit enable of their own. Explicitly enabled parents remain checked. No source INI values are rewritten by hierarchy synchronization.
+- SCRIPTS parent folders show unchecked when no descendants are active, checked when every descendant is HOST/DIRECT, and intermediate when only some descendants are active. DIRECT script leaves retain their existing indeterminate glyph. EXPAND ENABLED includes partially active branches.
+- GROUP LOADER's ADD TREE SELECTION accepts all highlighted SCRIPTS files/folders instead of only the WinForms native SelectedNode. Selection is temporary and does not change script loading modes.
+- Keep VERSIONED FILES, CLEAN SCRIPTS and COLLAPSE DIRS on one horizontal row in SHOW; adjust SHOW content height to fit a single row.
+- Regression test 1.213 adds part 56 and updates part 6 parent-state expectations. Earlier versions retained.
+
+## 2026-11-17 — 1.241
+
+- Correct GROUP LOADER's first list: **USER GROUPS** lists only explicitly defined `[UserGroup|name]` INI sections, not the directory hierarchy. Ordinary folder **OPEN GROUP** remains separate.
+- Add NEW GROUP, ADD TREE SELECTION and DELETE GROUP to the separate resizable GROUP LOADER UI. Group members can be scripts or folder references across directories; saved folders resolve current script contents at load time. Name-only empty groups are supported until members are added.
+- Persist each group's ordered members relative to ROOT PATH when possible; keep invalid/missing-path previews and prevent loads that would replace an existing host with an invalid group. Leave toolbar integration and script load-mode settings untouched.
+- Regression v1.212 adds part 55 for explicit-only discovery, INI round trip, dynamic folders and deletion. Verify interactive dialog in 3ds Max before adopting as stable.
+
+## 2026-11-16 — 1.240
+
+- Extract GROUP LOADER rollout and all UI event handlers into `Script-Manager-Group-Loader-UI.ms`, keeping group discovery and script-loading backend in `Script-Manager.ms`.
+- Make GROUP LOADER vertically resizable with a locked width. Both listboxes grow/shrink with the dialog, preserving their action buttons and bottom preview/status alignment.
+- The manager resolves the UI module from its own folder or the parent of `versions/` for versioned snapshots. Missing-module and creation errors go to the MAXScript Listener.
+- Regression v1.211 adds part 54 for module separation and dynamic list layout.
+
+## 2026-11-16 — 1.239
+
+- Continue GROUP LOADER on the current v1.238 baseline. Keep separate SCRIPTS-tree and Toolbar-Creator lists with shared-dialog group loading.
+- Exclude empty tree folders, show each group's visible script count, and provide an active-source preview and enabled load button only when the selection is usable.
+- Restore the selected tree group or toolbar on REFRESH; switching lists clears the other selection. The independent dark title/refresh button and load actions remain.
+- Resolve toolbar buttons in original order, deduplicate identical paths, and explicitly report missing/unsupported files before replacing an existing group dialog. No script checkbox state or toolbar membership is modified.
+- Regression v1.210 adds part 53 for non-executing group selection/refresh and toolbar preview. Runtime validation performed separately from any script execution.
+
+## 2026-11-16 — 1.238
+
+- Darken the ADD TO TOOLBAR popup surface, including its empty-state row; preserve the v1.237 cached submenu collection fix.
+- Add SCRIPTS right-click > GROUP LOADER with separate script-tree group and custom-toolbar lists, refresh, double-click and load buttons.
+- Load toolbar scripts in button order into a shared dialog across folder hierarchies, resolving portable paths and skipping duplicates. Validate paths before replacing a group dialog.
+- Reuse the existing shared group loader without changing stored script modes or toolbar membership.
+
+## 2026-11-15 — 1.237
 
 - Fix SCRIPTS context-menu `ADD TO TOOLBAR` .NET error at former line 6006: `ToolStripItemCollection` could be wrapped multiple times by repeatedly accessing `DropDownItems`.
 - Cache the toolbar submenu collection once when the SCRIPTS context menu is constructed; reuse it for item creation, clearing, and handler disposal, and release the cached reference when the menu is destroyed. Preserve toolbar behavior and all unrelated v1.236 features.

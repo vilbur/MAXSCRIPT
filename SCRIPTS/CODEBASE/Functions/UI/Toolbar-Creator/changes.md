@@ -1,5 +1,33 @@
 # Changes
 
+## 2026-11-19 — project 0.36
+
+- `Toolbar-Creator-UI-Core.ms` 0.20: fit the dialog's startup height to its lowest controls plus 16 px bottom margin, overriding oversized Height values previously saved to the UI INI. Preserve manual vertical resize after opening and keep existing 1024 px width.
+- Correct the content-height helper to use the checkbox's declared 24 px height; native MAXScript CheckboxControl does not expose `.height`. Avoid `setDialogSize` on registered dockable dialogs. No toolbar/CUIX backend changes.
+
+## 2026-11-19 — project 0.35
+
+- `Toolbar-Creator-UI-Core.ms` 0.19: changed Rename .NET button font to the same orange (`RGB 230, 165, 75`) as Delete. Create/Update remain green. No backend, CUIX, toolbar actions or layout changes.
+
+## 2026-11-19 — project 0.34
+
+- `Toolbar-Creator-UI-Core.ms` 0.18: Managed Toolbars refresh and initialization now use the verified backend `listManagedScriptToolbars sync_live:true` path, which calls `cui.saveConfig()` before reading native `name`/`objectName` attributes from the active CUIX.
+- UI pairs those current names with `getManagedScriptToolbarRecords()` and `toolbarCreatorFilterRenamedRecords` for stable action signatures; only the latest native-renamed alias is displayed, while the selected toolbar and its Scripts buttons stay intact.
+- The UI reuses the existing backend v0.17 without modifying toolbar content or regenerating `.mcr` actions. Live API verified in 3ds Max 2026; full UI rename-twice smoke test pending.
+
+## 2026-11-19 — project 0.32
+
+- `Toolbar-Creator-FN.ms` 0.16: when native Customize changes only one of the CUIX `Window` attributes (`name` / `objectName`), resolve the visible name by checking which attribute still matches the original generated `.mcr` path; the other is the renamed name. Continue matching the toolbar by its action IDs without modifying its buttons.
+- Preserve the resolved native name when Update rebuilds a managed toolbar, rather than restoring a stale CUIX label.
+- `Toolbar-Creator-UI-Core.ms` 0.17: synchronize Managed Toolbars on both mouse entry and mouse down; existing selection is preserved by its action signature. No CUIX writes on list refresh. The native UI change must be saved to the active CUIX before the list can read it.
+- Static source and simulated CUIX mismatch checks passed; live 3ds Max testing pending.
+
+## 2026-11-19 — project 0.31
+
+- `Toolbar-Creator-FN.ms` 0.15: detect externally renamed managed toolbars using native CUIX display names, preserving the original object identity and matching generated `.mcr` files by the toolbar's `ToolbarCreator_` action IDs. Native rename no longer breaks script button readback or direct Update/Delete actions.
+- `Toolbar-Creator-UI-Core.ms` 0.16: refresh the Managed Toolbars list when the mouse re-enters it, keeping the selected toolbar by its action signature even when both native name attributes change. Startup restores the selection using the same signature.
+- No automatic CUIX save or regenerated toolbar actions during synchronization. Save changes from native Customize User Interface to the active CUIX before expecting external changes to appear. Static source checks passed; live 3ds Max verification pending (MCP session unavailable).
+
 ## 2026-11-08 — project 0.30
 
 - `Toolbar-Creator-UI-Core.ms` 0.15: on dialog startup, Scripts now loads from the selected saved managed toolbar instead of restoring unrelated draft button records from `Toolbar-Creator-UI.ini`.

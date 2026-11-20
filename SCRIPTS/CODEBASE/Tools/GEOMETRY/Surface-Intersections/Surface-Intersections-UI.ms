@@ -1,6 +1,6 @@
 ﻿/*
 Surface-Intersections-UI
-File version: 0.71 | Project version: 1.01
+File version: 0.72 | Project version: 1.02
 Frontend source-priority dialog with optional mouse-release SMART updates.
 Crash recovery: single managed editor; runtime UI cloning is disabled.
 Loads tool-local helper forks; does not open the dialog when fileIn'd.
@@ -13,10 +13,10 @@ global si_surface_intersections_main_path
 global SurfaceIntersections
 
 
-global si_ui_file_version = "0.71"
-global si_ui_project_version = "1.01"
+global si_ui_file_version = "0.72"
+global si_ui_project_version = "1.02"
 global si_ui_directory = getFilenamePath (getSourceFileName())
-global si_ui_ini_path = si_ui_directory + "Surface-Intersections-UI.ini"
+global si_ui_ini_path = si_ui_directory + "Surface-Intersections.ini"
 global si_ui_ini_section = "UI"
 global si_ui_source_nodes
 global si_ui_clip_modes
@@ -126,6 +126,40 @@ function siUiLoadFramework =
 
 
 global si_ui_framework_ready = siUiLoadFramework()
+
+/*
+Renames the legacy UI INI once, preserving all stored values.
+Never overwrites an existing canonical Surface-Intersections.ini.
+*/
+function siUiMigrateLegacyIni =
+(
+    local legacy_ini_path = si_ui_directory + "Surface-Intersections-UI.ini"
+    if (doesFileExist si_ui_ini_path) then
+    (
+        true
+    )
+    else if not (doesFileExist legacy_ini_path) then
+    (
+        true
+    )
+    else
+    (
+        local renamed_ok = false
+        try
+        (
+            renamed_ok = renameFile legacy_ini_path si_ui_ini_path
+        )
+        catch
+        (
+            format "SI INI RENAME FAILED | %\n" (getCurrentException())
+        )
+        renamed_ok = renamed_ok and (doesFileExist si_ui_ini_path) and not (doesFileExist legacy_ini_path)
+        if not renamed_ok then format "SI INI RENAME FAILED | old:% new:%\n" legacy_ini_path si_ui_ini_path
+        renamed_ok
+    )
+    -- return
+)
+
 
 
 /* Node-owned setup: real references survive source renames and scene saves. */
@@ -2263,9 +2297,13 @@ function siOpenSurfaceIntersectionsUI =
     local opened = false
     if si_ui_framework_ready and siHierarchy != undefined then
     (
-        si_surface_intersections_main_path = si_ui_directory + "Surface-Intersections.ms"
-        opened = DialogHost.createManagedDialog siSurfaceIntersectionsRollout si_ui_ini_path si_ui_ini_section tool_key:"Surface-Intersections" default_width:288 default_height:852 min_height:620
-        if opened then windows.processPostedMessages()
+        if siUiMigrateLegacyIni() then
+        (
+            si_surface_intersections_main_path = si_ui_directory + "Surface-Intersections.ms"
+            opened = DialogHost.createManagedDialog siSurfaceIntersectionsRollout si_ui_ini_path si_ui_ini_section tool_key:"Surface-Intersections" default_width:288 default_height:852 min_height:620
+            if opened then windows.processPostedMessages()
+        )
+        else format "SI HIERARCHY UI FAILED | Cannot migrate legacy INI; existing settings were preserved.\n"
     )
     else format "SI HIERARCHY UI FAILED | Missing backend or UI framework.\n"
     opened

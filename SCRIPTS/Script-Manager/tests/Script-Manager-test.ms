@@ -1,10 +1,10 @@
 ﻿/*
-    Script-Manager regression test 1.209.
+    Script-Manager regression test 1.224.
     Tests production version identity, source selection, filters, persistent tri-state load modes, toolbar generation, tree menus, and dedicated script-load behavior.
 */
 
-global script_manager_test_file_version = 1.209
-global script_manager_test_project_version = 1.237
+global script_manager_test_file_version = 1.224
+global script_manager_test_project_version = 1.253
 global script_manager_test_root = getFilenamePath (getSourceFileName())
 global script_manager_test_passed = true
 global script_manager_test_original_root
@@ -106,11 +106,12 @@ function partOfTest1 =
     expected_ini_path = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath script_manager.manager_source_path) + "script_manager.ini"
     settings_path_ok = script_manager.ini_path == expected_ini_path
 
-    version_ok = script_manager.file_version == 1.224 and script_manager.project_version == 1.224 and ScriptManagerIntegration.file_version == 1.224 and ScriptManagerIntegration.project_version == 1.224
-    global_version_ok = script_manager_project_version == 1.224
-    title_ok = script_manager_ui.title == "Script-Manager 1.224"
+    expected_visible_version = formattedPrint script_manager.file_version format:"1.3f"
+    version_ok = script_manager.file_version == 1.253 and script_manager.project_version == 1.253 and ScriptManagerIntegration.file_version == 1.253 and ScriptManagerIntegration.project_version == 1.253
+    global_version_ok = script_manager_project_version == 1.253
+    title_ok = script_manager_ui.title == ("Script-Manager " + expected_visible_version)
     main_action_ok = isProperty script_manager_ui #btn_refresh_restart and (script_manager_ui.btn_refresh_restart.GetType()).FullName == "System.Windows.Forms.Button"
-    main_action_style_ok = main_action_ok and script_manager_ui.btn_refresh_restart.Text == "REFRESH \\ RESTART  |  v1.224" and script_manager_ui.btn_refresh_restart.height == 18 and script_manager_ui.btn_refresh_restart.FlatAppearance.BorderSize == 0 and script_manager_ui.btn_refresh_restart.BackColor.R == 45 and script_manager_ui.btn_refresh_restart.BackColor.G == 45 and script_manager_ui.btn_refresh_restart.BackColor.B == 48 and script_manager_ui.btn_refresh_restart.ForeColor.R == 62 and script_manager_ui.btn_refresh_restart.ForeColor.G == 158 and script_manager_ui.btn_refresh_restart.ForeColor.B == 255 and not script_manager_ui.btn_refresh_restart.TabStop and script_manager_ui.btn_refresh_restart.Font.Name == "Segoe UI" and script_manager_ui.btn_refresh_restart.Font.Size == 14.0 and script_manager_ui.btn_refresh_restart.Font.Bold
+    main_action_style_ok = main_action_ok and script_manager_ui.btn_refresh_restart.Text == ("REFRESH \\ RESTART  |  v" + expected_visible_version) and script_manager_ui.btn_refresh_restart.height == 18 and script_manager_ui.btn_refresh_restart.FlatAppearance.BorderSize == 0 and script_manager_ui.btn_refresh_restart.BackColor.R == 45 and script_manager_ui.btn_refresh_restart.BackColor.G == 45 and script_manager_ui.btn_refresh_restart.BackColor.B == 48 and script_manager_ui.btn_refresh_restart.ForeColor.R == 62 and script_manager_ui.btn_refresh_restart.ForeColor.G == 158 and script_manager_ui.btn_refresh_restart.ForeColor.B == 255 and not script_manager_ui.btn_refresh_restart.TabStop and script_manager_ui.btn_refresh_restart.Font.Name == "Segoe UI" and script_manager_ui.btn_refresh_restart.Font.Size == 14.0 and script_manager_ui.btn_refresh_restart.Font.Bold
     production_text = readScriptManagerTestFileText production_path
     main_action_direct_ok = production_text != undefined and (findString production_text "on btn_refresh_restart MouseUp") != undefined and (findString production_text "scriptManagerRefreshButtonMouseUpHandler sender event_args") != undefined and (findString production_text "on btn_refresh_restart Click") == undefined and (findString production_text "tmr_refresh_restart") == undefined
     single_tree_init_ok = production_text != undefined and (findString production_text "on script_manager_sources_ui open do") != undefined and (findString production_text "on script_manager_scripts_ui open do") != undefined and isProperty script_manager #populateInitialSourceTree and isProperty script_manager #populateInitialScriptTree
@@ -559,7 +560,7 @@ function partOfTest6 =
     skip_child_node.ToolTipText = run_b_path
     direct_child_node.ToolTipText = run_c_path
     parent_sync_ok = script_manager.syncScriptTreeNodeChecks root_parent_node
-    parent_indicator_ok = parent_sync_ok and nested_parent_node.StateImageIndex == 1 and root_parent_node.StateImageIndex == 1 and nested_parent_node.ImageIndex == 1 and root_parent_node.ImageIndex == 1
+    parent_indicator_ok = parent_sync_ok and nested_parent_node.StateImageIndex == 2 and root_parent_node.StateImageIndex == 2 and nested_parent_node.ImageIndex == 2 and root_parent_node.ImageIndex == 2
 
     test_ok = save_a_ok and save_b_ok and save_c_ok and save_d_ok and persisted_ok and marked_color_ok and host_color_ok and visible_tristate_ok and parent_indicator_ok
     if not test_ok then script_manager_test_passed = false
@@ -3281,6 +3282,257 @@ function partOfTest52 =
     -- return
 )
 
+/*
+Verifies GROUP MANAGER selection, refresh restoration, and toolbar preview without executing scripts.
+The test keeps toolbars and saved load modes unchanged.
+*/
+function partOfTest53 =
+(
+    local dialog_ok = false
+    local groups_ok = false
+    local selected_ok = false
+    local restored_ok = false
+    local toolbar_ok = true
+    local untouched_ok = false
+    local test_ok = false
+    try
+    (
+        dialog_ok = script_manager.showGroupLoader()
+        if dialog_ok then
+        (
+            groups_ok = true
+            for group_record in script_manager.group_loader_records while groups_ok do
+            (
+                if group_record[3].count == 0 then groups_ok = false
+            )
+            if groups_ok and script_manager.group_loader_records.count > 0 then
+            (
+                script_manager_group_loader_ui.lb_groups.SelectedIndex = 0
+                selected_ok = script_manager_group_loader_ui.btn_load_group.enabled and \
+                    script_manager.group_loader_selected_group != "" and \
+                    not(script_manager_group_loader_ui.btn_load_toolbar.enabled)
+                script_manager.refreshGroupLoader()
+                restored_ok = script_manager_group_loader_ui.lb_groups.SelectedIndex == 0 and \
+                    script_manager_group_loader_ui.btn_load_group.enabled
+            )
+            else if groups_ok then
+            (
+                selected_ok = not(script_manager_group_loader_ui.btn_load_group.enabled)
+                restored_ok = script_manager.refreshGroupLoader() and not(script_manager_group_loader_ui.btn_load_group.enabled)
+            )
+            if script_manager.group_loader_toolbar_names.count > 0 then
+            (
+                script_manager_group_loader_ui.lb_toolbars.SelectedIndex = 0
+                toolbar_ok = script_manager_group_loader_ui.lb_groups.SelectedIndex == -1 and \
+                    script_manager.group_loader_selected_toolbar != "" and \
+                    (findString script_manager_group_loader_ui.lbl_selection.text "TOOLBAR:") != undefined
+                local toolbar_name = script_manager.group_loader_selected_toolbar
+                script_manager.refreshGroupLoader()
+                toolbar_ok = toolbar_ok and script_manager.group_loader_selected_toolbar == toolbar_name and \
+                    script_manager_group_loader_ui.lb_toolbars.SelectedIndex == 0
+            )
+            untouched_ok = not(script_manager.is_reloading)
+        )
+    )
+    catch
+    (
+        format "PART 53 ERROR | %\n" (getCurrentException())
+    )
+    try (destroyDialog script_manager_group_loader_ui) catch ()
+    test_ok = dialog_ok and groups_ok and selected_ok and restored_ok and toolbar_ok and untouched_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 53 | dialog:% | groups:% | selection:% | refresh:% | toolbar:% | no-execution:% | PASS:%\n" \
+        dialog_ok groups_ok selected_ok restored_ok toolbar_ok untouched_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies GROUP MANAGER lives in its own UI file and both list heights follow vertical resize.
+This test only changes the GROUP MANAGER dialog layout; it does not execute scripts.
+*/
+function partOfTest54 =
+(
+    local test_ok = false
+    local ui_path = script_manager_test_root + "..\\Script-Manager-Group-Loader-UI.ms"
+    local file_ok = doesFileExist ui_path
+    local source_text = if file_ok then readScriptManagerTestFileText ui_path else undefined
+    local separate_ok = source_text != undefined and (findString source_text "rollout script_manager_group_loader_ui") != undefined and (findString source_text "on script_manager_group_loader_ui resized") != undefined
+    local layout_ok = false
+    try
+    (
+        if script_manager.showGroupLoader() then
+        (
+            local group_control = script_manager_group_loader_ui.lb_groups
+            local toolbar_control = script_manager_group_loader_ui.lb_toolbars
+            local initial_group_height = group_control.Height
+            local initial_toolbar_height = toolbar_control.Height
+            scriptManagerLayoutGroupLoader [520,784]
+            layout_ok = group_control.Height > initial_group_height and toolbar_control.Height > initial_toolbar_height and \
+                script_manager_group_loader_ui.lbl_status.pos.y > 538
+            scriptManagerLayoutGroupLoader [520,614]
+        )
+    )
+    catch (format "PART 54 ERROR: %\n" (getCurrentException()))
+    try (destroyDialog script_manager_group_loader_ui) catch ()
+    test_ok = file_ok and separate_ok and layout_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 54 | separate:% | resized:% | PASS:%\n" separate_ok layout_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies user-created groups are independent from SCRIPTS folders and persist directory references.
+Uses a temporary INI and script folder; never loads any group or script into the scene.
+*/
+function partOfTest55 =
+(
+    local old_ini_path = script_manager.ini_path
+    local old_clean = script_manager.show_clean_scripts_only
+    local old_versioned = script_manager.show_versioned_files
+    local test_ini = (getDir #temp) + "\\ScriptManager-UserGroup-Test.ini"
+    local test_directory = (getDir #temp) + "\\ScriptManager-UserGroup-Test\\"
+    local test_script = test_directory + "DynamicTest.ms"
+    local old_entries = #()
+    local empty_ok = false
+    local save_ok = false
+    local dynamic_ok = false
+    local delete_ok = false
+    local test_ok = false
+    try
+    (
+        if doesFileExist test_ini then deleteFile test_ini
+        makeDir test_directory
+        script_manager.ini_path = test_ini
+        script_manager.show_clean_scripts_only = false
+        script_manager.show_versioned_files = true
+        empty_ok = (script_manager.getUserGroupNames()).count == 0
+        save_ok = script_manager.saveUserGroupScripts "Test Group 55" #(test_directory)
+        if save_ok then
+        (
+            local saved_paths = script_manager.getUserGroupScripts "Test Group 55"
+            save_ok = saved_paths.count == 1 and saved_paths[1] == test_directory
+            writeScriptManagerTestScript test_script "true"
+            local resolved_data = script_manager.resolveUserGroupScripts "Test Group 55"
+            dynamic_ok = resolved_data[1].count == 1 and (toLower resolved_data[1][1]) == (toLower test_script) and resolved_data[2].count == 0
+            delete_ok = script_manager.removeUserGroup "Test Group 55" and (script_manager.getUserGroupNames()).count == 0
+        )
+    )
+    catch
+    (
+        format "PART 55 ERROR | %\n" (getCurrentException())
+    )
+    script_manager.ini_path = old_ini_path
+    script_manager.show_clean_scripts_only = old_clean
+    script_manager.show_versioned_files = old_versioned
+    if doesFileExist test_script then deleteFile test_script
+    if doesFileExist test_ini then deleteFile test_ini
+    test_ok = empty_ok and save_ok and dynamic_ok and delete_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 55 | no-auto-directory-groups:% | saved:% | dynamic-directory:% | delete:% | PASS:%\n" empty_ok save_ok dynamic_ok delete_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies SOURCES intermediate ancestry, SCRIPTS mixed/full branch indicators, CTRL/SHIFT range selection,
+and integration of multiple selected script rows into user-group selection without mode changes.
+*/
+function partOfTest56 =
+(
+    local test_ok = false
+    local previous_source_paths = script_manager.source_tree_selected_paths
+    local previous_script_paths = script_manager.script_tree_selected_paths
+    local previous_source_anchor = script_manager.source_tree_selection_anchor
+    local previous_script_anchor = script_manager.script_tree_selection_anchor
+    local tree_control = dotNetObject "System.Windows.Forms.TreeView"
+    local source_parent = dotNetObject "System.Windows.Forms.TreeNode" "Category"
+    local source_child = source_parent.Nodes.Add "Subcategory"
+    source_parent.ToolTipText = "C:\\Category"
+    source_child.ToolTipText = "C:\\Category\\Subcategory"
+    source_parent.Name = "SOURCE_SELECTABLE"
+    source_child.Name = "SOURCE_SELECTABLE"
+    script_manager.setSourceTreeNodeVisualState source_parent false
+    script_manager.setSourceTreeNodeVisualState source_child true
+    local source_active = script_manager.syncSourceTreeNodeChecks source_parent
+    local source_mixed = source_active and source_parent.ImageIndex == 3 and source_child.ImageIndex == 2
+    script_manager.setSourceTreeNodeVisualState source_parent true
+    local source_checked_active = script_manager.syncSourceTreeNodeChecks source_parent
+    local source_checked = source_checked_active and source_parent.ImageIndex == 2
+    script_manager.setSourceTreeNodeVisualState source_parent false
+    script_manager.setSourceTreeNodeVisualState source_child false
+    local source_empty = (not(script_manager.syncSourceTreeNodeChecks source_parent)) and source_parent.ImageIndex == 1
+
+    tree_control.Nodes.Add source_parent
+    source_parent.Expand()
+    local source_select_first = script_manager.updateTreeMultiSelection tree_control source_parent source_tree:true
+    local source_select_second = script_manager.updateTreeMultiSelection tree_control source_child source_tree:true ctrl_pressed:true
+    local source_select_ok = source_select_first and source_select_second and script_manager.source_tree_selected_paths.count == 2
+
+    local scripts_tree = dotNetObject "System.Windows.Forms.TreeView"
+    local scripts_parent = scripts_tree.Nodes.Add "Scripts"
+    scripts_parent.ToolTipText = "C:\\Scripts"
+    local script_a = scripts_parent.Nodes.Add "A.ms"
+    local script_b = scripts_parent.Nodes.Add "B.ms"
+    local script_c = scripts_parent.Nodes.Add "C.ms"
+    script_a.ToolTipText = "C:\\Scripts\\A.ms"
+    script_b.ToolTipText = "C:\\Scripts\\B.ms"
+    script_c.ToolTipText = "C:\\Scripts\\C.ms"
+    scripts_parent.Expand()
+
+    local click_a = script_manager.updateTreeMultiSelection scripts_tree script_a
+    local add_c = script_manager.updateTreeMultiSelection scripts_tree script_c ctrl_pressed:true
+    local toggle_c = script_manager.updateTreeMultiSelection scripts_tree script_c ctrl_pressed:true
+    local toggled_ok = click_a and add_c and toggle_c and script_manager.script_tree_selected_paths.count == 1
+    script_manager.updateTreeMultiSelection scripts_tree script_a
+    local range_c = script_manager.updateTreeMultiSelection scripts_tree script_c shift_pressed:true
+    local range_ok = range_c and script_manager.script_tree_selected_paths.count == 3
+    local modifier_result = script_manager.updateTreeMultiSelection scripts_tree script_b ctrl_pressed:true
+    local modifier_ok = modifier_result and script_manager.script_tree_selected_paths.count == 2
+
+    local source_height_ok = (script_manager.show_rollout_content_height == 30)
+    script_manager.source_tree_selected_paths = previous_source_paths
+    script_manager.script_tree_selected_paths = previous_script_paths
+    script_manager.source_tree_selection_anchor = previous_source_anchor
+    script_manager.script_tree_selection_anchor = previous_script_anchor
+    test_ok = source_mixed and source_checked and source_empty and source_select_ok and toggled_ok and range_ok and modifier_ok and source_height_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 56 | source-parent:% | source-selected:% | ctrl-toggle:% | shift-range:% | ctrl-remove:% | show-row:% | PASS:%\n" (source_mixed and source_checked and source_empty) source_select_ok toggled_ok range_ok modifier_ok source_height_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies that a user group becomes one Toolbar-Creator button and survives
+MacroScript generation/readback without modifying any user toolbar or group.
+*/
+function partOfTest57 =
+(
+    local backend_ok = script_manager.ensureToolbarCreatorBackend()
+    local group_name = "SM_GROUP_TOOLBAR_TEST"
+    local button_reference = if backend_ok then script_manager.makeToolbarUserGroupReference group_name else undefined
+    local group_ref_ok = button_reference != undefined and toolbarCreatorIsScriptManagerGroupReference button_reference
+    local parsed_reference = if group_ref_ok then toolbarCreatorParseScriptManagerGroupReference button_reference else undefined
+    local parse_ok = parsed_reference != undefined and parsed_reference[2] == group_name
+    local generated_text = ""
+    local macro_paths = #()
+    if parse_ok then
+    (
+        generated_text = toolbarCreatorBuildMacroSource #(#(button_reference, "SM TEST", "Load test group")) "Toolbar-Creator" #("ToolbarCreator_SM_TEST")
+        macro_paths = toolbarCreatorParseGeneratedMacroPaths generated_text
+    )
+    local macro_ok = generated_text != "" and (findString generated_text "script_manager.openUserGroupByName target_group_name") != undefined
+    local roundtrip_ok = macro_paths.count == 1
+    if roundtrip_ok then roundtrip_ok = macro_paths[1][2] == button_reference
+    local ui_ok = script_manager_group_loader_ui != undefined and (isProperty script_manager_group_loader_ui #btn_add_group_to_toolbar)
+    local test_ok = backend_ok and group_ref_ok and parse_ok and macro_ok and roundtrip_ok and ui_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 57 | backend:% | reference:% | parse:% | macro:% | roundtrip:% | UI:% | PASS:%\n" backend_ok group_ref_ok parse_ok macro_ok roundtrip_ok ui_ok test_ok
+    test_ok
+    -- return
+)
+
 partOfTest1()
 partOfTest2()
 partOfTest3()
@@ -3331,6 +3583,239 @@ partOfTest49()
 partOfTest50()
 partOfTest51()
 partOfTest52()
+partOfTest53()
+partOfTest54()
+partOfTest55()
+partOfTest56()
+/*
+Checks NEW TOOLBAR submenu tail, dark separator styling, shared create API,
+and the vertically resizable GROUP MANAGER button without writing CUIX.
+*/
+function partOfTest58 =
+(
+    local source_text = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager.ms")
+    local ui_text = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager-Group-Loader-UI.ms")
+    local tail_ok = source_text != undefined and (findString source_text "script_tree_toolbar_children.Add script_tree_toolbar_new_separator") != undefined and (findString source_text "script_tree_toolbar_children.Add \"NEW TOOLBAR\"") != undefined
+    local api_ok = source_text != undefined and (findString source_text "function createNewManagedToolbar first_button default_name:") != undefined and (findString source_text "manageScriptToolbar #create toolbar_name button_data:#(first_button) save_ui:true") != undefined
+    local ui_ok = ui_text != undefined and (findString ui_text "button btn_new_toolbar \"NEW TOOLBAR\"") != undefined and (findString ui_text "on btn_new_toolbar pressed do (script_manager.createToolbarFromGroupLoader())") != undefined
+    local layout_ok = ui_text != undefined and (findString ui_text "script_manager_group_loader_ui.btn_new_toolbar.pos") != undefined and (findString ui_text "height:642") != undefined
+    local test_ok = tail_ok and api_ok and ui_ok and layout_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 58 | submenu:% | api:% | ui:% | resize:% | PASS:%\n" tail_ok api_ok ui_ok layout_ok test_ok
+    test_ok
+    -- return
+)
+
+partOfTest57()
+partOfTest58()
+
+/*
+Verifies GROUP MANAGER is the first ADD TO TOOLBAR submenu item, not a root
+item. Rebuilds the menu twice and tests file/folder modes without editing CUIX.
+*/
+function partOfTest59 =
+(
+    local source_text = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager.ms")
+    local source_ok = source_text != undefined and (findString source_text "script_tree_context_items = script_tree_context_menu.Items") != undefined and (findString source_text "script_tree_group_loader_item = script_tree_toolbar_children.Add \"GROUP MANAGER\"") != undefined and (findString source_text "script_tree_toolbar_children.Add script_tree_toolbar_group_loader_separator") != undefined
+    local runtime_ok = false
+    if script_manager != undefined and script_manager.file_version >= 1.251 then
+    (
+        runtime_ok = true
+        for test_index = 1 to 2 while runtime_ok do
+        (
+            local build_ok = script_manager.buildScriptTreeContextMenu()
+            local root_items = script_manager.script_tree_context_items
+            local submenu_items = script_manager.script_tree_toolbar_children
+            runtime_ok = build_ok and root_items != undefined and submenu_items != undefined
+            if runtime_ok then runtime_ok = root_items.Count == 12 and root_items.Item[0].Text == "OPEN GROUP"
+            if runtime_ok then runtime_ok = script_manager.refreshToolbarSubmenu undefined
+            if runtime_ok then runtime_ok = script_manager.script_tree_toolbar_item.Available and submenu_items.Count == 1 and submenu_items.Item[0].Text == "GROUP MANAGER" and root_items.IndexOf script_manager.script_tree_group_loader_item == -1
+            if runtime_ok then runtime_ok = script_manager.refreshToolbarSubmenu script_manager.manager_source_path
+            if runtime_ok then runtime_ok = submenu_items.Count >= 4 and submenu_items.Item[0].Text == "GROUP MANAGER" and (submenu_items.Item[1].GetType()).FullName == "System.Windows.Forms.ToolStripSeparator" and submenu_items.Item[(submenu_items.Count - 1)].Text == "NEW TOOLBAR"
+            if runtime_ok then runtime_ok = script_manager.updateScriptTreeContextMenuState()
+        )
+    )
+    local test_ok = source_ok and runtime_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 59 | submenu-first:% | repeated rebuild:% | PASS:%\n" source_ok runtime_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Validates repeated native toolbar renames without changing the real CUIX.
+The original action IDs, objectName and MacroScript must survive both renames.
+*/
+function partOfTest60 =
+(
+    local backend_ok = script_manager.ensureToolbarCreatorBackend()
+    local test_ok = false
+    local test_macro_path = (getDir #temp) + "\\Script-Manager-Native-Toolbar-Rename-Test-" + ((timestamp()) as string) + ".mcr"
+    if backend_ok then
+    (
+        local xml_doc = dotNetObject "System.Xml.XmlDocument"
+        local windows_node = xml_doc.CreateElement "CUIWindows"
+        xml_doc.AppendChild windows_node
+        local toolbar_node = xml_doc.CreateElement "Window"
+        toolbar_node.SetAttribute "objectName" "Original Toolbar"
+        toolbar_node.SetAttribute "name" "First Rename"
+        toolbar_node.SetAttribute "type" "T"
+        windows_node.AppendChild toolbar_node
+        local items_node = xml_doc.CreateElement "Items"
+        toolbar_node.AppendChild items_node
+        local action_name = "ToolbarCreator_Native_Rename_Test"
+        local item_node = xml_doc.CreateElement "Item"
+        item_node.SetAttribute "actionID" (action_name + "`Toolbar-Creator")
+        item_node.SetAttribute "label" "Test"
+        item_node.SetAttribute "tip" "Rename test"
+        items_node.AppendChild item_node
+        local generated_source = toolbarCreatorBuildMacroSource #(#(@"C:\Test\Existing.ms", "Test", "Rename test")) "Toolbar-Creator" #(action_name)
+        local write_ok = toolbarCreatorWriteTextFile test_macro_path generated_source
+        local initial_names = toolbarCreatorCollectManagedNames windows_node
+        local macro_path = if write_ok then toolbarCreatorFindManagedMacroPath toolbar_node "First Rename" requested_macro_path:test_macro_path else undefined
+        local macro_source = if macro_path != undefined then toolbarCreatorReadTextFile macro_path else undefined
+        local macro_paths = toolbarCreatorParseGeneratedMacroPaths macro_source
+        local first_buttons = toolbarCreatorCollectToolbarButtonData toolbar_node macro_paths
+        toolbar_node.SetAttribute "name" "Second Rename"
+        local renamed_names = toolbarCreatorCollectManagedNames windows_node
+        local second_buttons = toolbarCreatorCollectToolbarButtonData toolbar_node macro_paths
+        local stale_node = toolbar_node.CloneNode true
+        stale_node.SetAttribute "name" "Original Toolbar"
+        stale_node.SetAttribute "objectName" "Original Toolbar"
+        windows_node.PrependChild stale_node
+        local deduplicated_names = toolbarCreatorCollectManagedNames windows_node
+        test_ok = write_ok and initial_names.count == 1 and initial_names[1] == "First Rename" and renamed_names.count == 1 and renamed_names[1] == "Second Rename" and deduplicated_names.count == 1 and deduplicated_names[1] == "Second Rename" and first_buttons != undefined and second_buttons != undefined and first_buttons.count == 1 and second_buttons.count == 1 and first_buttons[1][1] == second_buttons[1][1] and first_buttons[1][2] == second_buttons[1][2]
+    )
+    if doesFileExist test_macro_path then deleteFile test_macro_path
+    if not test_ok then script_manager_test_passed = false
+    format "PART 60 | backend:% | two native renames:% | PASS:%\n" backend_ok test_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies that every Script-Manager UI title displays the active loaded version.
+This is a read-only test and must not start or modify any custom toolbar.
+*/
+function partOfTest61 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local ui_path = script_manager_test_root + "..\\Script-Manager-Group-Loader-UI.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local ui_text = readScriptManagerTestFileText ui_path
+    local version_text = formattedPrint script_manager.file_version format:"1.3f"
+    local main_ok = source_text != undefined and (findString source_text "script_manager_version_text = formattedPrint ScriptManagerIntegration.file_version") != undefined and script_manager_ui.title == ("Script-Manager " + version_text) and script_manager_ui.btn_refresh_restart.Text == ("REFRESH \\ RESTART  |  v" + version_text)
+    local group_ok = ui_text != undefined and (findString ui_text "script_manager_group_loader_version_text = formattedPrint script_manager.file_version") != undefined and (findString ui_text "rollout script_manager_group_loader_ui script_manager_group_loader_title") != undefined and (findString ui_text "btn_title.Text =") != undefined and (findString ui_text "GROUP MANAGER | REFRESH  |  v") != undefined
+    local test_ok = main_ok and group_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 61 | main UI:% | group UI:% | PASS:%\n" main_ok group_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies the live-sync keyword and native CUI save are wired through the
+Toolbar-Creator backend, without creating or modifying any test toolbar.
+*/
+function partOfTest62 =
+(
+    local source_path = script_manager_test_root + "..\\Toolbar-Creator-FN.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local backend_ok = script_manager.ensureToolbarCreatorBackend()
+    local sync_api_ok = source_text != undefined and (findString source_text "function listManagedScriptToolbars sync_live:false =") != undefined and (findString source_text "function getManagedScriptToolbarRecords sync_live:false =") != undefined and (findString source_text "cui.saveConfig()") != undefined
+    local manager_path = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager.ms")
+    local call_ok = manager_path != undefined and (findString manager_path "listManagedScriptToolbars sync_live:true") != undefined and (findString manager_path "toolbarCreatorFileVersion >= 0.17") != undefined
+    local test_ok = backend_ok and sync_api_ok and call_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 62 | backend:% | synchronization:% | manager:% | PASS:%\n" backend_ok sync_api_ok call_ok test_ok
+    test_ok
+    -- return
+)
+
+/* Verifies the ADD TO GROUP menu and persistence without modifying user groups.
+The existing INI is never written by this regression test.
+*/
+function partOfTest63 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local static_ok = source_text != undefined and (findString source_text "function refreshGroupSubmenu script_path =") != undefined and (findString source_text "function addScriptToNamedUserGroup group_name script_path =") != undefined and (findString source_text "function createUserGroupFromScriptPath script_path =") != undefined
+    local menu_ok = script_manager.buildScriptTreeContextMenu()
+    local group_ok = script_manager.script_tree_group_item != undefined and script_manager.script_tree_group_item.Text == "ADD TO GROUP"
+    local toolbar_ok = script_manager.script_tree_toolbar_item != undefined and script_manager.script_tree_toolbar_item.Text == "ADD TO TOOLBAR"
+    local selected_path = script_manager.manager_source_path
+    script_manager.refreshGroupSubmenu selected_path
+    local submenu_ok = script_manager.script_tree_group_children.Count >= 2 and script_manager.script_tree_group_children.Item[(script_manager.script_tree_group_children.Count - 1)].Text == "NEW GROUP"
+    local test_ok = static_ok and menu_ok and group_ok and toolbar_ok and submenu_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 63 | source:% | group:% | toolbar:% | submenu:% | PASS:%\n" static_ok group_ok toolbar_ok submenu_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Checks hosted-rollout title framing and the +32/-16 host subrollout slot layout.
+No real scripts, user groups, or saved UI preferences are modified.
+*/
+function partOfTest64 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local format_ok = script_manager.formatHostedRolloutTitle "Surface Intersections | v0.125" == "——— Surface Intersections ———" and script_manager.formatHostedRolloutTitle "——— Surface Intersections ———" == "——— Surface Intersections ———" and script_manager.formatHostedRolloutTitle "" fallback_name:"Example Script" == "——— Example Script ———"
+    local preserve_ok = script_manager.formatHostedRolloutTitle "Tool | verbose" == "——— Tool | verbose ———"
+    local creation_ok = source_text != undefined and (findString source_text "subRollout sr_tools \"\" pos:[-4,48] width:344") != undefined
+    local resize_ok = source_text != undefined and (findString source_text "host_dialog.sr_tools.pos = [-4,tools_top]") != undefined and (findString source_text "host_dialog.sr_tools.width = usable_width + 32") != undefined
+    local embed_ok = source_text != undefined and (findString source_text "rollout_value.title = this.formatHostedRolloutTitle rollout_value.title") != undefined
+    local test_ok = format_ok and preserve_ok and creation_ok and resize_ok and embed_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 64 | formatted:% | preserved:% | creation:% | resize:% | embedded:% | PASS:%\n" format_ok preserve_ok creation_ok resize_ok embed_ok test_ok
+    test_ok
+    -- return
+)
+
+/* Validates both dark submenus and the final STARTUP action after repeated rebuilds.
+Both submenus must contain live child items, not detached MAXScript .NET wrappers.
+*/
+function partOfTest65 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local source_ok = source_text != undefined and (findString source_text "script_tree_group_children.Add \"__GROUP_MENU_INIT__\"") != undefined and (findString source_text "script_tree_toolbar_children.Add \"__TOOLBAR_MENU_INIT__\"") != undefined
+    local menu_ok = true
+    local group_ok = true
+    local toolbar_ok = true
+    local startup_ok = true
+
+    for pass_index = 1 to 3 do
+    (
+        menu_ok = menu_ok and script_manager.buildScriptTreeContextMenu()
+        script_manager.refreshGroupSubmenu script_manager.manager_source_path
+        script_manager.refreshToolbarSubmenu script_manager.manager_source_path
+        local root_items = script_manager.script_tree_context_items
+        local group_items = script_manager.script_tree_group_children
+        local toolbar_items = script_manager.script_tree_toolbar_children
+        group_ok = group_ok and script_manager.script_tree_group_item.HasDropDownItems and group_items.Count >= 4 and script_manager.script_tree_group_item.DropDownItems.Count == group_items.Count and group_items.Item[0].Text == "GROUP MANAGER" and group_items.Item[(group_items.Count - 1)].Text == "NEW GROUP"
+        toolbar_ok = toolbar_ok and script_manager.script_tree_toolbar_item.HasDropDownItems and toolbar_items.Count >= 4 and script_manager.script_tree_toolbar_item.DropDownItems.Count == toolbar_items.Count and toolbar_items.Item[0].Text == "GROUP MANAGER" and toolbar_items.Item[(toolbar_items.Count - 1)].Text == "NEW TOOLBAR"
+        startup_ok = startup_ok and root_items.Item[(root_items.Count - 1)].Text == "ADD TO STARTUP SCRIPTS"
+
+        script_manager.refreshGroupSubmenu undefined
+        script_manager.refreshToolbarSubmenu undefined
+        toolbar_ok = toolbar_ok and script_manager.script_tree_toolbar_item.HasDropDownItems and script_manager.script_tree_toolbar_item.DropDownItems.Count == 1 and script_manager.script_tree_toolbar_children.Item[0].Text == "GROUP MANAGER"
+    )
+    local test_ok = source_ok and menu_ok and group_ok and toolbar_ok and startup_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 65 | source:% | menu:% | group:% | toolbar:% | startup:% | PASS:%\n" source_ok menu_ok group_ok toolbar_ok startup_ok test_ok
+    test_ok
+    -- return
+)
+
+partOfTest59()
+partOfTest60()
+partOfTest61()
+partOfTest62()
+partOfTest63()
+partOfTest64()
+partOfTest65()
 partOfTest21()
 partOfTest22()
 

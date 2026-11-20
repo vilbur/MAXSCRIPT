@@ -1,5 +1,5 @@
-/*
-Toolbar-Creator UI core 0.15 | project 0.30.
+﻿/*
+Toolbar-Creator UI core 0.20 | project 0.36.
 Dialog for browsing script sources and managing toolbars through the independent backend.
 
 Run Toolbar-Creator.ms or Toolbar-Creator-UI.ms to open this dialog safely.
@@ -14,6 +14,7 @@ global toolbarCreatorUiFrameworkDir
 global toolbar_creator_ui_source_file
 global toolbar_creator_ui_ini_path
 global toolbar_creator_ui_buttons
+global toolbar_creator_ui_managed_records
 global toolbar_creator_ui_caption
 global toolbarCreatorRestartTimer
 global toolbarCreatorRestartPhase
@@ -21,9 +22,9 @@ global toolbarCreatorRestartTarget
 global toolbarCreatorUiFileLogTooltip
 global toolbar_creator_ui_min_height
 
-toolbarCreatorUiCoreFileVersion = 0.15
-toolbarCreatorUiProjectVersion = 0.30
-toolbar_creator_ui_min_height = 600
+toolbarCreatorUiCoreFileVersion = 0.20
+toolbarCreatorUiProjectVersion = 0.36
+toolbar_creator_ui_min_height = (amax (560 + 24) (558 + 20)) + 16
 
 toolbar_creator_ui_source_file = getSourceFileName()
 if toolbar_creator_ui_source_file == undefined or toolbar_creator_ui_source_file == "" then
@@ -74,6 +75,7 @@ for helper_name in toolbar_creator_ui_helpers do
 
 toolbar_creator_ui_ini_path = toolbar_creator_ui_directory + "Toolbar-Creator-UI.ini"
 toolbar_creator_ui_buttons = #()
+toolbar_creator_ui_managed_records = #()
 toolbar_creator_ui_caption = "Toolbar-Creator - v" + (toolbarCreatorProjectVersion as string)
 
 /*
@@ -219,12 +221,12 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
     dotNetControl lbl_ui_file_log "System.Windows.Forms.Label" pos:[276,558] width:736 height:20
 
     /*
-    Derives the minimum dialog height from the lowest controls.
-    This keeps the initial layout compact without clipping the file log or checkboxes.
+    Measures the last control on each side, leaving a 16 px bottom margin.
+    Native MAXScript checkbox controls do not expose a height property.
     */
     function getToolbarDialogContentHeight =
     (
-        left_bottom = chk_show_toolbar.pos.y + chk_show_toolbar.height
+        left_bottom = chk_show_toolbar.pos.y + 24
         right_bottom = lbl_ui_file_log.pos.y + lbl_ui_file_log.height
         (amax left_bottom right_bottom) + 16
         -- return
@@ -232,7 +234,7 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
 
     /*
     Sets the shared dark WinForms action-button style with semantic text colors.
-    Only Create/Update are green; Delete is orange.
+    Create/Update are green; Rename/Delete are orange.
     */
     function setupToolbarActionButtons =
     (
@@ -259,6 +261,7 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
         btn_delete.Text = "Delete"
         btn_create.ForeColor = color_type.FromArgb 120 210 130
         btn_update.ForeColor = color_type.FromArgb 120 210 130
+        btn_rename.ForeColor = color_type.FromArgb 230 165 75
         btn_delete.ForeColor = color_type.FromArgb 230 165 75
         true
         -- return
@@ -320,36 +323,96 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
     )
 
     /*
-    Refreshes managed names without replacing an unselected draft.
-    An explicit selection override is used when a toolbar was renamed.
+    Reads native toolbar names using the verified v0.17 live synchronization API.
+    Resolves unique signatures without showing stale native-rename aliases.
     */
-    function refreshManagedToolbarList select_toolbar_name:undefined =
+    function getLiveManagedToolbarRecords =
     (
-        managed_names = listManagedScriptToolbars()
-        list_loaded = (classOf managed_names == Array)
+        local native_names = listManagedScriptToolbars sync_live:true
+        local live_records = undefined
+        if classOf native_names == Array then
+        (
+            local saved_records = getManagedScriptToolbarRecords()
+            if classOf saved_records == Array then
+            (
+                local unique_records = toolbarCreatorFilterRenamedRecords saved_records
+                live_records = #()
+                for native_name in native_names do
+                (
+                    local matched_record = undefined
+                    for record in unique_records while matched_record == undefined do
+                    (
+                        if record[1] == native_name then matched_record = record
+                    )
+                    if matched_record != undefined then append live_records matched_record
+                )
+                if live_records.count != native_names.count then
+                (
+                    format "[Toolbar-Creator UI] FAILED | Live name/signature mismatch | names:% | records:%\n" native_names.count live_records.count
+                    live_records = undefined
+                )
+            )
+        )
+        live_records
+        -- return
+    )
 
+    /*
+    Rebuilds native toolbar names after syncing the active 3ds Max CUIX.
+    Keeps only the newest name for each stable action signature.
+    */
+    function refreshManagedToolbarList select_toolbar_name:undefined select_toolbar_signature:undefined live_records:undefined =
+    (
+        managed_records = live_records
+        if managed_records == undefined then managed_records = getLiveManagedToolbarRecords()
+        list_loaded = (classOf managed_records == Array)
         if list_loaded then
         (
             selected_toolbar_name = ""
-            if select_toolbar_name != undefined then
+            selected_signature = ""
+            selected_object_name = ""
+            previous_index = lst_managed_toolbars.SelectedIndex
+            if select_toolbar_name != undefined then selected_toolbar_name = select_toolbar_name
+            if select_toolbar_signature != undefined then selected_signature = select_toolbar_signature
+
+            if previous_index >= 0 then
             (
-                selected_toolbar_name = select_toolbar_name
+                if selected_toolbar_name == "" then selected_toolbar_name = lst_managed_toolbars.SelectedItem as string
+                if previous_index < toolbar_creator_ui_managed_records.count then
+                (
+                    previous_record = toolbar_creator_ui_managed_records[previous_index + 1]
+                    if selected_signature == "" then selected_signature = previous_record[3]
+                    selected_object_name = previous_record[2]
+                )
             )
-            else if lst_managed_toolbars.SelectedIndex >= 0 then
-            (
-                selected_toolbar_name = lst_managed_toolbars.SelectedItem as string
-            )
+
             matched_index = -1
+            for record_index = 1 to managed_records.count do
+            (
+                record = managed_records[record_index]
+                if matched_index < 0 and selected_signature != "" and record[3] == selected_signature then matched_index = record_index - 1
+            )
+            if matched_index < 0 then
+            (
+                for record_index = 1 to managed_records.count do
+                (
+                    record = managed_records[record_index]
+                    if matched_index < 0 and selected_object_name != "" and record[2] == selected_object_name then matched_index = record_index - 1
+                )
+            )
+            if matched_index < 0 then
+            (
+                for record_index = 1 to managed_records.count do
+                (
+                    record = managed_records[record_index]
+                    if matched_index < 0 and selected_toolbar_name != "" and record[1] == selected_toolbar_name then matched_index = record_index - 1
+                )
+            )
+
             lst_managed_toolbars.BeginUpdate()
             lst_managed_toolbars.Items.Clear()
-
-            for managed_index = 1 to managed_names.count do
-            (
-                managed_name = managed_names[managed_index]
-                lst_managed_toolbars.Items.Add managed_name
-                if managed_name == selected_toolbar_name then matched_index = managed_index - 1
-            )
-
+            toolbar_creator_ui_managed_records = managed_records
+            for record in managed_records do lst_managed_toolbars.Items.Add record[1]
             lst_managed_toolbars.EndUpdate()
             lst_managed_toolbars.SelectedIndex = matched_index
         )
@@ -357,8 +420,41 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
         (
             showToolbarStatus "Unable to read saved managed toolbars; see Listener."
         )
-
         list_loaded
+        -- return
+    )
+
+    /*
+    Synchronizes current native names, then compares visible managed records.
+    Avoids replacing in-progress UI edits when no native toolbar changed.
+    */
+    function syncManagedToolbarNames =
+    (
+        changed = false
+        managed_records = getLiveManagedToolbarRecords()
+        if classOf managed_records == Array then
+        (
+            changed = (managed_records.count != toolbar_creator_ui_managed_records.count)
+            if not changed then
+            (
+                for record_index = 1 to managed_records.count while not changed do
+                (
+                    old_record = toolbar_creator_ui_managed_records[record_index]
+                    new_record = managed_records[record_index]
+                    if old_record[1] != new_record[1] or old_record[2] != new_record[2] or old_record[3] != new_record[3] then changed = true
+                )
+            )
+            if changed then
+            (
+                refreshManagedToolbarList live_records:managed_records
+                if lst_managed_toolbars.SelectedIndex < 0 and lst_managed_toolbars.Items.Count > 0 then
+                (
+                    lst_managed_toolbars.SelectedIndex = 0
+                )
+                showToolbarStatus "Managed toolbars synchronized with native 3ds Max UI."
+            )
+        )
+        changed
         -- return
     )
 
@@ -487,6 +583,12 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
             selected_toolbar_name = lst_managed_toolbars.SelectedItem as string
         )
         IniSettings.setString toolbar_creator_ui_ini_path "MainUI" "SelectedToolbar" selected_toolbar_name
+        selected_signature = ""
+        if lst_managed_toolbars.SelectedIndex >= 0 and (lst_managed_toolbars.SelectedIndex + 1) <= toolbar_creator_ui_managed_records.count then
+        (
+            selected_signature = toolbar_creator_ui_managed_records[lst_managed_toolbars.SelectedIndex + 1][3]
+        )
+        IniSettings.setString toolbar_creator_ui_ini_path "MainUI" "SelectedToolbarSignature" selected_signature
 
         old_count = IniSettings.getInteger toolbar_creator_ui_ini_path "Buttons" "Count" default_value:0
         if old_count < 0 or old_count > 10000 then old_count = 0
@@ -865,8 +967,9 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
         toolbarCreatorUiFileLogTooltip.SetToolTip lst_scripts "LMB DOUBLE-CLICK: Browse for a replacement .ms file for this row.\r\n\r\nClick Create or Update to apply the new path to the toolbar."
         loadToolbarUiState()
         saved_selected_toolbar = IniSettings.getString toolbar_creator_ui_ini_path "MainUI" "SelectedToolbar" default_value:""
+        saved_selected_signature = IniSettings.getString toolbar_creator_ui_ini_path "MainUI" "SelectedToolbarSignature" default_value:""
         if saved_selected_toolbar == "" then saved_selected_toolbar = edt_toolbar_name.text
-        if refreshManagedToolbarList select_toolbar_name:saved_selected_toolbar then
+        if refreshManagedToolbarList select_toolbar_name:saved_selected_toolbar select_toolbar_signature:saved_selected_signature then
         (
             if lst_managed_toolbars.SelectedIndex < 0 and lst_managed_toolbars.Items.Count > 0 then
             (
@@ -971,12 +1074,26 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
         if selected_index > 0 then toolbar_creator_ui_buttons[selected_index][3] = edited_text
     )
 
+    on lst_managed_toolbars MouseEnter sender event_args do
+    (
+        syncManagedToolbarNames()
+    )
+
+    on lst_managed_toolbars MouseDown sender event_args do
+    (
+        syncManagedToolbarNames()
+    )
+
     on lst_managed_toolbars SelectedIndexChanged sender event_args do
     (
         if lst_managed_toolbars.SelectedIndex >= 0 then
         (
             selected_toolbar_name = lst_managed_toolbars.SelectedItem as string
             IniSettings.setString toolbar_creator_ui_ini_path "MainUI" "SelectedToolbar" selected_toolbar_name
+            if (lst_managed_toolbars.SelectedIndex + 1) <= toolbar_creator_ui_managed_records.count then
+            (
+                IniSettings.setString toolbar_creator_ui_ini_path "MainUI" "SelectedToolbarSignature" toolbar_creator_ui_managed_records[lst_managed_toolbars.SelectedIndex + 1][3]
+            )
             loaded_buttons = getManagedScriptToolbarButtons selected_toolbar_name
 
             if classOf loaded_buttons == Array then
@@ -1051,6 +1168,7 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
     on btn_customize_toolbars pressed do
     (
         max customize UI
+        syncManagedToolbarNames()
     )
 
     on btn_remove pressed do
@@ -1129,6 +1247,12 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
         executeToolbarAction #delete
     )
 )
+
+/*
+Fit the startup height to the controls, regardless of an oversized saved height.
+The dialog host restores Height from INI; registered dockable dialogs cannot use setDialogSize.
+*/
+IniSettings.setInteger toolbar_creator_ui_ini_path "MainUI" "Height" toolbar_creator_ui_min_height
 
 DialogHost.createManagedDialog toolbarCreatorUiRollout toolbar_creator_ui_ini_path "MainUI" \
     tool_key:"Toolbar-Creator" default_width:1024 default_height:toolbar_creator_ui_min_height min_height:toolbar_creator_ui_min_height

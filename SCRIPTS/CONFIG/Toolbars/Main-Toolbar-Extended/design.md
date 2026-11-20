@@ -11,8 +11,12 @@ Toolbar-Creator currently accepts scripts only and emits non-checkable macros. T
 
 Source action `.ms` scripts are valid standalone native fallback actions. MacroScript checked-state getters read the actual native MAXScript state, not a separate cached UI variable. Every execute handler calls `updateToolbarButtons()`.
 
-## Project ownership
+## Project ownership and layout
 Only local Main-Toolbar-Extended action contracts and icons are owned here. No shared Function, Operation, or Toolset is edited. The shared creator's 40-pixel macro button width is retained; icons are 24-pixel SVG placeholders.
+
+The repository root holds `Main-Toolbar-Extended.ms` as the unversioned canonical launcher, tests, agent rules, and documentation. Historical numbered scripts are stored in `versions/`. Action scripts live under `Actions/` and both icon themes under `Icons/`. Source code and assets are maintained as individual Drive files, not whole-repository ZIP archives.
+
+`README.md` is restricted to the front-end user purpose and feature overview; architecture, dependencies, version/release details, and technical limitations belong in this file or `AGENTS.md`.
 
 ## Compatibility
 Target 3ds Max 2026+. The UI has no custom rollout or dialog. Most handlers are valid across older versions; angleSnapActive is a 2026+ requirement. The Pick Object handler uses native `pickObject` + `toolMode.coordsys node`.

@@ -1,4 +1,8 @@
-﻿## Development v1.01 — CUI docking contract
+﻿## Development v1.02 — Canonical INI filename
+
+The only active settings filename is `Surface-Intersections.ini` beside `Surface-Intersections.ms`. The UI renames the legacy `Surface-Intersections-UI.ini` in place once, before `DialogHost` restores floating geometry, `DockSide`, and the saved SMART option. The migration never overwrites an existing canonical INI; if a needed rename fails, opening the dialog is aborted rather than silently resetting existing settings. The same canonical name must be used by future script versions. No backend geometry, group state or docking behavior is changed.
+
+## Development v1.01 — CUI docking contract
 
 The owner rollout is registered as a CUI dialog bar using the existing tool-local `SIRegisteredDialogOffset` fork and `style:#(#cui_dock_vert,#cui_floatable,#cui_handles)`: allow floating and docking left/right only, with no default dock. The dialog host must **always** finish successful creation with `.dialogBar=true`, even after restoring a legacy `SavedState=unregistered` record. Persist `DockSide` in the existing UI INI; on re-entry use native `cui.DockDialogBar` to restore left/right, otherwise float. While docked, never rewrite the last floating screen coordinates and size. This avoids desktop-dependent docking geometry corrupting future floating restoration. Unregister a CUI bar before `destroyDialog` or reload. A strict floating position correction may log a warning while leaving a successfully registered tool usable. Keep all v1.00 SMART callback lifecycles, backend v0.46 geometry, 288px fixed width and vertically resizable tree intact.
 
@@ -473,7 +477,7 @@ Current Google Drive canonical files win over old chat downloads. The shared pro
 - Precision is a user-selected 1 mm / 0.1 mm / 0.01 mm endpoint-matching option. Geometry is kept at native world-space positions; the tolerance is used in footprint checks and duplicate/hidden-edge classification.
 - Each `snapshotAsMesh` face records edge visibility (`getEdgeVis`). A curve's interior knot is omitted only if it lies on a hidden source-mesh edge and is collinear with its two neighbors while its graph degree is exactly two. Do not remove true bends, intersections, endpoints, or branches.
 - This is **curve clipping**, not cutting or trimming the underlying source surface meshes. The 3ds Max Surface modifier still requires its own coherent spline patch network and remains experimental.
-- User interface: native dockable rollout with source priority list, Up/Down, per-source kept side, precision, Generate/Update, refresh and update modes. The backend and UI can be loaded independently. Settings are stored next to the tool in `Surface-Intersections-UI.ini`.
+- User interface: native dockable rollout with source priority list, Up/Down, per-source kept side, precision, Generate/Update, refresh and update modes. The backend and UI can be loaded independently. Settings are stored next to the tool in `Surface-Intersections.ini`.
 - Regression test: after six cube faces are created and TOP moves to z=35 from z=50, all curve knots must lie within BOTTOM z=-50 and TOP z=35 (at the configured position precision). Full runtime behavior and the UI still require in-3ds Max verification.
 
 
@@ -520,7 +524,7 @@ Data-only test: `test/Surface-Intersections-Cumulative-Test.ms` exercises recipr
 
 The `Select All Sources` button sits immediately below the ordered multiListBox. It selects all valid, currently listed source objects in the scene and highlights their corresponding rows. Deleted source references remain listed but are not selected. This action does not add/remove/reorder sources, change per-source trim sides, regenerate geometry, or alter the existing result. The button is disabled when no valid source object remains.
 
-The source list continues to occupy the remaining vertical space above the fixed bottom button, with 12 px spacing and padding. The existing project-local `Surface-Intersections-UI.ini` stores floating-dialog location and height using the current DialogHost helper. Moving/closing continues to save its position; the title-button restart additionally saves current dialog state *before* reloading the entry script, ensuring the new dialog reads the latest coordinates. First launch restores the saved coordinates via `DialogHost.createManagedDialog`.
+The source list continues to occupy the remaining vertical space above the fixed bottom button, with 12 px spacing and padding. The existing project-local `Surface-Intersections.ini` stores floating-dialog location and height using the current DialogHost helper. Moving/closing continues to save its position; the title-button restart additionally saves current dialog state *before* reloading the entry script, ensuring the new dialog reads the latest coordinates. First launch restores the saved coordinates via `DialogHost.createManagedDialog`.
 
 Acceptance in 3ds Max: add several sources, click Select All Sources, verify all valid source nodes and corresponding rows are selected while clip modes and ordering remain unchanged; verify deleted entries are ignored. Move the floating dialog, click its blue title button to restart, and verify the location and height are preserved. Close and reopen the entry script and verify location again. Test at default and minimum dialog height.
 
@@ -668,7 +672,7 @@ The `ONLY FINAL RESULT` checkbox (uppercase, checked by default) changes output 
 
 The `Surface-Intersections` spline driver remains **hidden** in final-only mode. It contains saved source references, updates, and curve-derived Slice alignment. Consequently, final-only does **not** produce literally one scene node; it produces one visible trimmed surface plus an internal hidden controller. The generated result object is selectable and can be used to reload the setup because its `SI_ProcessOwner` points to that controller.
 
-The option is persisted to `Surface-Intersections-UI.ini` (`OnlyFinalResult`) and to `SI_OnlyFinalResult` on the controller. Existing scenes default to enabled unless explicitly disabled. Unowned or original source objects must not be deleted. Testing in 3ds Max must verify toggling both directions, final node identity, source rebind after reopening, cleanup of owned nodes, and no dangling selection references after updates.
+The option is persisted to `Surface-Intersections.ini` (`OnlyFinalResult`) and to `SI_OnlyFinalResult` on the controller. Existing scenes default to enabled unless explicitly disabled. Unowned or original source objects must not be deleted. Testing in 3ds Max must verify toggling both directions, final node identity, source rebind after reopening, cleanup of owned nodes, and no dangling selection references after updates.
 
 ## Polygon intersection cut / Slice debugging (project 0.43 — implementation notes)
 

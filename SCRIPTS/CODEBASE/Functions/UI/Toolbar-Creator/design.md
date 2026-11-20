@@ -181,6 +181,39 @@ Toolbar-Creator is a reusable low-level UI function that allows unrelated MaxScr
 - Persist the selected managed toolbar's exact identity under `MainUI/SelectedToolbar`, independent of the editable `ToolbarName` field. On startup, restore this saved selection (using ToolbarName as a compatibility fallback), or select the first available managed toolbar. With no managed toolbar, leave Scripts empty.
 - Rely on the existing Managed Toolbars selection handler to reconstruct scripts, labels and order from CUIX/MCR. The currently selected toolbar always determines the Scripts contents; preserve the existing readback failure behavior and editable new-toolbar draft flow while the dialog remains open.
 
+## Native Customize toolbar rename synchronization (project 0.31)
+
+- CUIX `Window` entries retain both `name` (native display label) and `objectName` (toolbar identity). Managed toolbar discovery shows the native display name, retaining the stable ordered actionIDs to match the same toolbar after an external rename.
+- Backend button readback first resolves the toolbar by `objectName` or `name`, then verifies its generated `ToolbarCreator_` action names against candidate `.mcr` files. This permits native names to change without renaming or rewriting the source `.mcr` file. No partial matches are accepted.
+- Update/Delete use the original `objectName` and matched generated macro source, preserving the native display name on Update; the existing transaction and rollback remain responsible for file changes only after an explicit toolbar action.
+- The UI compares saved CUIX toolbar records when the pointer enters Managed Toolbars and updates the list only when identities, names, or action signatures have changed. Selection is restored by action signature; the INI separately stores the last selected signature for startup.
+- Synchronization reads the active saved CUIX. It does not invoke CUI Save or mutate it; save native Customize changes in 3ds Max to persist them before Toolbar-Creator can detect them. Runtime testing of native renaming remains required.
+
+## Native name / objectName divergence (project 0.32)
+
+- Autodesk native Customize may leave `name` and `objectName` different after renaming a toolbar. To choose the edited value without changing CUIX, compare the existence of the two generated macro paths: when only one still names an existing original `.mcr`, the other attribute is the current native name. If neither path exists, prefer `objectName`; if both exist, retain the previous `name` priority as the ambiguous fallback.
+- Display the resolved name in Managed Toolbars and in its editable Toolbar field. Preserve that same resolved name when updating the toolbar instead of reintroducing the old label.
+- Refresh on Managed Toolbars `MouseEnter` and `MouseDown`, retaining selection by saved actionIDs. This is read-only; native Customize changes must be saved to the active CUIX first.
+- Runtime validation requires a native toolbar Rename followed by Save, then refresh, button readback, and re-open. No automatic CUIX persistence or toolbar regeneration occurs during refresh.
+
+## Live native toolbar-name synchronization in the frontend (project 0.34)
+
+- `Toolbar-Creator-UI-Core.ms` now obtains current names exclusively through the existing v0.17 backend `listManagedScriptToolbars sync_live:true`. That API executes `cui.saveConfig()` to synchronize native Customize UI changes before loading the active CUIX, using native XML `name` with `objectName` fallback.
+- After the live sync, the UI obtains matching action-signature records from `getManagedScriptToolbarRecords()` and applies the existing `toolbarCreatorFilterRenamedRecords` helper, so repeated native Rename operations do not leave stale aliases in the Managed Toolbars list.
+- The UI keeps the selected toolbar by its stable ordered `ToolbarCreator_` action IDs. Repeated event refreshes reuse their pre-fetched records rather than saving the CUIX twice in one refresh. Discovery never regenerates MacroScripts or edits toolbar buttons; only the native `cui.saveConfig()` persists the current UI configuration.
+- This replaces the pre-0.34 frontend's saved-only records refresh. The canonical backend v0.17 remains unchanged, including the public API signature and safe deduplication logic.
+
+
+## Rename button color (project 0.35)
+
+- In the dark .NET action grid, Rename and Delete share orange `RGB(230,165,75)` foreground text; Create and Update keep green `RGB(120,210,130)` foreground text. Preserve button background, position, dimensions and handlers.
+
+## Dialog height fitted to controls (project 0.36)
+
+- On each new launch, set the UI INI `MainUI/Height` to the content-derived minimum before calling `DialogHost.createManagedDialog`. The shared host normally restores a saved height, so an old oversized value would otherwise leave unused space below the controls.
+- Derive the 600 px minimum from the bottommost left checkbox (560 + 24 px) and the bottom-right file log (558 + 20 px), plus 16 px bottom margin. The rollout's control-height helper uses the checkbox's declared 24 px: native CheckboxControl does not provide a `.height` property.
+- Registered dockable rollout dialogs cannot use `setDialogSize`. Retain the shared dialog host, position persistence, existing 1024 px fixed width, and manual vertical resizing during the session. On the next launch the dialog returns to content-fit height.
+
 ## Public contract
 
 The supported public APIs are `manageScriptToolbar` and `collectToolbarScripts`. The prefixed helpers are implementation details.

@@ -1,4 +1,25 @@
-﻿# Changes
+# Changes
+
+## 2026-11-18 — v0.039
+
+- ON \ OFF button text is green when any managed blueprint is effectively visible, and red when all are hidden or no planes exist. Layer-hidden blueprints count as hidden.
+- Refresh the colour on preview changes and from the existing dialog-state timer to reflect visibility changes made externally. Keep all button click actions and other UI layout unchanged.
+- No changes to the shared scene operations module. Static checks passed; runtime UI test pending.
+
+## 2026-11-17 — v0.038
+
+- Added DBL LMB on any blueprint preview button to toggle all managed blueprint plane visibility. Single LMB actions are delayed by Windows' double-click interval to prevent a double-click from performing a single-click action first; CTRL+LMB remains immediate.
+- Automatically hide each dedicated blueprint layer when all its managed Plane nodes are hidden, and show the layer when any blueprint becomes visible. Do not hide a layer containing unrelated scene objects.
+- Synchronize layer visibility after individual/global visibility actions and APPLY; retain the existing image previews, INI settings and independent visibility controls.
+- Static source checks passed; 3ds Max runtime click and scene-layer testing pending.
+
+## 2026-11-16 — v0.037
+
+- Split the single 3ds Max tool file into the unchanged canonical entry `Blueprint-Manager.ms`, scene operations `Blueprint-Manager-FN.ms`, and interface/handlers `Blueprint-Manager-UI.ms`.
+- Use documented compile-time `include` in the entry file rather than `fileIn`, preserving lexical state and the original initialization order. Keep all three files in the same repository directory.
+- Preserve v0.036 functional/UI logic without modification, including the saved GROUND default and FRONT/BACK Y alignment correction.
+- Original full-functionality source was byte-compared against both extracted module bodies. Static split checks passed; native 3ds Max end-to-end testing pending.
+
 
 ## 2026-11-16 — v0.036
 
