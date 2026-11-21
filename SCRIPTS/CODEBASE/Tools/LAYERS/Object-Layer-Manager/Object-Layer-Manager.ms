@@ -244,12 +244,12 @@ function ascLoadSharedUiFramework =
 )
 
 ascLoadSharedUiFramework()
-global object_layer_manager_file_version = 0.087
+global object_layer_manager_file_version = 0.097
 global object_layer_manager_project_version
 
-if (object_layer_manager_project_version == undefined) or (object_layer_manager_project_version < 0.087) then
+if (object_layer_manager_project_version == undefined) or (object_layer_manager_project_version < 0.097) then
 (
-    object_layer_manager_project_version = 0.087
+    object_layer_manager_project_version = 0.097
 )
 
 /*
@@ -3228,7 +3228,7 @@ function ascCreateLayerRolloutDefinition layer_name depth =
 
     if branch_child_names.count > 0 then
     (
-        control_parameters = "pos:[12," + (next_control_y as string) + "] width:" + (control_width as string) + " height:" + (child_slot_height as string) + " scrollBar:#off"
+        control_parameters = "pos:[-4," + (next_control_y as string) + "] width:" + ((control_width + 32) as string) + " height:" + (child_slot_height as string) + " scrollBar:#off"
         rollout_creator.addControl #subRollout #children_slot "" paramStr:control_parameters
     )
 
@@ -3428,7 +3428,7 @@ rollout asc_main_rollout "Object-Layer-Manager | v0.087" width:336 height:648
 
     dotNetControl btn_add_default "System.Windows.Forms.Button" pos:[12,150] width:312 height:24
 
-    subRollout hierarchy_slot "" pos:[12,186] width:312 height:450 scrollBar:#asNeeded
+    subRollout hierarchy_slot "" pos:[-4,186] width:344 height:450 scrollBar:#asNeeded
 
     /*
     Expands the hierarchy to the dialog bottom while preserving the shared 12 px outer margin.

@@ -1,4 +1,116 @@
-﻿## 2026-11-20 — 1.253
+## 2026-11-21 — 1.272
+
+- Guard GROUP MANAGER callbacks after dialog destruction; closed refresh and reopen verified in Max.
+- Add EDIT GROUP SCRIPTS with add-tree-selection and remove-script actions. Persist exclusions separately so dynamic folder groups retain membership edits.
+- Preserve existing folder-group toolbar references and bulk loading.
+- Live checks: editor opens; excluded script disappears and returns after clearing exclusion. Toolbar click loading not tested.
+
+## 2026-11-21 — 1.271
+
+- Fix right-click menu not opening in v1.270: avoid disposing and recreating the root ContextMenuStrip inside SCRIPTS TreeView NodeMouseClick. Keep the already-created menu alive and update visible item states and submenu targets in place.
+- Preserve directory/script actions, saved groups, INI and CUIX. Static source checks only; verify actual popup and nested toolbar targets in 3ds Max.
+
+## 2026-11-21 — 1.270
+
+- Fix directory ADD TO TOOLBAR menu levels observed in v1.269: toolbar target rows and both action labels were placed together at the same level by MAXScript/.NET submenu collection rebinding.
+- Attach the two folder action headers first and defer populating each separate dark submenu to its own DropDownOpening event. Retain script-item menu behavior, separate-script / group-button actions, toolbar names, and existing INI/CUIX data.
+- Extend regression test v1.237 to trigger each action opening explicitly and verify children after repeated folder/script switching. Source checks completed; verify the actual hover menus in 3ds Max before treating the fix as confirmed.
+
+## 2026-11-21 — 1.269
+
+- Fix the directory **ADD TO TOOLBAR** menu showing the internal `__TOOLBAR_DIRECT_INIT__` item instead of the **ADD TO TOOLBAR** action. Live 3ds Max inspection showed the populated direct-action menu had become detached from its parent while the group action remained attached.
+- Build both fully populated, dark-themed .NET `ToolStripMenuItem` action submenus before attaching them to the owner. Preserve **ADD TO TOOLBAR** (separate script buttons) and **ADD TO TOOLBAR AS GROUP** (single dynamic group button), each with **NEW TOOLBAR** first and the existing toolbar targets below.
+- Remove temporary submenu initialization placeholders, preserve all toolbar actions, script-item menus, group INI records and CUIX data. Update regression suite to v1.236, including parent-owned action verification and six folder/script switching cycles. An isolated live .NET menu composition test passed; full Script-Manager reload and button creation await user testing.
+
+## 2026-11-21 — 1.268
+
+- Redesign directory-item **ADD TO TOOLBAR** as a nested action menu: **ADD TO TOOLBAR > NEW TOOLBAR, {existing toolbars}** adds the folder's visible scripts as separate buttons; **ADD TO TOOLBAR AS GROUP > NEW TOOLBAR, {existing toolbars}** adds one dynamic folder-group button.
+- Keep **CREATE GROUP / DELETE GROUP** independent, preserve the script-item ADD TO GROUP and ADD TO TOOLBAR behavior, existing toolbar assignments, INI and CUIX data, and the dark WinForms submenu theme.
+- Use owner-bound submenu collections and explicit handler cleanup when switching repeatedly between folder and script items. Static validation completed; interactive 3ds Max verification pending.
+
+## 2026-11-21 — 1.266
+
+- Keep **ADD TO GROUP > {saved groups}, NEW GROUP** and **ADD TO TOOLBAR > {custom toolbars}, NEW TOOLBAR** as independent SCRIPTS context submenus for script leaves. These commands assign individual scripts to user groups or to single toolbar buttons, respectively.
+- For directory items, always retain the individual-script **ADD TO TOOLBAR** targets and place **ADD TO TOOLBAR AS GROUP > {custom toolbars}, NEW TOOLBAR** at the bottom of the same submenu. Both target lists are available whether the folder already has a saved group or not.
+- When an AS GROUP target is chosen, reuse the exact saved folder group or create a dedicated dynamic folder group. Roll back a newly created group when toolbar creation is cancelled or fails; preserve existing user groups and toolbar buttons.
+- Preserve dark .NET submenu styling and avoid detaching the persistent third-level menu item by inserting individual toolbar targets before it.
+- Source v1.266; regression suite v1.235 updates part 71 with script, grouped-folder, and ungrouped-folder menu assertions. Static checks passed; live 3ds Max verification is pending because the MCP bridge session terminated.
+
+## 2026-11-21 — 1.265
+
+- Fix runtime `Type error: Call needs function or class, got: undefined` at the former line 7140 when `clearToolbarSubmenu remove_group:true` invokes `clearToolbarGroupSubmenu` before its struct method has been initialized. Define the nested-group cleanup method before its parent cleanup caller, retaining the same behavior and handler cleanup.
+- Add regression test v1.234 / part 72 for direct nested-group cleanup and rebuilding the SCRIPTS context menu. Preserve v1.264 toolbar hierarchy, persistent group dialogs, and saved groups/INI/CUIX.
+
+## 2026-11-20 — 1.264
+
+- Place **ADD TO TOOLBAR AS GROUP** inside the existing folder **ADD TO TOOLBAR** popup instead of on the right-click root. For folders without a saved group, ADD TO TOOLBAR continues listing individual toolbar targets and NEW TOOLBAR; for folders with an exact saved group, the popup contains only **ADD TO TOOLBAR AS GROUP > {toolbars}, NEW TOOLBAR**, adding a single dynamic group button.
+- Preserve folder CREATE GROUP / DELETE GROUP switching, individual-script menus, root GROUP MANAGER, dark popup styling, group-dialog persistence and all existing Toolbar-Creator actions. Rebuild and dispose nested ToolStripItemCollections in owner order to avoid stale .NET wrappers; evaluate intended menu availability from saved-group state rather than WinForms Visible (which is false before the context menu opens). Recover when MAXScript detaches the third-level group item from its owner during alternating menu rebuilds. Dispose nested menu items through the root menu on teardown to avoid duplicate .NET collection registration.
+- Main source v1.264; test suite v1.233, part 71 covering grouped, ungrouped and script-item menu nesting without altering user INI or CUIX.
+
+## 2026-11-20 — 1.263
+
+- Switch SCRIPTS folder-item RMB menu by whether an explicitly saved single-folder user group matches the clicked folder's exact normalized path. Ungrouped folders display **CREATE GROUP** and **ADD TO TOOLBAR** (individual visible descendant scripts); grouped folders display **DELETE GROUP** and **ADD TO TOOLBAR AS GROUP** (one saved-group toolbar button).
+- CREATE GROUP uses the existing editable name dialog and stores one dynamic directory reference. DELETE GROUP keeps confirmation and removes only the matching saved INI group; never delete scripts or physical directories. Do not infer existence from a matching group name, a broader ancestor, or arbitrary group membership.
+- Script-file right-click menus are unchanged. Group toolbar assignment no longer implicitly creates a group; it requires the folder group to exist. Keep GROUP MANAGER, group-dialog persistence, and all other context actions intact.
+- Main source 1.263; regression suite 1.232, part 70. Folder-state and runtime tests are separate from actual CUIX writes.
+
+## 2026-11-20 — 1.262
+
+- Keep explicitly group-loaded dialogs alive when the Script-Manager UI is closed, restarted through F1/RESTART, or the manager script is reloaded. Organizational HOST dialogs keep their existing cleanup behavior.
+- Track group dialog ownership separately, preserve the currently embedded rollout instances, host-script references and title-button reload behavior across manager instance replacement. Maintain unique generated host-rollout identifiers and remove the persistence marker only when the group dialog itself closes or is explicitly rebuilt.
+- Update the previous-dialog cleanup guard to allow intentional live group dialogs. Live 3ds Max smoke test: an empty group and a group with one embedded test rollout both survived manager hide and version reload; temporary test dialog was removed afterwards.
+- Main source v1.262; regression suite v1.231 (part 69). Preserve all saved user groups and existing toolbar definitions.
+
+## 2026-11-20 — 1.261
+
+- Add folder-only **ADD TO TOOLBAR AS GROUP** beside **ADD TO TOOLBAR** in the SCRIPTS right-click root. Its dark submenu lists existing managed toolbars and **NEW TOOLBAR**, while individual script right-click menus remain unchanged.
+- Save or reuse a user group containing one dynamic reference to the clicked folder, proposing its name through the existing category/parent-folder naming rule, then append a **single group toolbar button** using the existing `__SCRIPT_MANAGER_GROUP__` reference format. Newly discovered scripts in the folder are resolved at group-load time instead of creating individual buttons. Do not overwrite a same-named group belonging to a different folder; use a numbered unique name if necessary.
+- Preserve existing toolbar buttons and skip duplicate group references. Roll back a newly created group if toolbar creation is cancelled or the toolbar write fails. Keep the existing individual-script ADD TO TOOLBAR action unchanged.
+- Main source v1.261; regression test v1.230 (part 68) and updated root-menu item count/positions. Toolbar creation is not exercised by the non-destructive regression test.
+
+## 2026-11-20 — 1.260
+
+- On SCRIPTS **folder** right-click menus, replace **ADD TO GROUP** with **ADD TO TOOLBAR**. Script-file menus retain both submenus; **GROUP MANAGER** remains available in the root.
+- Folder **ADD TO TOOLBAR** lists existing custom toolbars and **NEW TOOLBAR**. Adding a folder collects its currently displayed descendant scripts as individual toolbar buttons, deduplicates existing buttons, and saves one CUIX update. Creating a toolbar starts with those same scripts; folder filters are respected, and no user groups are created or deleted.
+- Main source 1.260 and regression suite 1.229 update folder/menu tests. Static verification passed; live 3ds Max UI and CUIX writes require testing.
+
+## 2026-11-20 — 1.259
+
+- Enable **ADD TO GROUP** on SCRIPTS folder-item right-click menus, allowing a clicked folder to be added to an existing saved group as a dynamic directory reference, or used to seed **NEW GROUP** with its folder/category name proposed.
+- Add folder-only **ADD TO GROUP → DELETE GROUP → {saved group}** with explicit confirmation; deleting removes only the selected `UserGroup|...` INI section and never deletes scripts, directories, or toolbar definitions. Existing script-item menus remain unchanged. Rebind the parent .NET submenu collection after constructing DELETE GROUP so NEW GROUP stays in the correct submenu.
+- Harden cross-version reload after nonfatal .NET menu disposal warnings: proceed only when every old manager and hosted dialog can be verified closed; retain the error when any dialog remains open or cannot be inspected. Preserve existing UI state persistence.
+- Main source advances to 1.259; regression test to 1.228 (new part 66). Static and live verification status reported separately.
+
+## 2026-11-20 — 1.258
+
+- Restrict **EXPAND ENABLED** to SCRIPTS **folder** right-click menus. Script-file right-click menus no longer show this action; its folder-only expansion handler is unchanged.
+- Hide the separator after **OPEN IN EXPLORER** for script-file selections to avoid an empty expansion section and adjacent separators. Preserve the final divider before **ADD TO STARTUP SCRIPTS / REMOVE FROM STARTUP SCRIPTS**.
+- Advance production to v1.258 and regression tests to v1.227. Test both script and folder menu visibility. Source-level checks passed; interactive UI confirmation pending.
+
+## 2026-11-20 — 1.257
+
+- Reorder SCRIPTS TreeView right-click root commands into five sections: LOAD GROUP / LOAD SCRIPT; ADD TO GROUP / ADD TO TOOLBAR; GROUP MANAGER / OPEN IN EXPLORER; COLLAPSE / COLLAPSE ALL; EXPAND / EXPAND ALL / EXPAND ENABLED; final standalone startup action.
+- Rename visible **OPEN GROUP** to **LOAD GROUP** without changing the group-loading handler or script loading behavior. Add three root separators, preserving the existing dark theme, and dynamically hide dividers that would be empty or adjacent for folder vs. script selection.
+- Update regression test suite to v1.226 / project v1.257 (menu root ordering, all five separators, submenu refresh and root-only GROUP MANAGER). Preserve existing source scripts and saved settings. Static checks passed; live UI validation pending.
+
+## 2026-11-20 — 1.256
+
+- Correct NEW GROUP / NEW TOOLBAR naming for canonical tool subfolders: `...\MODIFIER-STACK\Modifier-Manager\Modifier-Manager.ms` proposes **MODIFIER-STACK**, not `Modifier-Manager`.
+- Skip the containing folder when it is a canonical tool directory (`<FolderName>.ms` or its versioned variant). Scripts directly inside a category still use their containing folder. Multi-selection continues to use the closest shared category; user can edit the suggestion.
+- Preserve all group/toolbar creation and existing naming validation. Static source checks passed; native 3ds Max runtime verification pending.
+
+## 2026-11-20 — 1.255
+
+- Pre-fill **NEW GROUP** and **NEW TOOLBAR** names with the selected tool's immediate parent folder name. For group creation from several scripts in different subfolders, propose their nearest shared parent folder.
+- Apply the same suggestion when creating a toolbar from a selected user group. Keep the rename dialogs editable, reject invalid names as before, and retain the existing fallback when no folder can be derived.
+- Updated original `Script-Manager.ms` and saved `versions/Script-Manager_1.255.ms`. Source readback verified; 3ds Max UI regression test pending.
+
+## 2026-11-20 — 1.254
+
+- Move **GROUP MANAGER** into the SCRIPTS right-click root menu immediately before **OPEN IN EXPLORER**; remove both prior submenu entries from **ADD TO GROUP** and **ADD TO TOOLBAR**.
+- Keep its existing dialog-opening handler and dark-menu styling.
+
+## 2026-11-20 — 1.253
 
 - Repair SCRIPTS right-click **ADD TO TOOLBAR** and **ADD TO GROUP** submenus. MAXScript can hold detached .NET `ToolStripItemCollection` wrappers after another submenu is created; refresh from each actual parent submenu before modifying the children. Initialize both collections before first refresh.
 - Restore **GROUP MANAGER** as the first command in both submenus, preserving custom toolbar and saved-group entries, NEW TOOLBAR and NEW GROUP. Move **ADD TO STARTUP SCRIPTS / REMOVE FROM STARTUP SCRIPTS** to the last root-menu position.

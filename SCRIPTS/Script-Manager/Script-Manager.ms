@@ -1,5 +1,5 @@
-﻿/*
-    Script-Manager 1.252
+/*
+    Script-Manager 1.272
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -122,8 +122,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.253,
-    project_version = 1.253,
+    file_version = 1.272,
+    project_version = 1.272,
     registry = undefined,
 
     /*
@@ -646,6 +646,7 @@ EPolyToolsIntegration = ScriptManagerIntegration
 ================================================================================*/
 
 global script_manager
+global SCRIPT_MANAGER_PREVIOUS_INSTANCE
 global script_manager_ui
 global script_manager_host_ui
 global script_manager_loader_ui
@@ -675,6 +676,8 @@ global scriptManagerTreeExpandEnabledContextHandler
 global scriptManagerTreeCollapseAllContextHandler
 global scriptManagerTreeLoadContextHandler
 global scriptManagerTreeNewToolbarContextHandler
+global scriptManagerTreeToolbarAsGroupContextHandler
+global scriptManagerTreeNewToolbarAsGroupContextHandler
 global scriptManagerTreeStartupContextHandler
 global scriptManagerRefreshButtonMouseUpHandler
 global scriptManagerInitialLoaderTickHandler
@@ -788,12 +791,60 @@ function scriptManagerTreeNewGroupContextHandler sender_value event_args =
     -- return
 )
 
+/* Deletes one named user group through a folder-context submenu.
+The folder path is captured when the submenu opens, not read from later selection.
+*/
+function scriptManagerTreeDeleteGroupContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.deleteNamedUserGroupFromFolderContext (sender_value.Text as string) (sender_value.Tag as string)
+    )
+    -- return
+)
+
+/* Creates or deletes the dedicated group belonging to the clicked folder.
+    The current saved-folder membership, not the group's display name, determines the action.
+*/
+function scriptManagerTreeFolderGroupContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.toggleFolderUserGroupFromContext (sender_value.Tag as string)
+    )
+    -- return
+)
+
 /* Creates one new managed toolbar starting with the right-clicked script. */
 function scriptManagerTreeNewToolbarContextHandler sender_value event_args =
 (
     if script_manager != undefined and sender_value != undefined then
     (
         script_manager.createToolbarFromScriptSelection (sender_value.Tag as string)
+    )
+    -- return
+)
+
+/* Adds a folder as one dynamic user-group button to the chosen custom toolbar.
+Only folder right-click menus expose this action.
+*/
+function scriptManagerTreeToolbarAsGroupContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.addFolderGroupToManagedToolbar (sender_value.Text as string) (sender_value.Tag as string)
+    )
+    -- return
+)
+
+/* Creates a toolbar with one dynamic group button for the selected folder.
+The first toolbar name is editable and the saved folder group is rolled back on cancel.
+*/
+function scriptManagerTreeNewToolbarAsGroupContextHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.createToolbarFromFolderGroup (sender_value.Tag as string)
     )
     -- return
 )
@@ -898,6 +949,7 @@ function scriptManagerGroupColorClickHandler sender_value event_args =
 if SCRIPT_MANAGER_STARTUP_LAUNCH == undefined then SCRIPT_MANAGER_STARTUP_LAUNCH = false
 if SCRIPT_MANAGER_STARTUP_PRESET_APPLIED == undefined then SCRIPT_MANAGER_STARTUP_PRESET_APPLIED = false
 
+SCRIPT_MANAGER_PREVIOUS_INSTANCE = script_manager
 SCRIPT_MANAGER_AUTO_OPEN = ScriptManagerIntegration.shouldAutoOpenUI()
 
 if SCRIPT_MANAGER_AUTO_OPEN then
@@ -934,6 +986,41 @@ if SCRIPT_MANAGER_AUTO_OPEN then
             format "[Script-Manager] Previous manager cleanup failed: %\n" exception_text
         )
 
+        /* Nonfatal .NET submenu-disposal warnings must not prevent reload after
+        every old manager/host dialog is positively verified closed.
+        Still refuse reload if any dialog remains live or its state is unreadable.
+        */
+        if not cleanup_ok then
+        (
+            old_dialogs_closed = true
+            if script_manager_ui != undefined then
+            (
+                try (if script_manager_ui.inDialog then old_dialogs_closed = false) catch (old_dialogs_closed = false)
+            )
+            if script_manager_host_ui != undefined then
+            (
+                try (if script_manager_host_ui.inDialog then old_dialogs_closed = false) catch (old_dialogs_closed = false)
+            )
+            if script_manager.host_dialogs != undefined then
+            (
+                for old_host_index = 1 to script_manager.host_dialogs.count do
+                (
+                    old_host_dialog = script_manager.host_dialogs[old_host_index]
+                    old_host_path = if old_host_index <= script_manager.host_dialog_paths.count then script_manager.host_dialog_paths[old_host_index] else ""
+                    old_is_persistent_group = false
+                    try (old_is_persistent_group = script_manager.isPersistentGroupHost old_host_path) catch ()
+                    if not old_is_persistent_group and old_host_dialog != undefined then
+                    (
+                        try (if old_host_dialog.inDialog then old_dialogs_closed = false) catch (old_dialogs_closed = false)
+                    )
+                )
+            )
+            if old_dialogs_closed then
+            (
+                format "[Script-Manager] Old dialogs are closed; ignoring nonfatal teardown warnings.\n"
+                cleanup_ok = true
+            )
+        )
         if not cleanup_ok then throw "Previous Script-Manager dialogs could not be cleaned up safely."
     )
     else
@@ -1024,8 +1111,8 @@ function scriptManagerPersistIgnoreMask manager_value requested_mask =
 
 struct script_manager_v
 (
-    file_version = 1.253,
-    project_version = 1.253,
+    file_version = 1.272,
+    project_version = 1.272,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -1063,6 +1150,7 @@ struct script_manager_v
     host_dialogs = #(),
     host_dialog_paths = #(),
     host_dialog_symbol_names = #(),
+    persistent_group_host_paths = #(),
     host_dialog_build_id = 0,
     loaded_host_script_paths = #(),
     loaded_host_script_dialog_paths = #(),
@@ -1104,18 +1192,27 @@ struct script_manager_v
     script_tree_selection_anchor = "",
     script_tree_context_menu = undefined,
     script_tree_context_items = undefined,
+    script_tree_load_separator = undefined,
+    script_tree_assignment_separator = undefined,
     script_tree_open_separator = undefined,
     script_tree_expand_separator = undefined,
+    script_tree_startup_separator = undefined,
     script_tree_open_group_item = undefined,
     script_tree_load_item = undefined,
     script_tree_startup_item = undefined,
     script_tree_toolbar_item = undefined,
     script_tree_toolbar_children = undefined,
+    script_tree_toolbar_direct_item = undefined,
+    script_tree_toolbar_direct_children = undefined,
+    script_tree_toolbar_group_item = undefined,
+    script_tree_toolbar_group_children = undefined,
     script_tree_group_item = undefined,
+    script_tree_folder_group_item = undefined,
     script_tree_group_children = undefined,
-    script_tree_toolbar_group_loader_separator = undefined,
     script_tree_toolbar_new_item = undefined,
     script_tree_toolbar_new_separator = undefined,
+    script_tree_toolbar_group_new_item = undefined,
+    script_tree_toolbar_group_new_separator = undefined,
     script_tree_group_loader_item = undefined,
     group_loader_group_items = undefined,
     group_loader_toolbar_items = undefined,
@@ -6371,6 +6468,114 @@ function refreshConfiguredDiscovery =
     /* Expands saved script or folder references into current usable script paths.
     A saved directory remains dynamic: scripts added inside it are included later.
     */
+
+    /* Reports whether group manager controls belong to a live dialog.
+    */
+    function isGroupLoaderOpen =
+    (
+        try (script_manager_group_loader_ui != undefined and script_manager_group_loader_ui.inDialog) catch (false)
+        -- return
+    ),
+
+    /* Reads persistent exclusions without changing dynamic folder membership.
+    */
+    function getGroupExclusions group_name =
+    (
+        local section_name = "UserGroupExcluded|" + group_name
+        local result_paths = #()
+        local item_count = try ((getINISetting ini_path section_name "Count") as integer) catch (0)
+        for item_index = 1 to (amin 4096 item_count) do
+        (
+            append result_paths (getINISetting ini_path section_name ("Path" + item_index as string))
+        )
+        result_paths
+        -- return
+    ),
+
+    /* Saves excluded paths through the existing verified INI writer.
+    */
+    function saveGroupExclusions group_name paths =
+    (
+        local entries = #(#("Count", paths.count as string))
+        for item_index = 1 to paths.count do append entries #("Path" + item_index as string, paths[item_index])
+        this.replaceIniSection ("UserGroupExcluded|" + group_name) entries
+        -- return
+    ),
+
+    /* Opens an editor for resolved scripts while preserving folder references.
+    */
+    function editSelectedGroupMembers =
+    (
+        if not(this.isGroupLoaderOpen()) then return false
+        local group_name = group_loader_selected_group
+        if group_name == "" then return false
+        global script_manager_members_ui
+        try (destroyDialog script_manager_members_ui) catch ()
+        rollout script_manager_members_ui "GROUP SCRIPTS" width:640 height:430
+        (
+            local edited_group = ""
+            local member_paths = #()
+            listbox lb_members "" pos:[4,28] width:632 height:20
+            label lbl_group "" pos:[4,4] width:632 height:20
+            button btn_add "ADD TREE SELECTION" pos:[4,370] width:310 height:26
+            button btn_remove "REMOVE SELECTED SCRIPT" pos:[322,370] width:314 height:26
+            label lbl_status "" pos:[4,402] width:632 height:22
+
+            /* Refreshes script paths from the saved group definition.
+            */
+            function refreshMembers =
+            (
+                local data = script_manager.resolveUserGroupScripts edited_group
+                member_paths = #()
+                for member_path in data[1] do append member_paths member_path
+                for member_path in data[2] do append member_paths member_path
+                lb_members.items = member_paths
+                lbl_group.text = edited_group
+            )
+            on btn_remove pressed do
+            (
+                local selected_index = lb_members.selection
+                if selected_index > 0 and selected_index <= member_paths.count then
+                (
+                    local excluded_paths = script_manager.getGroupExclusions edited_group
+                    appendIfUnique excluded_paths (toLower member_paths[selected_index])
+                    if script_manager.saveGroupExclusions edited_group excluded_paths then
+                    (
+                        refreshMembers()
+                        script_manager.refreshGroupLoader()
+                        lbl_status.text = "Removed from group; source file unchanged."
+                    )
+                    else lbl_status.text = "Save failed; see Listener."
+                )
+            )
+            on btn_add pressed do
+            (
+                local added_paths = script_manager.getSelectedTreeScriptsForUserGroup()
+                local saved_paths = script_manager.getUserGroupScripts edited_group
+                local exclusions = script_manager.getGroupExclusions edited_group
+                for added_path in added_paths do
+                (
+                    appendIfUnique saved_paths added_path
+                    local excluded_index = findItem exclusions (toLower added_path)
+                    if excluded_index > 0 then deleteItem exclusions excluded_index
+                )
+                if script_manager.saveUserGroupScripts edited_group saved_paths and script_manager.saveGroupExclusions edited_group exclusions then
+                (
+                    refreshMembers()
+                    script_manager.refreshGroupLoader()
+                    lbl_status.text = (added_paths.count as string) + " selection entries added."
+                )
+                else lbl_status.text = "Save failed; see Listener."
+            )
+        )
+        createDialog script_manager_members_ui
+        script_manager_members_ui.edited_group = group_name
+        script_manager_members_ui.refreshMembers()
+        true
+        -- return
+    ),
+
+
     function resolveUserGroupScripts group_name =
     (
         local resolved_paths = #()
@@ -6405,6 +6610,9 @@ function refreshConfiguredDiscovery =
                 )
             )
         )
+        local excluded_paths = this.getGroupExclusions group_name
+        resolved_paths = for path_value in resolved_paths where (findItem excluded_paths (toLower path_value)) == 0 collect path_value
+        invalid_paths = for path_value in invalid_paths where (findItem excluded_paths (toLower path_value)) == 0 collect path_value
         #(resolved_paths, invalid_paths)
         -- return
     ),
@@ -6492,12 +6700,59 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
+    /* Suggests the category folder containing the selected tool directories.
+    For scripts in canonical tool subfolders, skips their own tool folder; mixed
+    selections use the nearest shared category parent. Direct files stay in place.
+    */
+    function getSuggestedToolFolderName script_paths =
+    (
+        if classOf script_paths != Array then return ""
+        if script_paths.count == 0 then return ""
+        local shared_directory = ""
+        for script_path in script_paths do
+        (
+            if script_path == undefined or script_path == "" then return ""
+            local candidate_directory = if this.isSupportedScriptPath script_path then (getFilenamePath script_path) else script_path
+            candidate_directory = ScriptManagerIntegration.normalizeDirectoryPath candidate_directory
+            if candidate_directory == "" then return ""
+
+            /* A folder containing <FolderName>.ms (or a versioned equivalent)
+            is the tool directory; propose its parent category instead.
+            */
+            if ScriptManagerIntegration.getToolScript candidate_directory != undefined then
+            (
+                local stripped_directory = substring candidate_directory 1 (candidate_directory.count - 1)
+                local parent_directory = ScriptManagerIntegration.normalizeDirectoryPath (pathConfig.removePathLeaf stripped_directory)
+                if parent_directory != "" then candidate_directory = parent_directory
+            )
+
+            if shared_directory == "" then
+            (
+                shared_directory = candidate_directory
+            )
+            else
+            (
+                while shared_directory != "" and not(ScriptManagerIntegration.isFilePathUnderDirectory candidate_directory shared_directory) do
+                (
+                    local stripped_directory = substring shared_directory 1 (shared_directory.count - 1)
+                    local parent_directory = ScriptManagerIntegration.normalizeDirectoryPath (pathConfig.removePathLeaf stripped_directory)
+                    shared_directory = if parent_directory == shared_directory then "" else parent_directory
+                )
+            )
+        )
+        if shared_directory == "" then return ""
+        ScriptManagerIntegration.getFolderName shared_directory
+        -- return
+    ),
+
     /* Prompts for a group name using the same native dialog as preset naming.
     Cancel or an invalid name leaves the INI and currently selected group untouched.
     */
-    function askUserGroupName =
+    function askUserGroupName default_name:"" =
     (
-        local name_dialog = dotNetObject "MaxCustomControls.RenameInstanceDialog" ""
+        local safe_default_name = this.normalizeUserGroupName default_name
+        if safe_default_name == undefined then safe_default_name = ""
+        local name_dialog = dotNetObject "MaxCustomControls.RenameInstanceDialog" safe_default_name
         name_dialog.text = "Create User Group"
         local modal_result = name_dialog.ShowModal()
         if modal_result.ToString() != "OK" then return undefined
@@ -6512,7 +6767,9 @@ function refreshConfiguredDiscovery =
     */
     function createUserGroupFromSelection =
     (
-        local group_name = this.askUserGroupName()
+        local script_paths = this.getSelectedTreeScriptsForUserGroup()
+        local proposed_name = this.getSuggestedToolFolderName script_paths
+        local group_name = this.askUserGroupName default_name:proposed_name
         if group_name == undefined then return false
         local group_names = this.getUserGroupNames()
         for saved_name in group_names do
@@ -6523,7 +6780,6 @@ function refreshConfiguredDiscovery =
                 return false
             )
         )
-        local script_paths = this.getSelectedTreeScriptsForUserGroup()
         if not(this.saveUserGroupScripts group_name script_paths) then return false
         group_loader_selected_group = group_name
         group_loader_selected_toolbar = ""
@@ -6537,7 +6793,7 @@ function refreshConfiguredDiscovery =
     */
     function addTreeSelectionToUserGroup =
     (
-        if script_manager_group_loader_ui == undefined then return false
+        if not(this.isGroupLoaderOpen()) then return false
         local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
         if group_index < 1 or group_index > group_loader_records.count then return false
         local group_name = group_loader_records[group_index][1]
@@ -6555,12 +6811,13 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Adds one right-clicked script to a named group, preserving all existing entries.
-    Group toolbar buttons use the saved INI group and pick up changes on next execution.
+    /* Adds a captured script or directory to a named group, preserving other entries.
+    Directory references resolve their current children when the group is loaded.
     */
     function addScriptToNamedUserGroup group_name script_path =
     (
-        if not(this.isSupportedScriptPath script_path) then return false
+        if classOf script_path != String or script_path == "" then return false
+        if not(this.isSupportedScriptPath script_path) and not(doesDirectoryExist script_path) then return false
         local normalized_name = this.normalizeUserGroupName group_name
         if normalized_name == undefined then return false
         if not(hasINISetting ini_path ("UserGroup|" + normalized_name)) then return false
@@ -6576,19 +6833,21 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Creates a named group from one captured right-clicked script path.
-    Does not rely on current selection after the context menu closes.
+    /* Creates a named group from a captured script or folder context path.
+    The folder is saved as a dynamic directory reference, not copied into scripts.
     */
     function createUserGroupFromScriptPath script_path =
     (
-        if not(this.isSupportedScriptPath script_path) then return false
-        local group_name = this.askUserGroupName()
+        if classOf script_path != String or script_path == "" then return false
+        if not(this.isSupportedScriptPath script_path) and not(doesDirectoryExist script_path) then return false
+        local proposed_name = this.getSuggestedToolFolderName #(script_path)
+        local group_name = this.askUserGroupName default_name:proposed_name
         if group_name == undefined then return false
         for existing_name in (this.getUserGroupNames()) do
         (
             if (toLower existing_name) == (toLower group_name) then
             (
-                messageBox "Group already exists. Choose it in ADD TO GROUP." title:"GROUP MANAGER"
+                messageBox "Group name already exists. Choose a different name." title:"GROUP MANAGER"
                 return false
             )
         )
@@ -6602,12 +6861,48 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
+    /* Deletes a named user group chosen in a folder's context submenu.
+    Always asks for confirmation and never removes a physical directory or script.
+    */
+    function deleteNamedUserGroupFromFolderContext group_name folder_path =
+    (
+        if classOf folder_path != String or not(doesDirectoryExist folder_path) then return false
+        local normalized_name = this.normalizeUserGroupName group_name
+        if normalized_name == undefined then return false
+        if not(hasINISetting ini_path ("UserGroup|" + normalized_name)) then return false
+        local delete_approved = queryBox ("Delete group '" + normalized_name + "'? Scripts and folders will not be deleted.") title:"GROUP MANAGER"
+        if not delete_approved then return false
+        if not(this.removeUserGroup normalized_name) then return false
+        if group_loader_selected_group == normalized_name then group_loader_selected_group = ""
+        this.refreshGroupLoader()
+        true
+        -- return
+    ),
+
+    /* Switches a folder between creating and deleting its dedicated saved group.
+    Existing groups require the normal confirmation and only their INI section is removed.
+    */
+    function toggleFolderUserGroupFromContext folder_path =
+    (
+        if classOf folder_path != String or not(doesDirectoryExist folder_path) then return false
+        local group_name = this.getFolderUserGroupName folder_path
+        if group_name == undefined then
+        (
+            this.createUserGroupFromScriptPath folder_path
+        )
+        else
+        (
+            this.deleteNamedUserGroupFromFolderContext group_name folder_path
+        )
+        -- return
+    ),
+
     /* Removes one explicitly named group after user confirmation.
     Does not delete any script or physical directory.
     */
     function deleteSelectedUserGroup =
     (
-        if script_manager_group_loader_ui == undefined then return false
+        if not(this.isGroupLoaderOpen()) then return false
         local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
         if group_index < 1 or group_index > group_loader_records.count then return false
         local group_name = group_loader_records[group_index][1]
@@ -6690,7 +6985,7 @@ function refreshConfiguredDiscovery =
     */
     function updateGroupLoaderSelection source_kind =
     (
-        if script_manager_group_loader_ui == undefined then return false
+        if not(this.isGroupLoaderOpen()) then return false
         if group_loader_selection_syncing then return true
         group_loader_selection_syncing = true
         local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
@@ -6749,7 +7044,7 @@ function refreshConfiguredDiscovery =
     */
     function refreshGroupLoader =
     (
-        if script_manager_group_loader_ui == undefined then return false
+        if not(this.isGroupLoaderOpen()) then return false
         if group_loader_group_items == undefined or group_loader_toolbar_items == undefined then return false
         local previous_group = group_loader_selected_group
         local previous_toolbar = group_loader_selected_toolbar
@@ -6820,7 +7115,7 @@ function refreshConfiguredDiscovery =
     */
     function loadGroupLoaderSelection source_kind =
     (
-        if script_manager_group_loader_ui == undefined then return false
+        if not(this.isGroupLoaderOpen()) then return false
         local load_ok = false
         local group_label = ""
         local host_path = ""
@@ -6950,12 +7245,44 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Releases toolbar entries using the cached .NET collection reference.
-    Avoids repeated ToolStripItemCollection wrapper registration in MAXScript.
+    /* Clears a nested folder toolbar-action submenu before rebuilding.
+    Release leaf handlers before disposing its parent menu item.
     */
-    function clearToolbarSubmenu =
+    function clearToolbarActionSubmenu menu_item =
     (
-        /* Refresh the wrapper from its owner; two cached .NET submenu wrappers may alias. */
+        if menu_item == undefined then return true
+        local child_items = menu_item.DropDownItems
+        while child_items.Count > 0 do
+        (
+            local child_item = child_items.Item[0]
+            dotNet.removeAllEventHandlers child_item
+            child_items.Remove child_item
+            child_item.Dispose()
+        )
+        true
+        -- return
+    ),
+
+    /* Clears the group-action submenu using its owning .NET menu item.
+    This prevents event handlers from surviving context-menu rebuilds.
+    */
+    function clearToolbarGroupSubmenu =
+    (
+        this.clearToolbarActionSubmenu script_tree_toolbar_group_item
+        script_tree_toolbar_group_children = undefined
+        script_tree_toolbar_group_new_item = undefined
+        script_tree_toolbar_group_new_separator = undefined
+        true
+        -- return
+    ),
+
+    /* Clears toolbar targets and nested folder actions before a new selection.
+    Only the root menu item persists; nested entries are recreated per selection.
+    */
+    function clearToolbarSubmenu remove_group:false =
+    (
+        if script_tree_toolbar_direct_item != undefined then this.clearToolbarActionSubmenu script_tree_toolbar_direct_item
+        this.clearToolbarGroupSubmenu()
         if script_tree_toolbar_item != undefined then script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
         if script_tree_toolbar_children != undefined then
         (
@@ -6967,16 +7294,18 @@ function refreshConfiguredDiscovery =
                 child_item.Dispose()
             )
         )
-        script_tree_group_loader_item = undefined
-        script_tree_toolbar_group_loader_separator = undefined
+        script_tree_toolbar_direct_item = undefined
+        script_tree_toolbar_direct_children = undefined
+        script_tree_toolbar_group_item = undefined
+        script_tree_toolbar_group_children = undefined
         script_tree_toolbar_new_item = undefined
         script_tree_toolbar_new_separator = undefined
         true
         -- return
     ),
 
-    /* Rebuilds the dark ADD TO GROUP submenu from persisted user-group names.
-    Captures the right-clicked script path in each item, independent of tree selection.
+    /* Rebuilds ADD TO GROUP only for script leaves.
+    Folder rows instead expose the existing ADD TO TOOLBAR submenu.
     */
     function refreshGroupSubmenu script_path =
     (
@@ -6990,15 +7319,8 @@ function refreshConfiguredDiscovery =
             script_tree_group_children.Remove child_item
             child_item.Dispose()
         )
-        script_tree_group_item.Visible = script_path != undefined
-        if script_path == undefined then return true
-        local manager_item = script_tree_group_children.Add "GROUP MANAGER"
-        manager_item.BackColor = script_tree_context_menu.BackColor
-        manager_item.ForeColor = script_tree_context_menu.ForeColor
-        dotNet.addEventHandler manager_item "Click" scriptManagerGroupLoaderContextHandler
-        local manager_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
-        manager_separator.BackColor = script_tree_context_menu.BackColor
-        script_tree_group_children.Add manager_separator
+        script_tree_group_item.Visible = script_path != undefined and this.isSupportedScriptPath script_path
+        if not(script_tree_group_item.Visible) then return true
         local group_names = this.getUserGroupNames()
         if group_names.count == 0 then
         (
@@ -7021,6 +7343,37 @@ function refreshConfiguredDiscovery =
         local group_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
         group_separator.BackColor = script_tree_context_menu.BackColor
         script_tree_group_children.Add group_separator
+        if not(this.isSupportedScriptPath script_path) then
+        (
+            local delete_group_item = script_tree_group_children.Add "DELETE GROUP"
+            delete_group_item.BackColor = script_tree_context_menu.BackColor
+            delete_group_item.ForeColor = script_tree_context_menu.ForeColor
+            local delete_popup = delete_group_item.DropDown
+            delete_popup.BackColor = script_tree_context_menu.BackColor
+            delete_popup.ForeColor = script_tree_context_menu.ForeColor
+            delete_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
+            delete_popup.ShowImageMargin = false
+            local delete_children = delete_group_item.DropDownItems
+            if group_names.count == 0 then
+            (
+                delete_group_item.Enabled = false
+            )
+            else
+            (
+                for group_name in group_names do
+                (
+                    local delete_item = delete_children.Add group_name
+                    delete_item.Tag = script_path
+                    delete_item.BackColor = script_tree_context_menu.BackColor
+                    delete_item.ForeColor = script_tree_context_menu.ForeColor
+                    dotNet.addEventHandler delete_item "Click" scriptManagerTreeDeleteGroupContextHandler
+                )
+            )
+        )
+        /* Nested DELETE GROUP DropDownItems can invalidate MAXScript's parent
+        collection wrapper. Rebind to ADD TO GROUP before adding NEW GROUP.
+        */
+        script_tree_group_children = script_tree_group_item.DropDownItems
         local new_group_item = script_tree_group_children.Add "NEW GROUP"
         new_group_item.Tag = script_path
         new_group_item.BackColor = script_tree_context_menu.BackColor
@@ -7030,74 +7383,191 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Places GROUP MANAGER first in ADD TO TOOLBAR, followed by custom toolbars.
-    Folders retain access to GROUP MANAGER without script-specific toolbar actions.
+    /* Populates a toolbar-action submenu with NEW TOOLBAR and existing targets.
+    A group action creates a single dynamic group button; direct action adds scripts.
     */
-    function refreshToolbarSubmenu script_path =
+    function populateToolbarActionSubmenu menu_item context_path as_group:false new_first:false =
     (
-        this.clearToolbarSubmenu()
-        script_tree_toolbar_item.Visible = true
-        script_tree_group_loader_item = script_tree_toolbar_children.Add "GROUP MANAGER"
-        script_tree_group_loader_item.BackColor = script_tree_context_menu.BackColor
-        script_tree_group_loader_item.ForeColor = script_tree_context_menu.ForeColor
-        dotNet.addEventHandler script_tree_group_loader_item "Click" scriptManagerGroupLoaderContextHandler
-        if script_path == undefined then return true
+        if menu_item == undefined then return false
+        local child_items = menu_item.DropDownItems
+        while child_items.Count > 0 do
+        (
+            local old_item = child_items.Item[0]
+            dotNet.removeAllEventHandlers old_item
+            child_items.Remove old_item
+            old_item.Dispose()
+        )
 
-        script_tree_toolbar_group_loader_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
-        script_tree_toolbar_group_loader_separator.BackColor = script_tree_context_menu.BackColor
-        script_tree_toolbar_children.Add script_tree_toolbar_group_loader_separator
-
+        local backend_ready = this.ensureToolbarCreatorBackend()
         local toolbar_names = undefined
-        if this.ensureToolbarCreatorBackend() then
+        if backend_ready then
         (
             try (toolbar_names = listManagedScriptToolbars sync_live:true) catch
             (
                 format "[Script-Manager] Toolbar listing failed: %\n" (getCurrentException())
             )
         )
+        local new_item = dotNetObject "System.Windows.Forms.ToolStripMenuItem" "NEW TOOLBAR"
+        new_item.Tag = context_path
+        new_item.BackColor = script_tree_context_menu.BackColor
+        new_item.ForeColor = script_tree_context_menu.ForeColor
+        new_item.Enabled = backend_ready
+        if as_group then
+        (
+            dotNet.addEventHandler new_item "Click" scriptManagerTreeNewToolbarAsGroupContextHandler
+            script_tree_toolbar_group_new_item = new_item
+        )
+        else
+        (
+            dotNet.addEventHandler new_item "Click" scriptManagerTreeNewToolbarContextHandler
+            script_tree_toolbar_new_item = new_item
+        )
+        local new_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        new_separator.BackColor = script_tree_context_menu.BackColor
+
+        if new_first then
+        (
+            child_items.Add new_item
+            child_items.Add new_separator
+        )
         if toolbar_names == undefined or toolbar_names.count == 0 then
         (
-            local empty_item = script_tree_toolbar_children.Add (if toolbar_names == undefined then "Toolbar-Creator unavailable" else "No custom toolbars")
+            local empty_item = child_items.Add (if toolbar_names == undefined then "Toolbar-Creator unavailable" else "No custom toolbars")
+            empty_item.Enabled = false
             empty_item.BackColor = script_tree_context_menu.BackColor
             empty_item.ForeColor = script_tree_context_menu.ForeColor
-            empty_item.Enabled = false
         )
         else
         (
             for toolbar_name in toolbar_names do
             (
-                local toolbar_item = script_tree_toolbar_children.Add toolbar_name
-                toolbar_item.Tag = script_path
+                local toolbar_item = child_items.Add toolbar_name
+                toolbar_item.Tag = context_path
                 toolbar_item.BackColor = script_tree_context_menu.BackColor
                 toolbar_item.ForeColor = script_tree_context_menu.ForeColor
-                dotNet.addEventHandler toolbar_item "Click" scriptManagerTreeToolbarContextHandler
+                if as_group then
+                    dotNet.addEventHandler toolbar_item "Click" scriptManagerTreeToolbarAsGroupContextHandler
+                else
+                    dotNet.addEventHandler toolbar_item "Click" scriptManagerTreeToolbarContextHandler
             )
         )
-        script_tree_toolbar_new_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
-        script_tree_toolbar_new_separator.BackColor = script_tree_context_menu.BackColor
-        script_tree_toolbar_children.Add script_tree_toolbar_new_separator
-        script_tree_toolbar_new_item = script_tree_toolbar_children.Add "NEW TOOLBAR"
-        script_tree_toolbar_new_item.Tag = script_path
-        script_tree_toolbar_new_item.BackColor = script_tree_context_menu.BackColor
-        script_tree_toolbar_new_item.ForeColor = script_tree_context_menu.ForeColor
-        script_tree_toolbar_new_item.Enabled = this.ensureToolbarCreatorBackend()
-        dotNet.addEventHandler script_tree_toolbar_new_item "Click" scriptManagerTreeNewToolbarContextHandler
+        if not new_first then
+        (
+            child_items.Add new_separator
+            child_items.Add new_item
+        )
+        if as_group then
+        (
+            script_tree_toolbar_group_new_separator = new_separator
+            script_tree_toolbar_group_children = menu_item.DropDownItems
+        )
+        else
+        (
+            script_tree_toolbar_new_separator = new_separator
+        )
         true
         -- return
     ),
 
-    /*
-    Prompts for a unique Toolbar-Creator name and creates a toolbar containing
-    one initial script or user-group button. Cancel leaves the CUIX untouched.
+    /* Builds toolbar actions immediately after inserting each parent menu item.
+    Detached ToolStripMenuItems lose their DropDownItems in 3ds Max; never populate
+    a second sibling before the first sibling's third-level menu is complete.
     */
-    function createNewManagedToolbar first_button default_name:"" =
+    function refreshToolbarSubmenu script_path =
+    (
+        script_tree_toolbar_item.Visible = script_path != undefined
+        if script_path == undefined then return true
+
+        local valid_folder = classOf script_path == String and doesDirectoryExist script_path
+        script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
+        if not valid_folder then
+        (
+            this.populateToolbarActionSubmenu script_tree_toolbar_item script_path
+            return true
+        )
+
+        script_tree_toolbar_direct_item = script_tree_toolbar_children.Add "ADD TO TOOLBAR"
+        script_tree_toolbar_direct_item.BackColor = script_tree_context_menu.BackColor
+        script_tree_toolbar_direct_item.ForeColor = script_tree_context_menu.ForeColor
+        local direct_popup = script_tree_toolbar_direct_item.DropDown
+        direct_popup.BackColor = script_tree_context_menu.BackColor
+        direct_popup.ForeColor = script_tree_context_menu.ForeColor
+        direct_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
+        direct_popup.ShowImageMargin = false
+        this.populateToolbarActionSubmenu script_tree_toolbar_direct_item script_path new_first:true
+
+        script_tree_toolbar_group_item = script_tree_toolbar_children.Add "ADD TO TOOLBAR AS GROUP"
+        script_tree_toolbar_group_item.BackColor = script_tree_context_menu.BackColor
+        script_tree_toolbar_group_item.ForeColor = script_tree_context_menu.ForeColor
+        local group_popup = script_tree_toolbar_group_item.DropDown
+        group_popup.BackColor = script_tree_context_menu.BackColor
+        group_popup.ForeColor = script_tree_context_menu.ForeColor
+        group_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
+        group_popup.ShowImageMargin = false
+        this.populateToolbarActionSubmenu script_tree_toolbar_group_item script_path as_group:true new_first:true
+
+        script_tree_toolbar_direct_children = script_tree_toolbar_direct_item.DropDownItems
+        script_tree_toolbar_group_children = script_tree_toolbar_group_item.DropDownItems
+        true
+        -- return
+    ),
+
+    /* Refreshes only the folder's ADD TO TOOLBAR AS GROUP targets.
+    The folder-group button continues using the existing group-creation workflow.
+    */
+    function refreshToolbarGroupSubmenu folder_path =
+    (
+        if script_tree_toolbar_group_item == undefined then return true
+        local valid_folder = classOf folder_path == String and doesDirectoryExist folder_path
+        script_tree_toolbar_group_item.Visible = valid_folder
+        if not valid_folder then return true
+        this.populateToolbarActionSubmenu script_tree_toolbar_group_item folder_path as_group:true new_first:true
+        -- return
+    ),
+
+    /* Collects toolbar buttons for a clicked script or the selected folder's visible leaves.
+    Folder collection honors SCRIPTS filters and avoids scanning hidden dependencies.
+    */
+    function getToolbarButtonsForTreePath context_path =
+    (
+        if not(this.ensureToolbarCreatorBackend()) then return #()
+        if classOf context_path != String or context_path == "" then return #()
+        if this.isSupportedScriptPath context_path then
+        (
+            if not(doesFileExist context_path) then return #()
+            return (collectToolbarScripts #(context_path) recursive:false)
+        )
+        if not(doesDirectoryExist context_path) then return #()
+        local tree_control = this.getScriptTreeControl()
+        if tree_control == undefined then return #()
+        local tree_node = tree_control.SelectedNode
+        if tree_node == undefined then return #()
+        if (toLower (tree_node.ToolTipText as string)) != (toLower context_path) then return #()
+        local script_paths = #()
+        this.collectScriptTreePaths tree_node script_paths
+        if script_paths.count == 0 then return #()
+        local button_data = collectToolbarScripts script_paths recursive:false
+        if button_data == undefined then return #()
+        button_data
+        -- return
+    ),
+
+    /* Creates a toolbar from an initial button or a complete folder button list.
+    Cancel or a duplicate name leaves existing toolbar data untouched.
+    */
+    function createNewManagedToolbar first_button default_name:"" button_data:undefined =
     (
         if not(this.ensureToolbarCreatorBackend()) then
         (
             messageBox "Toolbar-Creator backend is unavailable." title:"NEW TOOLBAR"
             return undefined
         )
-        if classOf first_button != Array or first_button.count < 2 then return undefined
+        local initial_buttons = if button_data == undefined then #(first_button) else button_data
+        if classOf initial_buttons != Array or initial_buttons.count == 0 then return undefined
+        for initial_button in initial_buttons do
+        (
+            if classOf initial_button != Array or initial_button.count < 2 then return undefined
+        )
         local proposed_name = if default_name == "" then this.getDefaultToolbarName() else default_name
         local toolbar_name = this.askToolbarName default_value:proposed_name
         if toolbar_name == undefined then return undefined
@@ -7118,7 +7588,7 @@ function refreshConfiguredDiscovery =
         local create_ok = false
         try
         (
-            create_ok = manageScriptToolbar #create toolbar_name button_data:#(first_button) save_ui:true
+            create_ok = manageScriptToolbar #create toolbar_name button_data:initial_buttons save_ui:true
         )
         catch
         (
@@ -7133,14 +7603,19 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Creates a new Toolbar-Creator toolbar with the clicked SCRIPTS file. */
+    /* Creates a Toolbar-Creator toolbar containing the clicked script or folder's visible scripts.
+    Folder toolbar creation uses one operation, avoiding partially populated new toolbars.
+    */
     function createToolbarFromScriptSelection script_path =
     (
-        if not(this.isSupportedScriptPath script_path) or not(doesFileExist script_path) then return false
-        if not(this.ensureToolbarCreatorBackend()) then return false
-        local first_buttons = collectToolbarScripts #(script_path) recursive:false
-        if first_buttons == undefined or first_buttons.count != 1 then return false
-        local new_name = this.createNewManagedToolbar first_buttons[1] default_name:((getFilenameFile script_path) + " Toolbar")
+        local first_buttons = this.getToolbarButtonsForTreePath script_path
+        if first_buttons == undefined or first_buttons.count == 0 then
+        (
+            messageBox "No supported visible scripts were found for this item." title:"NEW TOOLBAR"
+            return false
+        )
+        local proposed_name = this.getSuggestedToolFolderName #(script_path)
+        local new_name = this.createNewManagedToolbar first_buttons[1] default_name:proposed_name button_data:first_buttons
         new_name != undefined
         -- return
     ),
@@ -7151,7 +7626,7 @@ function refreshConfiguredDiscovery =
     */
     function createToolbarFromGroupLoader =
     (
-        if script_manager_group_loader_ui == undefined then return false
+        if not(this.isGroupLoaderOpen()) then return false
         if not(this.ensureToolbarCreatorBackend()) then return false
         local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
         local first_button = undefined
@@ -7162,7 +7637,8 @@ function refreshConfiguredDiscovery =
             local reference_text = this.makeToolbarUserGroupReference group_name
             if reference_text == undefined then return false
             first_button = #(reference_text,group_name,("Load user group: " + group_name))
-            default_name = group_name + " Toolbar"
+            local proposed_name = this.getSuggestedToolFolderName (this.getUserGroupScripts group_name)
+            default_name = if proposed_name == "" then (group_name + " Toolbar") else proposed_name
         )
         else
         (
@@ -7179,24 +7655,42 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Appends one script while preserving existing toolbar button data and order.
+    /* Appends all visible scripts from a folder, or one script, as toolbar buttons.
+    Existing buttons retain order and duplicates are skipped; update is atomic.
     */
     function addScriptToManagedToolbar toolbar_name script_path =
     (
-        if not(this.ensureToolbarCreatorBackend()) then return false
-        if not(this.isSupportedScriptPath script_path) or not(doesFileExist script_path) then return false
+        local new_buttons = this.getToolbarButtonsForTreePath script_path
+        if new_buttons == undefined or new_buttons.count == 0 then
+        (
+            messageBox "No supported visible scripts were found for this item." title:"ADD TO TOOLBAR"
+            return false
+        )
         try
         (
             local saved_buttons = getManagedScriptToolbarButtons toolbar_name
             if saved_buttons == undefined then throw "Existing toolbar buttons could not be read; toolbar was not changed."
-            local script_key = toLower (toolbarCreatorToPortablePath script_path)
+            local existing_keys = #()
             for saved_button in saved_buttons do
             (
-                if (toLower (toolbarCreatorToPortablePath saved_button[1])) == script_key then return true
+                if classOf saved_button == Array and saved_button.count > 0 and classOf saved_button[1] == String then
+                (
+                    local saved_key = toLower (toolbarCreatorToPortablePath saved_button[1])
+                    if (findItem existing_keys saved_key) == 0 then append existing_keys saved_key
+                )
             )
-            local new_buttons = collectToolbarScripts #(script_path) recursive:false
-            if new_buttons == undefined or new_buttons.count != 1 then throw "Script could not be collected; toolbar was not changed."
-            append saved_buttons new_buttons[1]
+            local buttons_added = 0
+            for new_button in new_buttons do
+            (
+                local script_key = toLower (toolbarCreatorToPortablePath new_button[1])
+                if (findItem existing_keys script_key) == 0 then
+                (
+                    append saved_buttons new_button
+                    append existing_keys script_key
+                    buttons_added += 1
+                )
+            )
+            if buttons_added == 0 then return true
             if not(manageScriptToolbar #update toolbar_name button_data:saved_buttons save_ui:true) then throw "Toolbar-Creator update failed; see Listener."
             true
         )
@@ -7207,6 +7701,102 @@ function refreshConfiguredDiscovery =
             messageBox error_text title:"ADD TO TOOLBAR"
             false
         )
+        -- return
+    ),
+
+    /* Finds the dedicated saved group whose only member is this exact folder.
+    The match uses resolved absolute paths, not group names or descendant membership.
+    */
+    function getFolderUserGroupName folder_path =
+    (
+        if classOf folder_path != String or not(doesDirectoryExist folder_path) then return undefined
+        local normalized_folder = ScriptManagerIntegration.normalizeDirectoryPath folder_path
+        if normalized_folder == "" then return undefined
+        local folder_key = toLower (substituteString normalized_folder "/" "\\")
+        for saved_name in (this.getUserGroupNames()) do
+        (
+            local saved_paths = this.getUserGroupScripts saved_name
+            if saved_paths.count == 1 and doesDirectoryExist saved_paths[1] then
+            (
+                local member_key = toLower (substituteString (ScriptManagerIntegration.normalizeDirectoryPath saved_paths[1]) "/" "\\")
+                if member_key == folder_key then return saved_name
+            )
+        )
+        undefined
+        -- return
+    ),
+
+    /* Ensures a folder has its own saved dynamic group, without overwriting other groups.
+    Returns #(group name, newly created); an exact existing folder group is reused.
+    */
+    function ensureFolderToolbarGroup folder_path =
+    (
+        if classOf folder_path != String or not(doesDirectoryExist folder_path) then return undefined
+        local normalized_folder = ScriptManagerIntegration.normalizeDirectoryPath folder_path
+        if normalized_folder == "" then return undefined
+        local matching_group = this.getFolderUserGroupName normalized_folder
+        if matching_group != undefined then return #(matching_group,false)
+        local existing_names = this.getUserGroupNames()
+        local proposed_name = this.getSuggestedToolFolderName #(normalized_folder)
+        if proposed_name == "" then proposed_name = ScriptManagerIntegration.getFolderName normalized_folder
+        local base_name = this.normalizeUserGroupName proposed_name
+        if base_name == undefined then return undefined
+        local new_name = base_name
+        local index = 2
+        local duplicate_name = true
+        while duplicate_name do
+        (
+            duplicate_name = false
+            for saved_name in existing_names while not duplicate_name do
+            (
+                if (toLower saved_name) == (toLower new_name) then duplicate_name = true
+            )
+            if duplicate_name then
+            (
+                new_name = base_name + " " + (index as string)
+                index += 1
+            )
+        )
+        if not(this.saveUserGroupScripts new_name #(normalized_folder)) then return undefined
+        #(new_name,true)
+        -- return
+    ),
+
+    /* Adds a folder as one dynamic group button to an existing toolbar.
+    Reuses a saved folder group or creates it only on the explicit click.
+    */
+    function addFolderGroupToManagedToolbar toolbar_name folder_path =
+    (
+        if not(this.ensureToolbarCreatorBackend()) then return false
+        local group_record = this.ensureFolderToolbarGroup folder_path
+        if group_record == undefined then return false
+        local group_name = group_record[1]
+        local add_ok = this.addUserGroupToManagedToolbar toolbar_name group_name
+        if not add_ok and group_record[2] then this.removeUserGroup group_name
+        if add_ok and script_manager_group_loader_ui != undefined then this.refreshGroupLoader()
+        add_ok
+        -- return
+    ),
+
+    /* Creates a toolbar containing a single folder-group button.
+    A newly saved group is rolled back if toolbar creation is cancelled or fails.
+    */
+    function createToolbarFromFolderGroup folder_path =
+    (
+        if not(this.ensureToolbarCreatorBackend()) then return false
+        local group_record = this.ensureFolderToolbarGroup folder_path
+        if group_record == undefined then return false
+        local group_name = group_record[1]
+        local reference_text = this.makeToolbarUserGroupReference group_name
+        local new_name = undefined
+        if reference_text != undefined then
+        (
+            local first_button = #(reference_text,group_name,("Load user group: " + group_name))
+            new_name = this.createNewManagedToolbar first_button default_name:group_name
+        )
+        if new_name == undefined and group_record[2] then this.removeUserGroup group_name
+        if new_name != undefined and script_manager_group_loader_ui != undefined then this.refreshGroupLoader()
+        new_name != undefined
         -- return
     ),
 
@@ -7259,7 +7849,7 @@ function refreshConfiguredDiscovery =
     */
     function addSelectedUserGroupToToolbar =
     (
-        if script_manager_group_loader_ui == undefined then return false
+        if not(this.isGroupLoaderOpen()) then return false
         local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
         local toolbar_index = script_manager_group_loader_ui.lb_toolbars.SelectedIndex + 1
         if group_index < 1 or group_index > group_loader_records.count then
@@ -7302,7 +7892,10 @@ function refreshConfiguredDiscovery =
                 child_item.Dispose()
             )
         )
-        this.clearToolbarSubmenu()
+        /* Dispose nested toolbar submenus with their owning context menu.
+        Reopening third-level ToolStripItemCollection wrappers during teardown can
+        register the same .NET collection twice in MAXScript.
+        */
         cleanup_ok = true
 
         if script_tree_open_group_item != undefined then
@@ -7315,7 +7908,7 @@ function refreshConfiguredDiscovery =
             (
                 exception_text = getCurrentException()
                 cleanup_ok = false
-                format "[Script-Manager] Tree OPEN GROUP handler cleanup failed: %\n" exception_text
+                format "[Script-Manager] Tree LOAD GROUP handler cleanup failed: %\n" exception_text
             )
         )
 
@@ -7333,6 +7926,19 @@ function refreshConfiguredDiscovery =
             )
         )
 
+        if script_tree_folder_group_item != undefined then
+        (
+            try
+            (
+                dotNet.removeEventHandler script_tree_folder_group_item "Click" scriptManagerTreeFolderGroupContextHandler
+            )
+            catch
+            (
+                cleanup_ok = false
+                format "[Script-Manager] Tree folder-group handler cleanup failed: %\n" (getCurrentException())
+            )
+        )
+
         if script_tree_startup_item != undefined then
         (
             try
@@ -7343,6 +7949,19 @@ function refreshConfiguredDiscovery =
             (
                 cleanup_ok = false
                 format "[Script-Manager] Tree STARTUP handler cleanup failed: %\n" (getCurrentException())
+            )
+        )
+
+        if script_tree_group_loader_item != undefined then
+        (
+            try
+            (
+                dotNet.removeEventHandler script_tree_group_loader_item "Click" scriptManagerGroupLoaderContextHandler
+            )
+            catch
+            (
+                cleanup_ok = false
+                format "[Script-Manager] GROUP MANAGER handler cleanup failed: %\n" (getCurrentException())
             )
         )
 
@@ -7446,18 +8065,28 @@ function refreshConfiguredDiscovery =
 
         script_tree_context_menu = undefined
         script_tree_context_items = undefined
+        script_tree_load_separator = undefined
+        script_tree_assignment_separator = undefined
         script_tree_open_separator = undefined
         script_tree_expand_separator = undefined
+        script_tree_startup_separator = undefined
         script_tree_open_group_item = undefined
         script_tree_load_item = undefined
         script_tree_startup_item = undefined
         script_tree_toolbar_item = undefined
         script_tree_toolbar_children = undefined
+        script_tree_toolbar_direct_item = undefined
+        script_tree_toolbar_direct_children = undefined
+        script_tree_toolbar_group_item = undefined
+        script_tree_toolbar_group_children = undefined
         script_tree_group_item = undefined
+        script_tree_folder_group_item = undefined
         script_tree_group_children = undefined
-        script_tree_toolbar_group_loader_separator = undefined
+        script_tree_group_loader_item = undefined
         script_tree_toolbar_new_item = undefined
         script_tree_toolbar_new_separator = undefined
+        script_tree_toolbar_group_new_item = undefined
+        script_tree_toolbar_group_new_separator = undefined
         script_tree_open_explorer_item = undefined
         script_tree_expand_item = undefined
         script_tree_collapse_item = undefined
@@ -7488,8 +8117,18 @@ function refreshConfiguredDiscovery =
         */
         script_tree_context_items = script_tree_context_menu.Items
 
-        script_tree_open_group_item = script_tree_context_items.Add "OPEN GROUP"
+        script_tree_open_group_item = script_tree_context_items.Add "LOAD GROUP"
         script_tree_load_item = script_tree_context_items.Add "LOAD SCRIPT"
+        script_tree_load_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        script_tree_context_items.Add script_tree_load_separator
+        script_tree_folder_group_item = script_tree_context_items.Add "CREATE GROUP"
+        local selected_node = tree_control.SelectedNode
+        local selected_path = if selected_node == undefined then undefined else selected_node.ToolTipText
+        local selected_script_path = if selected_path != undefined and this.isSupportedScriptPath selected_path then selected_path else undefined
+
+        /* Populate each parent before creating its next sibling. MAXScript's
+        .NET DropDownItems wrappers are not stable after deferred population.
+        */
         script_tree_group_item = script_tree_context_items.Add "ADD TO GROUP"
         local group_popup = script_tree_group_item.DropDown
         group_popup.BackColor = script_tree_context_menu.BackColor
@@ -7497,11 +8136,16 @@ function refreshConfiguredDiscovery =
         group_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
         group_popup.ShowImageMargin = false
         script_tree_group_children = script_tree_group_item.DropDownItems
-        /* Materialize the first submenu before accessing a second .NET DropDownItems.
-        MAXScript may otherwise bind both cached collections to the first menu.
-        Both placeholders are removed by their normal submenu refresh methods.
+        this.refreshGroupSubmenu selected_script_path
+        /* A hidden group still needs one child to materialize its own dropdown.
+        Without it, MAXScript redirects the next menu's children into this one.
         */
-        script_tree_group_children.Add "__GROUP_MENU_INIT__"
+        if script_tree_group_children.Count == 0 then
+        (
+            local hidden_group_init = script_tree_group_children.Add "__HIDDEN_GROUP_INIT__"
+            hidden_group_init.Visible = false
+        )
+
         script_tree_toolbar_item = script_tree_context_items.Add "ADD TO TOOLBAR"
         local toolbar_popup = script_tree_toolbar_item.DropDown
         toolbar_popup.BackColor = script_tree_context_menu.BackColor
@@ -7509,7 +8153,10 @@ function refreshConfiguredDiscovery =
         toolbar_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
         toolbar_popup.ShowImageMargin = false
         script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
-        script_tree_toolbar_children.Add "__TOOLBAR_MENU_INIT__"
+        this.refreshToolbarSubmenu selected_path
+        script_tree_assignment_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        script_tree_context_items.Add script_tree_assignment_separator
+        script_tree_group_loader_item = script_tree_context_items.Add "GROUP MANAGER"
         script_tree_open_explorer_item = script_tree_context_items.Add "OPEN IN EXPLORER"
         script_tree_open_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
         script_tree_context_items.Add script_tree_open_separator
@@ -7520,20 +8167,24 @@ function refreshConfiguredDiscovery =
         script_tree_expand_item = script_tree_context_items.Add "EXPAND"
         script_tree_expand_all_item = script_tree_context_items.Add "EXPAND ALL"
         script_tree_expand_enabled_item = script_tree_context_items.Add "EXPAND ENABLED"
+        script_tree_startup_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
+        script_tree_context_items.Add script_tree_startup_separator
         script_tree_startup_item = script_tree_context_items.Add "ADD TO STARTUP SCRIPTS"
 
-        for menu_item in #(script_tree_group_item, script_tree_toolbar_item, script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
+        for menu_item in #(script_tree_folder_group_item, script_tree_group_item, script_tree_toolbar_item, script_tree_group_loader_item, script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
         (
             menu_item.BackColor = script_tree_context_menu.BackColor
             menu_item.ForeColor = script_tree_context_menu.ForeColor
         )
 
-        script_tree_open_group_item.ToolTipText = "Open every script in this folder and its descendants in one shared rollout dialog."
+        script_tree_open_group_item.ToolTipText = "Load every script in this folder and its descendants into one shared rollout dialog."
         script_tree_expand_enabled_item.ToolTipText = "Expand only folders containing HOST or DIRECT scripts; collapse other branches."
 
         dotNet.addEventHandler script_tree_open_group_item "Click" scriptManagerTreeOpenGroupContextHandler
+        dotNet.addEventHandler script_tree_folder_group_item "Click" scriptManagerTreeFolderGroupContextHandler
         dotNet.addEventHandler script_tree_load_item "Click" scriptManagerTreeLoadContextHandler
         dotNet.addEventHandler script_tree_startup_item "Click" scriptManagerTreeStartupContextHandler
+        dotNet.addEventHandler script_tree_group_loader_item "Click" scriptManagerGroupLoaderContextHandler
         dotNet.addEventHandler script_tree_open_explorer_item "Click" scriptManagerTreeOpenExplorerContextHandler
         dotNet.addEventHandler script_tree_expand_item "Click" scriptManagerTreeExpandContextHandler
         dotNet.addEventHandler script_tree_collapse_item "Click" scriptManagerTreeCollapseContextHandler
@@ -7554,6 +8205,9 @@ function refreshConfiguredDiscovery =
         if tree_control == undefined then return false
         if script_tree_open_group_item == undefined or script_tree_load_item == undefined or script_tree_startup_item == undefined or script_tree_open_explorer_item == undefined or script_tree_expand_item == undefined or script_tree_collapse_item == undefined or script_tree_expand_enabled_item == undefined then return false
 
+        /* Keep the existing context-menu instance alive during right-click.
+        Disposing and recreating it inside NodeMouseClick prevents the popup opening.
+        */
         selected_node = tree_control.SelectedNode
         selected_is_script = selected_node != undefined and this.isSupportedScriptPath selected_node.ToolTipText
         has_selection = selected_node != undefined
@@ -7562,11 +8216,16 @@ function refreshConfiguredDiscovery =
         script_tree_open_group_item.Visible = has_selection and not selected_is_script
         script_tree_open_group_item.Enabled = has_children
 
-        /* Refresh in submenu-construction order. Reversing the order can alias
-        the .NET ToolStripItemCollection wrappers and detach ADD TO TOOLBAR.
-        */
+        /* Refresh selections without disposing the root ContextMenuStrip. */
         this.refreshGroupSubmenu (if selected_is_script then selected_node.ToolTipText else undefined)
-        this.refreshToolbarSubmenu (if selected_is_script then selected_node.ToolTipText else undefined)
+        this.clearToolbarSubmenu()
+        this.refreshToolbarSubmenu (if has_selection then selected_node.ToolTipText else undefined)
+
+        local valid_folder = has_selection and not selected_is_script and doesDirectoryExist selected_node.ToolTipText
+        local folder_group_name = if valid_folder then this.getFolderUserGroupName selected_node.ToolTipText else undefined
+        script_tree_folder_group_item.Visible = valid_folder
+        script_tree_folder_group_item.Text = if folder_group_name == undefined then "CREATE GROUP" else "DELETE GROUP"
+        if valid_folder then script_tree_folder_group_item.Tag = selected_node.ToolTipText
 
         script_tree_load_item.Visible = selected_is_script
         script_tree_load_item.Enabled = selected_is_script
@@ -7588,11 +8247,17 @@ function refreshConfiguredDiscovery =
         script_tree_expand_item.Enabled = has_children
         script_tree_collapse_item.Enabled = has_children
         script_tree_expand_all_item.Enabled = not selected_is_script
-        script_tree_expand_enabled_item.Visible = true
+        script_tree_expand_enabled_item.Visible = has_selection and not selected_is_script
         script_tree_expand_enabled_item.Enabled = tree_control.Nodes.Count > 0
         script_tree_collapse_all_item.Enabled = not selected_is_script
-        if script_tree_open_separator != undefined then script_tree_open_separator.Visible = has_selection
+        /* Keep logical sections separated without empty/adjacent separators.
+        Folder context contains EXPAND ENABLED; script context skips the expansion section.
+        */
+        if script_tree_load_separator != undefined then script_tree_load_separator.Visible = has_selection
+        if script_tree_assignment_separator != undefined then script_tree_assignment_separator.Visible = has_selection
+        if script_tree_open_separator != undefined then script_tree_open_separator.Visible = has_selection and not selected_is_script
         if script_tree_expand_separator != undefined then script_tree_expand_separator.Visible = not selected_is_script
+        if script_tree_startup_separator != undefined then script_tree_startup_separator.Visible = selected_is_script
         true
         -- return
     ),
@@ -9452,6 +10117,92 @@ function getHostDialogTitle host_path =
 ),
 
 /*
+Identifies dialogs explicitly opened as groups; normal configured host dialogs remain manager-owned.
+*/
+function isPersistentGroupHost host_path =
+(
+    if host_path == undefined or host_path == "" then return false
+    (findItem persistent_group_host_paths host_path) > 0
+    -- return
+),
+
+/*
+Registers a successfully opened group dialog for survival across manager restart and closure.
+*/
+function markPersistentGroupHost host_path =
+(
+    if host_path == undefined or host_path == "" then return false
+    if this.getHostDialog host_path == undefined then return false
+    if not(this.isPersistentGroupHost host_path) then append persistent_group_host_paths host_path
+    true
+    -- return
+),
+
+/*
+Transfers live group-dialog ownership from the previous manager after its UI has been closed.
+Copies the hosted rollout instances and script bindings so existing dialog title controls keep working.
+*/
+function adoptPersistentGroupHostDialogs old_manager =
+(
+    if old_manager == undefined then return true
+    local adopt_ok = true
+    local old_host_count = 0
+    try (old_host_count = old_manager.host_dialog_paths.count) catch (return false)
+    host_dialog_build_id = old_manager.host_dialog_build_id
+
+    for host_index = 1 to old_host_count do
+    (
+        local host_path = old_manager.host_dialog_paths[host_index]
+        local was_persistent = false
+        try (was_persistent = old_manager.isPersistentGroupHost host_path) catch ()
+        if was_persistent then
+        (
+            local host_dialog = old_manager.host_dialogs[host_index]
+            local host_is_open = false
+            try (host_is_open = host_dialog.inDialog) catch (adopt_ok = false)
+            if host_is_open then
+            (
+                append host_dialog_paths host_path
+                append host_dialogs host_dialog
+                append host_dialog_symbol_names old_manager.host_dialog_symbol_names[host_index]
+                append persistent_group_host_paths host_path
+
+                for rollout_index = 1 to old_manager.loaded_rollout_group_paths.count do
+                (
+                    if old_manager.loaded_rollout_group_paths[rollout_index] == host_path then
+                    (
+                        append loaded_rollouts old_manager.loaded_rollouts[rollout_index]
+                        append loaded_rollout_names old_manager.loaded_rollout_names[rollout_index]
+                        append loaded_rollout_group_paths host_path
+                    )
+                )
+                for script_index = 1 to old_manager.loaded_host_script_dialog_paths.count do
+                (
+                    if old_manager.loaded_host_script_dialog_paths[script_index] == host_path then
+                    (
+                        local script_path = old_manager.loaded_host_script_paths[script_index]
+                        append loaded_host_script_paths script_path
+                        append loaded_host_script_dialog_paths host_path
+                        if (findItem loaded_script_paths script_path) == 0 then
+                        (
+                            append loaded_script_paths script_path
+                            append loaded_script_names (getFilenameFile script_path)
+                            append loaded_script_keys (this.getScriptKey script_path)
+                        )
+                    )
+                )
+            )
+        )
+    )
+    if persistent_group_host_paths.count > 0 then
+    (
+        format "[Script-Manager] Preserved % loaded group dialog(s) across restart.\n" persistent_group_host_paths.count
+    )
+    adopt_ok
+    -- return
+),
+
+/*
 Returns one live organizational host dialog by its root-relative host path.
 */
 function getHostDialog host_path =
@@ -10927,6 +11678,7 @@ function openScriptPathGroup host_path script_paths =
         refreshed_host = this.getHostDialog host_path
         if refreshed_host != undefined then
         (
+            if not(this.markPersistentGroupHost host_path) then load_ok = false
             if not(this.layoutHostDialog host_path [refreshed_host.width, refreshed_host.height]) then load_ok = false
         )
     )
@@ -10968,6 +11720,7 @@ function reloadHostDialogScripts host_path =
     host_dialog = this.getHostDialog host_path
     if host_dialog == undefined then return false
 
+    local was_persistent_group = this.isPersistentGroupHost host_path
     script_paths = this.getHostScriptPaths host_path
     if script_paths.count == 0 then return true
 
@@ -11009,6 +11762,7 @@ function reloadHostDialogScripts host_path =
         refreshed_host = this.getHostDialog host_path
         if refreshed_host != undefined then
         (
+            if was_persistent_group and not(this.markPersistentGroupHost host_path) then reload_ok = false
             if not(this.layoutHostDialog host_path [refreshed_host.width, refreshed_host.height]) then reload_ok = false
         )
     )
@@ -11260,7 +12014,8 @@ function clearLoadedRollouts =
 function formatHostedRolloutTitle rollout_title fallback_name:"" =
 (
     title_text = if rollout_title == undefined then "" else (trimRight (trimLeft (rollout_title as string)))
-    decoration = "———"
+    title_text = substituteString title_text "—" "-"
+    decoration = "---"
 
     if title_text.count >= 8 then
     (
@@ -11818,6 +12573,7 @@ function resetHostedStateTracking =
     host_dialogs = #()
     host_dialog_paths = #()
     host_dialog_symbol_names = #()
+    persistent_group_host_paths = #()
     loaded_host_script_paths = #()
     loaded_host_script_dialog_paths = #()
     hierarchy_layout_signature = ""
@@ -11855,6 +12611,8 @@ function handleHostDialogClosed host_path =
     )
 
     this.clearHostScriptTracking host_path
+    local persistent_index = findItem persistent_group_host_paths host_path
+    if persistent_index > 0 then deleteItem persistent_group_host_paths persistent_index
 
     true
     -- return
@@ -11969,6 +12727,8 @@ function destroyHostDialog host_path clear_rollouts:true =
     )
 
     this.clearHostScriptTracking host_path
+    local persistent_index = findItem persistent_group_host_paths host_path
+    if persistent_index > 0 then deleteItem persistent_group_host_paths persistent_index
 
     cleanup_ok
     -- return
@@ -11977,7 +12737,7 @@ function destroyHostDialog host_path clear_rollouts:true =
 /*
 Destroys every organizational host dialog.
 */
-function destroyAllHostDialogs clear_rollouts:true =
+function destroyAllHostDialogs clear_rollouts:true preserve_group_dialogs:false =
 (
     cleanup_ok = true
     paths_to_close = #()
@@ -11986,7 +12746,11 @@ function destroyAllHostDialogs clear_rollouts:true =
 
     for path_index = paths_to_close.count to 1 by -1 do
     (
-        if not(this.destroyHostDialog paths_to_close[path_index] clear_rollouts:clear_rollouts) then cleanup_ok = false
+        local current_path = paths_to_close[path_index]
+        if not(preserve_group_dialogs and this.isPersistentGroupHost current_path) then
+        (
+            if not(this.destroyHostDialog current_path clear_rollouts:clear_rollouts) then cleanup_ok = false
+        )
     )
 
     cleanup_ok
@@ -12237,7 +13001,7 @@ function destroyManagerDialog =
 
     -- Lock geometry callbacks before child-rollout destruction or CUI unregistration.
     is_destroying_manager = true
-    if not(this.destroyAllHostDialogs clear_rollouts:true) then cleanup_ok = false
+    if not(this.destroyAllHostDialogs clear_rollouts:true preserve_group_dialogs:true) then cleanup_ok = false
 
     if script_manager_ui == undefined then
     (
@@ -12654,6 +13418,14 @@ script_manager = script_manager_v()
 script_manager.manager_source_path = getSourceFileName()
 if not(script_manager.initializeSettingsFile()) then throw "Script-Manager settings initialization failed"
 script_manager.root_directory = script_manager.getProjectRootDirectory()
+if SCRIPT_MANAGER_PREVIOUS_INSTANCE != undefined then
+(
+    if not(script_manager.adoptPersistentGroupHostDialogs SCRIPT_MANAGER_PREVIOUS_INSTANCE) then
+    (
+        format "[Script-Manager] Warning: Some group dialog handles could not be restored.\n"
+    )
+)
+SCRIPT_MANAGER_PREVIOUS_INSTANCE = undefined
 if script_manager.debug_logging then format "[Script-Manager] MANAGER SOURCE: %\n" script_manager.manager_source_path
 if script_manager.debug_logging then format "[Script-Manager] MANAGED ROOT: %\n" script_manager.root_directory
 script_manager.registerProjectVersion()

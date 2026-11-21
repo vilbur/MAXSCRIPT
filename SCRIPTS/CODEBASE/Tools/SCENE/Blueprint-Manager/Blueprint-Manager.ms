@@ -1,9 +1,9 @@
 ﻿/*
-Blueprint Manager v0.039 — five reference-image planes in 3ds Max.
+Blueprint Manager v0.049 — five reference-image planes in 3ds Max.
 Runtime requires the canonical shared MaxScript UI/Default framework.
 */
 (
-    local project_version = "0.039"
+    local project_version = "0.049"
     local script_path = getSourceFileName()
     if script_path == undefined or script_path == "" then
     (

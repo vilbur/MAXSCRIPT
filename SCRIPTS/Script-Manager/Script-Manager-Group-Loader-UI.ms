@@ -1,4 +1,4 @@
-﻿/*
+/*
 GROUP MANAGER: standalone, vertically resizable user interface for Script-Manager.
 The manager owns explicit group storage and loading; this file owns the dialog and its layout.
 */
@@ -37,6 +37,7 @@ function scriptManagerLayoutGroupLoader dialog_size =
     script_manager_group_loader_ui.btn_add_group.pos = [176,244 + first_shift]
     script_manager_group_loader_ui.btn_delete_group.pos = [348,244 + first_shift]
     script_manager_group_loader_ui.btn_load_group.pos = [4,274 + first_shift]
+    script_manager_group_loader_ui.btn_edit_members.pos = [264,274 + first_shift]
     script_manager_group_loader_ui.lbl_toolbars.pos = [4,310 + first_shift]
     script_manager_group_loader_ui.lb_toolbars.pos = [4,330 + first_shift]
     script_manager_group_loader_ui.lb_toolbars.Height = second_height
@@ -57,7 +58,8 @@ rollout script_manager_group_loader_ui script_manager_group_loader_title width:5
     button btn_new_group "NEW GROUP" pos:[4,244] width:168 height:24
     button btn_add_group "ADD TREE SELECTION" pos:[176,244] width:168 height:24 enabled:false
     button btn_delete_group "DELETE GROUP" pos:[348,244] width:168 height:24 enabled:false
-    button btn_load_group "LOAD SELECTED GROUP" pos:[4,274] width:512 height:24 enabled:false
+    button btn_load_group "LOAD SELECTED GROUP" pos:[4,274] width:252 height:24 enabled:false
+    button btn_edit_members "EDIT GROUP SCRIPTS" pos:[264,274] width:252 height:24
     label lbl_toolbars "CUSTOM TOOLBARS" pos:[4,310] width:512 height:18
     dotNetControl lb_toolbars "System.Windows.Forms.ListBox" pos:[4,330] width:512 height:180
     button btn_new_toolbar "NEW TOOLBAR" pos:[4,514] width:512 height:24
@@ -97,6 +99,7 @@ rollout script_manager_group_loader_ui script_manager_group_loader_title width:5
     on btn_new_group pressed do (script_manager.createUserGroupFromSelection())
     on btn_add_group pressed do (script_manager.addTreeSelectionToUserGroup())
     on btn_delete_group pressed do (script_manager.deleteSelectedUserGroup())
+    on btn_edit_members pressed do (script_manager.editSelectedGroupMembers())
     on btn_load_group pressed do (script_manager.loadGroupLoaderSelection #tree)
     on btn_new_toolbar pressed do (script_manager.createToolbarFromGroupLoader())
     on btn_add_group_to_toolbar pressed do (script_manager.addSelectedUserGroupToToolbar())

@@ -1,5 +1,5 @@
 /* Modifier Manager - scoped native modifier parameter editors.
-   File version: 0.022 | Project version: 0.022.
+   File version: 0.032 | Project version: 0.032.
 */
 global modifierManagerUI
 global modifierManager
@@ -11,8 +11,8 @@ global mmMeshSmoothRollout
 global mmChamferRollout
 global mmSliceRollout
 global modifier_manager_project_version
-global modifier_manager_file_version_ui = 0.022
-global modifier_manager_stored_project_version_ui = 0.022
+global modifier_manager_file_version_ui = 0.032
+global modifier_manager_stored_project_version_ui = 0.032
 if modifier_manager_project_version == undefined or modifier_manager_stored_project_version_ui > modifier_manager_project_version then
 (
     modifier_manager_project_version = modifier_manager_stored_project_version_ui
@@ -262,7 +262,7 @@ rollout modifierManagerUI modifier_manager_title width:336 height:840
     button btn_native "Native selection" pos:[12,253] width:150 height:24
     button btn_refresh "Refresh" pos:[174,253] width:150 height:24
     dropdownList ddl_scope "PARAMETER EDIT SCOPE" pos:[12,292] width:312 items:#("Selected", "All of Type") selection:1 tooltip:"Edit selected modifiers or every modifier of the same class on this object."
-    subRollout sr_params "" pos:[12,342] width:312 height:452 scrollBar:#asNeeded
+    subRollout sr_params "" pos:[-4,342] width:344 height:452 scrollBar:#asNeeded
     label lbl_status "Ready." pos:[12,810] width:312 height:18
 
     /* Display feedback without mutating scene data. */

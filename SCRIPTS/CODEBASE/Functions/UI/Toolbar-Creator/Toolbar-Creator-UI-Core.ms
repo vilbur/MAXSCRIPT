@@ -1,5 +1,5 @@
 ﻿/*
-Toolbar-Creator UI core 0.20 | project 0.36.
+Toolbar-Creator UI core 0.21 | project 0.37.
 Dialog for browsing script sources and managing toolbars through the independent backend.
 
 Run Toolbar-Creator.ms or Toolbar-Creator-UI.ms to open this dialog safely.
@@ -22,8 +22,8 @@ global toolbarCreatorRestartTarget
 global toolbarCreatorUiFileLogTooltip
 global toolbar_creator_ui_min_height
 
-toolbarCreatorUiCoreFileVersion = 0.20
-toolbarCreatorUiProjectVersion = 0.36
+toolbarCreatorUiCoreFileVersion = 0.21
+toolbarCreatorUiProjectVersion = 0.37
 toolbar_creator_ui_min_height = (amax (560 + 24) (558 + 20)) + 16
 
 toolbar_creator_ui_source_file = getSourceFileName()
@@ -104,7 +104,15 @@ function toolbarCreatorRestartTick sender event_args =
 
         if toolbarCreatorRestartPhase == #close then
         (
-            local close_ok = DialogHost.destroyToolDialogs "Toolbar-Creator"
+            local close_ok = true
+            if isKindOf toolbarCreatorUiRollout RolloutClass then
+            (
+                if toolbarCreatorUiRollout.isDisplayed then
+                (
+                    try (destroyDialog toolbarCreatorUiRollout) catch ()
+                )
+                close_ok = not toolbarCreatorUiRollout.isDisplayed
+            )
             if close_ok then
             (
                 toolbarCreatorRestartPhase = #reload
@@ -183,6 +191,25 @@ function toolbarCreatorRequestRestart =
     )
 
     queued
+    -- return
+)
+
+/*
+Save position and height for a floating, non-dockable dialog.
+*/
+function toolbarCreatorSaveFloatingDialogState =
+(
+    local dialog_pos = try (getDialogPos toolbarCreatorUiRollout) catch (undefined)
+    if dialog_pos != undefined then
+    (
+        IniSettings.setPoint2 toolbar_creator_ui_ini_path "MainUI" "PosX" "PosY" dialog_pos
+    )
+    local dialog_height = try (toolbarCreatorUiRollout.height) catch (undefined)
+    if dialog_height != undefined then
+    (
+        IniSettings.setInteger toolbar_creator_ui_ini_path "MainUI" "Height" (amax toolbar_creator_ui_min_height dialog_height)
+    )
+    true
     -- return
 )
 
@@ -985,7 +1012,7 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
 
     on toolbarCreatorUiRollout moved dialog_pos do
     (
-        DialogHost.saveDialogPosition toolbarCreatorUiRollout toolbar_creator_ui_ini_path "MainUI"
+        toolbarCreatorSaveFloatingDialogState()
     )
 
     on toolbarCreatorUiRollout resized dialog_size do
@@ -998,14 +1025,14 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
         (
             resizeToolbarDialog dialog_size
             ToolTitleButton.resizeToolTitleButton btn_tool_title (toolbarCreatorUiRollout.width - 24)
-            DialogHost.saveDialogHeight toolbarCreatorUiRollout toolbar_creator_ui_ini_path "MainUI" min_height:toolbar_creator_ui_min_height
+            toolbarCreatorSaveFloatingDialogState()
         )
     )
 
     on toolbarCreatorUiRollout close do
     (
         saveToolbarUiState()
-        DialogHost.saveDialogState toolbarCreatorUiRollout toolbar_creator_ui_ini_path "MainUI" min_height:toolbar_creator_ui_min_height
+        toolbarCreatorSaveFloatingDialogState()
         if toolbarCreatorUiFileLogTooltip != undefined then
         (
             toolbarCreatorUiFileLogTooltip.Dispose()
@@ -1019,7 +1046,7 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
         try
         (
             saveToolbarUiState()
-            DialogHost.saveDialogState toolbarCreatorUiRollout toolbar_creator_ui_ini_path "MainUI" min_height:toolbar_creator_ui_min_height
+            toolbarCreatorSaveFloatingDialogState()
             if toolbarCreatorRequestRestart() then
             (
                 showToolbarStatus "Restart queued; loading the latest files from disk."
@@ -1249,12 +1276,14 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
 )
 
 /*
-Fit the startup height to the controls, regardless of an oversized saved height.
-The dialog host restores Height from INI; registered dockable dialogs cannot use setDialogSize.
+Create the tool as an ordinary floating dialog, without CUI dialog-bar registration.
+Remove only legacy Toolbar-Creator registrations, preserving all other dialogs.
 */
-IniSettings.setInteger toolbar_creator_ui_ini_path "MainUI" "Height" toolbar_creator_ui_min_height
-
-DialogHost.createManagedDialog toolbarCreatorUiRollout toolbar_creator_ui_ini_path "MainUI" \
-    tool_key:"Toolbar-Creator" default_width:1024 default_height:toolbar_creator_ui_min_height min_height:toolbar_creator_ui_min_height
-
+if not (DialogHost.destroyToolDialogs "Toolbar-Creator") then
+(
+    throw "Toolbar-Creator could not release its previous dockable dialog."
+)
+try (destroyDialog toolbarCreatorUiRollout) catch ()
+toolbar_creator_startup_pos = IniSettings.getPoint2 toolbar_creator_ui_ini_path "MainUI" "PosX" "PosY" default_value:[100,100]
+createDialog toolbarCreatorUiRollout width:1024 height:toolbar_creator_ui_min_height pos:toolbar_creator_startup_pos lockWidth:true lockHeight:false autoLayoutOnResize:true
 windows.processPostedMessages()

@@ -1,11 +1,11 @@
 /* Material-ID-Manager.ms
-   File version: 0.066
-   Project version: 0.066
+   File version: 0.077
+   Project version: 0.077
 */
 
 global material_id_manager_project_version
-global material_id_manager_file_version = 0.067
-global material_id_manager_stored_project_version = 0.067
+global material_id_manager_file_version = 0.077
+global material_id_manager_stored_project_version = 0.077
 global material_id_manager_rollout_title
 global material_id_manager_tool_title
 global material_id_manager_source_path = getSourceFileName()
@@ -9461,7 +9461,7 @@ rollout materialIdManagerSelectFacesRollout "Material Select Modifier Sets" heig
 rollout materialIdManagerRollout material_id_manager_rollout_title
 (
     dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,12] width:264 height:18
-    subRollout sub_rollouts "" pos:[12,42] width:264 height:1314 scrollBar:#asNeeded
+    subRollout sub_rollouts "" pos:[-4,42] width:296 height:1314 scrollBar:#asNeeded
 
     label lbl_status "Ready." pos:[12,1380] width:264 height:24
 
@@ -9542,8 +9542,8 @@ rollout materialIdManagerRollout material_id_manager_rollout_title
 
         btn_tool_title.pos = [12,12]
 
-        sub_rollouts.pos = [12,42]
-        sub_rollouts.width = content_width
+        sub_rollouts.pos = [-4,42]
+        sub_rollouts.width = content_width + 32
         sub_rollouts.height = layout_height - 90
 
         status_y = layout_height - 36

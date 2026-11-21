@@ -1,12 +1,12 @@
 /* Modifier Stack Live - fast native modifier-stack mirror.
-   File version: 0.002 | Project version: 0.002.
+   File version: 0.012 | Project version: 0.012.
 */
 global modifierStackLiveUI
 global mslLiveStackRollout
 global modifierStackLive
 global modifier_stack_live_project_version
-global modifier_stack_live_file_version_ui = 0.002
-global modifier_stack_live_stored_project_version_ui = 0.002
+global modifier_stack_live_file_version_ui = 0.012
+global modifier_stack_live_stored_project_version_ui = 0.012
 if modifier_stack_live_project_version == undefined or modifier_stack_live_stored_project_version_ui > modifier_stack_live_project_version then
 (
     modifier_stack_live_project_version = modifier_stack_live_stored_project_version_ui
@@ -34,7 +34,7 @@ rollout modifierStackLiveUI modifier_stack_live_title width:336 height:840
     local ui_sync = false
     dotNetControl btn_tool_title "System.Windows.Forms.Button" pos:[12,8] width:312 height:18 tooltip:"LMB: Restart the latest version of this tool."
     label lbl_object "Select one object." pos:[12,36] width:312 height:18
-    subRollout sr_stack "" pos:[12,60] width:312 height:648 scrollBar:#asNeeded
+    subRollout sr_stack "" pos:[-4,60] width:344 height:648 scrollBar:#asNeeded
     button btn_native "Native selection" pos:[12,720] width:150 height:24 tooltip:"Use the active native modifier as the list selection."
     button btn_refresh "Refresh" pos:[174,720] width:150 height:24
     button btn_on "ON" pos:[12,756] width:96 height:24

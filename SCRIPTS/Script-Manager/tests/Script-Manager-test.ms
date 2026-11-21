@@ -1,10 +1,10 @@
-﻿/*
-    Script-Manager regression test 1.224.
+/*
+    Script-Manager regression test 1.237.
     Tests production version identity, source selection, filters, persistent tri-state load modes, toolbar generation, tree menus, and dedicated script-load behavior.
 */
 
-global script_manager_test_file_version = 1.224
-global script_manager_test_project_version = 1.253
+global script_manager_test_file_version = 1.237
+global script_manager_test_project_version = 1.270
 global script_manager_test_root = getFilenamePath (getSourceFileName())
 global script_manager_test_passed = true
 global script_manager_test_original_root
@@ -736,7 +736,7 @@ function partOfTest10 =
     script_node = dotNetObject "System.Windows.Forms.TreeNode" "Preview.ms"
     script_node.ToolTipText = preview_path
     script_manager_scripts_ui.tv_scripts.SelectedNode = script_node
-    script_menu_ok = script_manager.updateScriptTreeContextMenuState() and script_manager.script_tree_load_item.Visible and not(script_manager.script_tree_expand_item.Visible)
+    script_menu_ok = script_manager.updateScriptTreeContextMenuState() and script_manager.script_tree_load_item.Visible and not(script_manager.script_tree_expand_item.Visible) and not(script_manager.script_tree_expand_enabled_item.Visible) and not(script_manager.script_tree_open_separator.Visible) and script_manager.script_tree_startup_separator.Visible
 
     first_load_ok = script_manager.loadSelectedScriptTreeItem()
     first_direct_ok = script_manager_test_marker_b == 1 and script_manager_test_forced_mode == #standalone and script_manager_test_forced_rollout != undefined and script_manager_test_forced_rollout.inDialog
@@ -767,7 +767,7 @@ function partOfTest10 =
     folder_node.ToolTipText = source_a
     folder_node.Nodes.Add "Child"
     script_manager_scripts_ui.tv_scripts.SelectedNode = folder_node
-    folder_menu_ok = script_manager.updateScriptTreeContextMenuState() and not(script_manager.script_tree_load_item.Visible) and script_manager.script_tree_open_explorer_item.Visible and script_manager.script_tree_expand_item.Visible
+    folder_menu_ok = script_manager.updateScriptTreeContextMenuState() and not(script_manager.script_tree_load_item.Visible) and script_manager.script_tree_open_explorer_item.Visible and script_manager.script_tree_expand_item.Visible and script_manager.script_tree_expand_enabled_item.Visible and script_manager.script_tree_open_separator.Visible and not(script_manager.script_tree_startup_separator.Visible)
 
     test_ok = write_ok and mode_ok and tracked_before and script_menu_ok and first_load_ok and first_direct_ok and first_not_hosted and second_load_ok and forced_twice_ok and second_not_hosted and mode_unchanged_ok and macro_double_load_ok and ms_double_load_ok and mse_double_ignored_ok and script_explorer_menu_ok and folder_menu_ok
     if not test_ok then script_manager_test_passed = false
@@ -1275,7 +1275,7 @@ function partOfTest18 =
 )
 
 /*
-Verifies OPEN GROUP is first and folder-only, and forces nested OFF/DIRECT scripts into one host.
+Verifies LOAD GROUP is first and folder-only, and forces nested OFF/DIRECT scripts into one host.
 The saved script modes are unchanged, and the shared dialog's title-button reload keeps its grouping.
 */
 function partOfTest19 =
@@ -1317,7 +1317,7 @@ function partOfTest19 =
     tree_control.Nodes.Add group_node
     tree_control.SelectedNode = group_node
     script_manager.updateScriptTreeContextMenuState()
-    first_item_ok = script_manager.script_tree_context_menu.Items.Item[0].Text == "OPEN GROUP"
+    first_item_ok = script_manager.script_tree_context_menu.Items.Item[0].Text == "LOAD GROUP"
     folder_menu_ok = script_manager.script_tree_open_group_item.Visible and script_manager.script_tree_open_group_item.Enabled
     tree_control.SelectedNode = leaf_a
     script_manager.updateScriptTreeContextMenuState()
@@ -1972,23 +1972,30 @@ function partOfTest32 =
 
     try
     (
-        script_order_ok = script_menu != undefined and script_menu.Items.Count == 10 and \
-            script_menu.Items.Item[0].Text == "OPEN GROUP" and \
+        script_order_ok = script_menu != undefined and script_menu.Items.Count == 17 and \
+            script_menu.Items.Item[0].Text == "LOAD GROUP" and \
             script_menu.Items.Item[1].Text == "LOAD SCRIPT" and \
-            script_menu.Items.Item[2].Text == "OPEN IN EXPLORER" and \
-            script_menu.Items.Item[4].Text == "COLLAPSE" and \
-            script_menu.Items.Item[5].Text == "COLLAPSE ALL" and \
-            script_menu.Items.Item[7].Text == "EXPAND" and \
-            script_menu.Items.Item[8].Text == "EXPAND ALL" and \
-            script_menu.Items.Item[9].Text == "EXPAND ENABLED"
+            script_menu.Items.Item[3].Text == "ADD TO GROUP" and \
+            script_menu.Items.Item[4].Text == "ADD TO TOOLBAR" and \
+            script_menu.Items.Item[6].Text == "GROUP MANAGER" and \
+            script_menu.Items.Item[7].Text == "OPEN IN EXPLORER" and \
+            script_menu.Items.Item[9].Text == "COLLAPSE" and \
+            script_menu.Items.Item[10].Text == "COLLAPSE ALL" and \
+            script_menu.Items.Item[12].Text == "EXPAND" and \
+            script_menu.Items.Item[13].Text == "EXPAND ALL" and \
+            script_menu.Items.Item[14].Text == "EXPAND ENABLED" and \
+            script_menu.Items.Item[16].Text == "ADD TO STARTUP SCRIPTS"
         source_order_ok = source_menu != undefined and script_manager.source_tree_group_color_item != undefined and \
             script_manager.source_tree_group_color_item.Text == "GROUP COLOR" and \
             script_manager.source_tree_load_dialog_item.Text == "LOAD \\ RELOAD DIALOG" and \
             script_manager.source_tree_collapse_all_item.Text == "COLLAPSE ALL" and \
             script_manager.source_tree_expand_all_item.Text == "EXPAND ALL"
         separators_ok = source_order_ok and script_order_ok and \
-            (script_menu.Items.Item[3].GetType()).Name == "ToolStripSeparator" and \
-            (script_menu.Items.Item[6].GetType()).Name == "ToolStripSeparator" and \
+            (script_menu.Items.Item[2].GetType()).Name == "ToolStripSeparator" and \
+            (script_menu.Items.Item[5].GetType()).Name == "ToolStripSeparator" and \
+            (script_menu.Items.Item[8].GetType()).Name == "ToolStripSeparator" and \
+            (script_menu.Items.Item[11].GetType()).Name == "ToolStripSeparator" and \
+            (script_menu.Items.Item[15].GetType()).Name == "ToolStripSeparator" and \
             (script_manager.source_tree_open_separator.GetType()).Name == "ToolStripSeparator" and \
             (script_manager.source_tree_expand_separator.GetType()).Name == "ToolStripSeparator"
 
@@ -2044,8 +2051,11 @@ function partOfTest33 =
             (script_manager.source_tree_open_separator.GetType()).Name == "ToolStripSeparator" and \
             (script_manager.source_tree_expand_separator.GetType()).Name == "ToolStripSeparator"
         script_ok = script_manager.script_tree_open_separator != undefined and \
+            (script_manager.script_tree_load_separator.GetType()).Name == "ToolStripSeparator" and \
+            (script_manager.script_tree_assignment_separator.GetType()).Name == "ToolStripSeparator" and \
             (script_manager.script_tree_open_separator.GetType()).Name == "ToolStripSeparator" and \
-            (script_manager.script_tree_expand_separator.GetType()).Name == "ToolStripSeparator"
+            (script_manager.script_tree_expand_separator.GetType()).Name == "ToolStripSeparator" and \
+            (script_manager.script_tree_startup_separator.GetType()).Name == "ToolStripSeparator"
 
         if source_ok and script_ok then
         (
@@ -3610,34 +3620,33 @@ partOfTest57()
 partOfTest58()
 
 /*
-Verifies GROUP MANAGER is the first ADD TO TOOLBAR submenu item, not a root
-item. Rebuilds the menu twice and tests file/folder modes without editing CUIX.
+Verifies GROUP MANAGER is a single root command, with no duplicates in either submenu.
+Rebuilds the root menu twice without changing real toolbars or saved groups.
 */
 function partOfTest59 =
 (
     local source_text = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager.ms")
-    local source_ok = source_text != undefined and (findString source_text "script_tree_context_items = script_tree_context_menu.Items") != undefined and (findString source_text "script_tree_group_loader_item = script_tree_toolbar_children.Add \"GROUP MANAGER\"") != undefined and (findString source_text "script_tree_toolbar_children.Add script_tree_toolbar_group_loader_separator") != undefined
+    local source_ok = source_text != undefined and (findString source_text "script_tree_context_items = script_tree_context_menu.Items") != undefined and (findString source_text "script_tree_group_loader_item = script_tree_context_items.Add \"GROUP MANAGER\"") != undefined
     local runtime_ok = false
-    if script_manager != undefined and script_manager.file_version >= 1.251 then
+    if script_manager != undefined and script_manager.file_version >= 1.257 then
     (
         runtime_ok = true
         for test_index = 1 to 2 while runtime_ok do
         (
             local build_ok = script_manager.buildScriptTreeContextMenu()
             local root_items = script_manager.script_tree_context_items
-            local submenu_items = script_manager.script_tree_toolbar_children
-            runtime_ok = build_ok and root_items != undefined and submenu_items != undefined
-            if runtime_ok then runtime_ok = root_items.Count == 12 and root_items.Item[0].Text == "OPEN GROUP"
-            if runtime_ok then runtime_ok = script_manager.refreshToolbarSubmenu undefined
-            if runtime_ok then runtime_ok = script_manager.script_tree_toolbar_item.Available and submenu_items.Count == 1 and submenu_items.Item[0].Text == "GROUP MANAGER" and root_items.IndexOf script_manager.script_tree_group_loader_item == -1
+            runtime_ok = build_ok and root_items != undefined and root_items.Count == 18
+            if runtime_ok then runtime_ok = root_items.Item[0].Text == "LOAD GROUP" and root_items.Item[7].Text == "GROUP MANAGER" and root_items.IndexOf script_manager.script_tree_group_loader_item == 7
+            if runtime_ok then runtime_ok = script_manager.refreshGroupSubmenu script_manager.manager_source_path
             if runtime_ok then runtime_ok = script_manager.refreshToolbarSubmenu script_manager.manager_source_path
-            if runtime_ok then runtime_ok = submenu_items.Count >= 4 and submenu_items.Item[0].Text == "GROUP MANAGER" and (submenu_items.Item[1].GetType()).FullName == "System.Windows.Forms.ToolStripSeparator" and submenu_items.Item[(submenu_items.Count - 1)].Text == "NEW TOOLBAR"
+            if runtime_ok then runtime_ok = script_manager.script_tree_group_children.Item[(script_manager.script_tree_group_children.Count - 1)].Text == "NEW GROUP"
+            if runtime_ok then runtime_ok = script_manager.script_tree_toolbar_children.Item[(script_manager.script_tree_toolbar_children.Count - 1)].Text == "NEW TOOLBAR"
             if runtime_ok then runtime_ok = script_manager.updateScriptTreeContextMenuState()
         )
     )
     local test_ok = source_ok and runtime_ok
     if not test_ok then script_manager_test_passed = false
-    format "PART 59 | submenu-first:% | repeated rebuild:% | PASS:%\n" source_ok runtime_ok test_ok
+    format "PART 59 | single root GROUP MANAGER:% | repeated rebuild:% | PASS:%\n" source_ok runtime_ok test_ok
     test_ok
     -- return
 )
@@ -3773,8 +3782,8 @@ function partOfTest64 =
     -- return
 )
 
-/* Validates both dark submenus and the final STARTUP action after repeated rebuilds.
-Both submenus must contain live child items, not detached MAXScript .NET wrappers.
+/* Validates dark ADD TO GROUP / ADD TO TOOLBAR submenus and final STARTUP.
+Tests five root separators and submenu refresh after repeated rebuilds.
 */
 function partOfTest65 =
 (
@@ -3785,6 +3794,7 @@ function partOfTest65 =
     local group_ok = true
     local toolbar_ok = true
     local startup_ok = true
+    local separators_ok = true
 
     for pass_index = 1 to 3 do
     (
@@ -3794,21 +3804,353 @@ function partOfTest65 =
         local root_items = script_manager.script_tree_context_items
         local group_items = script_manager.script_tree_group_children
         local toolbar_items = script_manager.script_tree_toolbar_children
-        group_ok = group_ok and script_manager.script_tree_group_item.HasDropDownItems and group_items.Count >= 4 and script_manager.script_tree_group_item.DropDownItems.Count == group_items.Count and group_items.Item[0].Text == "GROUP MANAGER" and group_items.Item[(group_items.Count - 1)].Text == "NEW GROUP"
-        toolbar_ok = toolbar_ok and script_manager.script_tree_toolbar_item.HasDropDownItems and toolbar_items.Count >= 4 and script_manager.script_tree_toolbar_item.DropDownItems.Count == toolbar_items.Count and toolbar_items.Item[0].Text == "GROUP MANAGER" and toolbar_items.Item[(toolbar_items.Count - 1)].Text == "NEW TOOLBAR"
-        startup_ok = startup_ok and root_items.Item[(root_items.Count - 1)].Text == "ADD TO STARTUP SCRIPTS"
+        group_ok = group_ok and script_manager.script_tree_group_item.HasDropDownItems and group_items.Count >= 3 and script_manager.script_tree_group_item.DropDownItems.Count == group_items.Count and group_items.Item[(group_items.Count - 1)].Text == "NEW GROUP"
+        toolbar_ok = toolbar_ok and script_manager.script_tree_toolbar_item.HasDropDownItems and toolbar_items.Count >= 3 and script_manager.script_tree_toolbar_item.DropDownItems.Count == toolbar_items.Count and toolbar_items.Item[(toolbar_items.Count - 1)].Text == "NEW TOOLBAR"
+        startup_ok = startup_ok and root_items.Count == 18 and root_items.Item[(root_items.Count - 1)].Text == "ADD TO STARTUP SCRIPTS"
+        separators_ok = separators_ok and (root_items.Item[2].GetType()).Name == "ToolStripSeparator" and (root_items.Item[6].GetType()).Name == "ToolStripSeparator" and (root_items.Item[9].GetType()).Name == "ToolStripSeparator" and (root_items.Item[12].GetType()).Name == "ToolStripSeparator" and (root_items.Item[16].GetType()).Name == "ToolStripSeparator"
 
         script_manager.refreshGroupSubmenu undefined
         script_manager.refreshToolbarSubmenu undefined
-        toolbar_ok = toolbar_ok and script_manager.script_tree_toolbar_item.HasDropDownItems and script_manager.script_tree_toolbar_item.DropDownItems.Count == 1 and script_manager.script_tree_toolbar_children.Item[0].Text == "GROUP MANAGER"
+        group_ok = group_ok and not(script_manager.script_tree_group_item.Visible)
+        toolbar_ok = toolbar_ok and not(script_manager.script_tree_toolbar_item.Visible)
     )
-    local test_ok = source_ok and menu_ok and group_ok and toolbar_ok and startup_ok
+    local test_ok = source_ok and menu_ok and group_ok and toolbar_ok and startup_ok and separators_ok
     if not test_ok then script_manager_test_passed = false
-    format "PART 65 | source:% | menu:% | group:% | toolbar:% | startup:% | PASS:%\n" source_ok menu_ok group_ok toolbar_ok startup_ok test_ok
+    format "PART 65 | source:% | menu:% | group:% | toolbar:% | startup:% | separators:% | PASS:%\n" source_ok menu_ok group_ok toolbar_ok startup_ok separators_ok test_ok
     test_ok
     -- return
 )
 
+/*
+Checks folder RMB replacement: ADD TO TOOLBAR, not ADD TO GROUP.
+Script RMB keeps both submenus; menu tests never change saved groups or toolbars.
+*/
+function partOfTest66 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local source_ok = source_text != undefined and (findString source_text "this.refreshGroupSubmenu (if selected_is_script then selected_node.ToolTipText else undefined)") != undefined and (findString source_text "this.refreshToolbarSubmenu (if has_selection then selected_node.ToolTipText else undefined)") != undefined
+    local folder_path = getFilenamePath script_manager.manager_source_path
+    local script_path = script_manager.manager_source_path
+    local menu_ok = script_manager.buildScriptTreeContextMenu()
+    local folder_ok = false
+    local script_ok = false
+    if menu_ok then
+    (
+        local group_refresh_ok = script_manager.refreshGroupSubmenu folder_path
+        local toolbar_refresh_ok = script_manager.refreshToolbarSubmenu folder_path
+        local toolbar_items = script_manager.script_tree_toolbar_children
+        local folder_has_group = script_manager.getFolderUserGroupName folder_path != undefined
+        folder_ok = group_refresh_ok and toolbar_refresh_ok and not(script_manager.script_tree_group_item.Available) and script_manager.script_tree_toolbar_item.Available
+        if not folder_has_group then folder_ok = folder_ok and toolbar_items.Count >= 2 and toolbar_items.Item[(toolbar_items.Count - 1)].Text == "NEW TOOLBAR" and (toolbar_items.Item[(toolbar_items.Count - 1)].Tag as string) == folder_path
+        if folder_has_group then folder_ok = folder_ok and toolbar_items.Count == 1 and toolbar_items.Item[0].Text == "ADD TO TOOLBAR AS GROUP"
+        script_manager.refreshGroupSubmenu script_path
+        script_manager.refreshToolbarSubmenu script_path
+        local group_items = script_manager.script_tree_group_children
+        toolbar_items = script_manager.script_tree_toolbar_children
+        script_ok = script_manager.script_tree_group_item.Available and script_manager.script_tree_toolbar_item.Available and group_items.Count >= 2 and group_items.Item[(group_items.Count - 1)].Text == "NEW GROUP" and toolbar_items.Item[(toolbar_items.Count - 1)].Text == "NEW TOOLBAR"
+        script_manager.refreshGroupSubmenu undefined
+        script_manager.refreshToolbarSubmenu undefined
+    )
+    local test_ok = source_ok and menu_ok and folder_ok and script_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 66 | source:% | menu:% | folder:% | script:% | PASS:%\n" source_ok menu_ok folder_ok script_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Checks the new toolbar-folder collector and all-buttons update path without writing CUIX.
+Directory collection is limited to the selected SCRIPTS node and displayed leaves.
+*/
+function partOfTest67 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local collector_ok = source_text != undefined and (findString source_text "function getToolbarButtonsForTreePath context_path =") != undefined and (findString source_text "this.collectScriptTreePaths tree_node script_paths") != undefined and (findString source_text "if (toLower (tree_node.ToolTipText as string)) != (toLower context_path) then return #()") != undefined
+    local create_ok = source_text != undefined and (findString source_text "button_data:initial_buttons save_ui:true") != undefined and (findString source_text "default_name:proposed_name button_data:first_buttons") != undefined
+    local add_ok = source_text != undefined and (findString source_text "if buttons_added == 0 then return true") != undefined and (findString source_text "local new_buttons = this.getToolbarButtonsForTreePath script_path") != undefined
+    local test_ok = collector_ok and create_ok and add_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 67 | collector:% | create:% | add:% | PASS:%\n" collector_ok create_ok add_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Checks the folder-only ADD TO TOOLBAR AS GROUP submenu and group-reference implementation.
+No custom toolbar or user group is modified by this non-destructive test.
+*/
+function partOfTest68 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local source_ok = source_text != undefined and (findString source_text "function ensureFolderToolbarGroup folder_path =") != undefined and (findString source_text "function addFolderGroupToManagedToolbar toolbar_name folder_path =") != undefined and (findString source_text "function createToolbarFromFolderGroup folder_path =") != undefined and (findString source_text "this.getSuggestedToolFolderName #(normalized_folder)") != undefined and (findString source_text "this.makeToolbarUserGroupReference group_name") != undefined and (findString source_text "script_tree_toolbar_group_children.Add \"__TOOLBAR_GROUP_MENU_INIT__\"") != undefined
+    local menu_ok = script_manager.buildScriptTreeContextMenu()
+    local folder_ok = false
+    local script_ok = false
+    if menu_ok then
+    (
+        local folder_path = getFilenamePath script_manager.manager_source_path
+        local script_path = script_manager.manager_source_path
+        local has_group = script_manager.getFolderUserGroupName folder_path != undefined
+        local parent_refresh_ok = script_manager.refreshToolbarSubmenu folder_path
+        local group_refresh_ok = script_manager.refreshToolbarGroupSubmenu folder_path
+        local menu_item = script_manager.script_tree_toolbar_group_item
+        local menu_children = script_manager.script_tree_toolbar_group_children
+        folder_ok = parent_refresh_ok and group_refresh_ok and script_manager.script_tree_toolbar_item.Available
+        if has_group then folder_ok = folder_ok and menu_item != undefined and script_manager.script_tree_toolbar_item.DropDownItems.Count == 1 and script_manager.script_tree_toolbar_item.DropDownItems.Item[0].Text == "ADD TO TOOLBAR AS GROUP" and script_manager.script_tree_context_items.IndexOf(menu_item) == -1 and menu_children.Count >= 2 and menu_children.Item[(menu_children.Count-1)].Text == "NEW TOOLBAR" and (menu_children.Item[(menu_children.Count-1)].Tag as string) == folder_path
+        if not has_group then folder_ok = folder_ok and not(menu_item.Available)
+        local parent_script_ok = script_manager.refreshToolbarSubmenu script_path
+        group_refresh_ok = script_manager.refreshToolbarGroupSubmenu script_path
+        script_ok = parent_script_ok and group_refresh_ok and not(script_manager.script_tree_toolbar_group_item.Available)
+        script_manager.refreshToolbarGroupSubmenu undefined
+    )
+    local test_ok = source_ok and menu_ok and folder_ok and script_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 68 | source:% | menu:% | folder:% | script:% | PASS:%\n" source_ok menu_ok folder_ok script_ok test_ok
+    test_ok
+    -- return
+)
+
+/*
+Verifies loaded group dialogs are excluded from manager teardown and reattached after restart.
+Uses synthetic tracking only; does not create dialogs, load scripts, or modify any INI or CUIX.
+*/
+function partOfTest69 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local source_ok = source_text != undefined and \
+        (findString source_text "function markPersistentGroupHost host_path =") != undefined and \
+        (findString source_text "function adoptPersistentGroupHostDialogs old_manager =") != undefined and \
+        (findString source_text "this.markPersistentGroupHost host_path") != undefined and \
+        (findString source_text "preserve_group_dialogs:true") != undefined and \
+        (findString source_text "script_manager.adoptPersistentGroupHostDialogs SCRIPT_MANAGER_PREVIOUS_INSTANCE") != undefined
+
+    local test_manager = script_manager_v()
+    local group_path = "__SCRIPT_MANAGER_PRESERVE_SYNTHETIC__"
+    append test_manager.host_dialog_paths group_path
+    append test_manager.host_dialogs undefined
+    append test_manager.host_dialog_symbol_names "script_manager_preserve_synthetic"
+    append test_manager.persistent_group_host_paths group_path
+    local marked_ok = test_manager.isPersistentGroupHost group_path and not(test_manager.isPersistentGroupHost "UNRELATED")
+    local cleanup_ok = test_manager.destroyAllHostDialogs clear_rollouts:false preserve_group_dialogs:true
+    local preserved_ok = cleanup_ok and test_manager.host_dialog_paths.count == 1 and test_manager.isPersistentGroupHost group_path
+
+    local test_ok = source_ok and marked_ok and preserved_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 69 | source:% | marker:% | teardown:% | PASS:%\n" source_ok marked_ok preserved_ok test_ok
+    test_ok
+    -- return
+)
+
+/* Verifies folder right-click actions switch with exact saved-folder group ownership.
+    Uses a separate temporary INI; no existing group, toolbar, or dialog is changed.
+*/
+function partOfTest70 =
+(
+    local source_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText source_path
+    local source_ok = source_text != undefined and \
+        (findString source_text "function getFolderUserGroupName folder_path =") != undefined and \
+        (findString source_text "script_tree_folder_group_item.Text = if folder_group_name == undefined then \"CREATE GROUP\" else \"DELETE GROUP\"") != undefined and \
+        (findString source_text "scriptManagerTreeFolderGroupContextHandler") != undefined
+
+    local isolated_manager = script_manager_v()
+    local test_folder = getFilenamePath script_manager.manager_source_path
+    local temp_ini_path = (getDir #temp) + "\\script_manager_folder_context_1_263_test_" + ((timestamp()) as string) + ".ini"
+    local fs = dotNetClass "System.IO.File"
+    local had_temp_ini = fs.Exists temp_ini_path
+    local name_ok = false
+    local no_group_ok = false
+    local exact_group_ok = false
+    local other_folder_ok = false
+
+    if not had_temp_ini and doesDirectoryExist test_folder then
+    (
+        isolated_manager.ini_path = temp_ini_path
+        isolated_manager.root_directory = getFilenamePath script_manager.manager_source_path
+        no_group_ok = isolated_manager.getFolderUserGroupName test_folder == undefined
+        local temp_name = "Folder Context Regression"
+        local write_ok = isolated_manager.saveUserGroupScripts temp_name #(test_folder)
+        exact_group_ok = write_ok and isolated_manager.getFolderUserGroupName test_folder == temp_name
+        local unrelated_folder = getDir #temp
+        other_folder_ok = isolated_manager.getFolderUserGroupName unrelated_folder == undefined
+        name_ok = isolated_manager.removeUserGroup temp_name
+        try (fs.Delete temp_ini_path) catch ()
+    )
+    else
+    (
+        /* Do not touch an existing temp file from another process. */
+        format "PART 70 | temp INI unavailable for safe isolated test\n"
+    )
+    local result_ok = source_ok and no_group_ok and exact_group_ok and other_folder_ok and name_ok
+    if not result_ok then script_manager_test_passed = false
+    format "PART 70 | source:% | absent:% | present:% | unrelated:% | cleanup:% | PASS:%\n" source_ok no_group_ok exact_group_ok other_folder_ok name_ok result_ok
+    result_ok
+    -- return
+)
+
+
+/* Verifies folder direct/group action menus keep their own targets before and after group creation.
+    The source check rejects the former internal toolbar initialization placeholder.
+*/
+function partOfTest71 =
+(
+    local temp_ini_path = (getDir #temp) + "\\script_manager_nested_toolbar_1_269_" + ((timestamp()) as string) + ".ini"
+    local fs = dotNetClass "System.IO.File"
+    local original_ini = script_manager.ini_path
+    local source_text = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager.ms")
+    local source_ok = source_text != undefined and \
+        (findString source_text "script_tree_toolbar_direct_item = dotNetObject \"System.Windows.Forms.ToolStripMenuItem\" \"ADD TO TOOLBAR\"") != undefined and \
+        (findString source_text "script_tree_toolbar_group_item = dotNetObject \"System.Windows.Forms.ToolStripMenuItem\" \"ADD TO TOOLBAR AS GROUP\"") != undefined and \
+        (findString source_text "script_tree_toolbar_children.Add script_tree_toolbar_direct_item") != undefined and \
+        (findString source_text "__TOOLBAR_DIRECT_INIT__") == undefined
+    local ungrouped_ok = false
+    local grouped_ok = false
+    local script_ok = false
+    local cleanup_ok = true
+    if not(fs.Exists temp_ini_path) then
+    (
+        try
+        (
+            local folder_path = getFilenamePath script_manager.manager_source_path
+            local script_path = script_manager.manager_source_path
+            local group_name = "NESTED-TOOLBAR-TEST"
+            script_manager.ini_path = temp_ini_path
+            local build_ok = script_manager.buildScriptTreeContextMenu()
+            local ungrouped_refresh = script_manager.refreshToolbarSubmenu folder_path
+            local toolbar_children = script_manager.script_tree_toolbar_item.DropDownItems
+            local direct_children = script_manager.script_tree_toolbar_direct_item.DropDownItems
+            local group_children = script_manager.script_tree_toolbar_group_item.DropDownItems
+            ungrouped_ok = build_ok and ungrouped_refresh and toolbar_children.Count == 2 and direct_children.Count >= 3 and group_children.Count >= 3
+            if ungrouped_ok then ungrouped_ok = toolbar_children.Item[0].Text == "ADD TO TOOLBAR" and toolbar_children.Item[1].Text == "ADD TO TOOLBAR AS GROUP" and direct_children.Item[0].Text == "NEW TOOLBAR" and group_children.Item[0].Text == "NEW TOOLBAR"
+
+            local save_ok = script_manager.saveUserGroupScripts group_name #(folder_path)
+            local grouped_refresh = script_manager.refreshToolbarSubmenu folder_path
+            toolbar_children = script_manager.script_tree_toolbar_item.DropDownItems
+            direct_children = script_manager.script_tree_toolbar_direct_item.DropDownItems
+            group_children = script_manager.script_tree_toolbar_group_item.DropDownItems
+            grouped_ok = save_ok and grouped_refresh and toolbar_children.Count == 2 and direct_children.Count >= 3 and group_children.Count >= 3
+            if grouped_ok then grouped_ok = toolbar_children.Item[0].Text == "ADD TO TOOLBAR" and toolbar_children.Item[1].Text == "ADD TO TOOLBAR AS GROUP" and direct_children.Item[0].Text == "NEW TOOLBAR" and group_children.Item[0].Text == "NEW TOOLBAR"
+
+            local script_refresh = script_manager.refreshToolbarSubmenu script_path
+            local group_refresh = script_manager.refreshGroupSubmenu script_path
+            toolbar_children = script_manager.script_tree_toolbar_item.DropDownItems
+            group_children = script_manager.script_tree_group_item.DropDownItems
+            script_ok = script_refresh and group_refresh and toolbar_children.Count >= 3 and group_children.Count >= 2
+            if script_ok then script_ok = toolbar_children.Item[(toolbar_children.Count-2)].Text == "NEW TOOLBAR" and group_children.Item[(group_children.Count-1)].Text == "NEW GROUP" and script_manager.script_tree_group_item.Text == "ADD TO GROUP" and script_manager.script_tree_toolbar_item.Text == "ADD TO TOOLBAR"
+        )
+        catch
+        (
+            format "PART 71 | runtime error: %\n" (getCurrentException())
+        )
+    )
+    script_manager.ini_path = original_ini
+    try (if fs.Exists temp_ini_path then fs.Delete temp_ini_path) catch (cleanup_ok = false)
+    local test_ok = source_ok and ungrouped_ok and grouped_ok and script_ok and cleanup_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 71 | source:% | ungrouped:% | grouped:% | script:% | cleanup:% | PASS:%\n" source_ok ungrouped_ok grouped_ok script_ok cleanup_ok test_ok
+    test_ok
+    -- return
+)
+
+/* Ensures group submenu cleanup is callable before its parent refresh and can rebuild.
+    Runs only on temporary .NET menu items; no toolbar/INI/CUIX writes occur.
+*/
+function partOfTest72 =
+(
+    local source_text = readScriptManagerTestFileText (script_manager_test_root + "..\\Script-Manager.ms")
+    local group_index = if source_text != undefined then findString source_text "function clearToolbarGroupSubmenu =" else undefined
+    local parent_index = if source_text != undefined then findString source_text "function clearToolbarSubmenu remove_group:false =" else undefined
+    local method_order_ok = group_index != undefined and parent_index != undefined and group_index < parent_index
+    local cleanup_ok = false
+    local rebuild_ok = false
+    try
+    (
+        cleanup_ok = script_manager.clearToolbarSubmenu remove_group:true
+        cleanup_ok = cleanup_ok and script_manager.script_tree_toolbar_group_item == undefined
+        local tree_cleanup_ok = script_manager.clearScriptTreeContextMenu()
+        rebuild_ok = tree_cleanup_ok and script_manager.buildScriptTreeContextMenu()
+        rebuild_ok = rebuild_ok and script_manager.script_tree_toolbar_group_item != undefined
+    )
+    catch
+    (
+        format "PART 72 | cleanup/rebuild error: %\n" (getCurrentException())
+    )
+    local test_ok = method_order_ok and cleanup_ok and rebuild_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 72 | ordered:% | cleanup:% | rebuild:% | PASS:%\n" method_order_ok cleanup_ok rebuild_ok test_ok
+    test_ok
+    -- return
+)
+
+/* Checks repeated folder/script context switching never exposes internal submenu markers.
+    Calls only menu refresh logic and does not create toolbars or modify CUIX buttons.
+*/
+function partOfTest73 =
+(
+    local folder_path = getFilenamePath script_manager.manager_source_path
+    local script_path = script_manager.manager_source_path
+    local root_ok = true
+    local direct_ok = true
+    local group_ok = true
+    local script_ok = true
+    try
+    (
+        script_manager.buildScriptTreeContextMenu()
+        for cycle_index = 1 to 6 do
+        (
+            script_manager.refreshToolbarSubmenu folder_path
+            local parent_items = script_manager.script_tree_toolbar_item.DropDownItems
+            root_ok = root_ok and parent_items.Count == 2
+            if parent_items.Count == 2 then
+            (
+                root_ok = root_ok and parent_items.Item[0].Text == "ADD TO TOOLBAR" and parent_items.Item[1].Text == "ADD TO TOOLBAR AS GROUP"
+                /* Simulate the independent submenu-opening callbacks after
+                parent headers have been attached to their owning menu.
+                */
+                scriptManagerTreeToolbarActionOpeningHandler parent_items.Item[0] undefined
+                local direct_items = parent_items.Item[0].DropDownItems
+                scriptManagerTreeToolbarActionOpeningHandler parent_items.Item[1] undefined
+                local group_items = parent_items.Item[1].DropDownItems
+                direct_ok = direct_ok and direct_items.Count >= 3
+                group_ok = group_ok and group_items.Count >= 3
+                if direct_items.Count > 0 then direct_ok = direct_ok and direct_items.Item[0].Text == "NEW TOOLBAR"
+                if group_items.Count > 0 then group_ok = group_ok and group_items.Item[0].Text == "NEW TOOLBAR"
+            )
+            else
+            (
+                direct_ok = false
+                group_ok = false
+            )
+            script_manager.refreshToolbarSubmenu script_path
+            local script_items = script_manager.script_tree_toolbar_item.DropDownItems
+            script_ok = script_ok and script_items.Count >= 3
+            if script_items.Count > 0 then script_ok = script_ok and script_items.Item[(script_items.Count-1)].Text == "NEW TOOLBAR"
+        )
+    )
+    catch
+    (
+        root_ok = false
+        format "PART 73 | menu rebuild error: %\n" (getCurrentException())
+    )
+    local test_ok = root_ok and direct_ok and group_ok and script_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 73 | root:% | direct:% | group:% | script:% | PASS:%\n" root_ok direct_ok group_ok script_ok test_ok
+    test_ok
+    -- return
+)
+
+partOfTest66()
+partOfTest67()
+partOfTest68()
+partOfTest69()
+partOfTest70()
+partOfTest71()
+partOfTest72()
+partOfTest73()
 partOfTest59()
 partOfTest60()
 partOfTest61()

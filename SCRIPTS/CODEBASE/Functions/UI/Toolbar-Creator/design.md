@@ -10,7 +10,7 @@ Toolbar-Creator is a reusable low-level UI function that allows unrelated MaxScr
 - `collectToolbarScripts source_paths recursive:true` is a backend function accepting an ordered Array of directory or individual `.ms` paths. It recursively collects `.ms` files via the native `getFiles recurse:` API and deduplicates normalized paths case-insensitively. Valid results are ordered button-data records; malformed or missing sources return `undefined` with a diagnostic.
 - `Toolbar-Creator-UI.ms` is the separately launchable frontend. It uses native rollout controls, a .NET list and multi-file picker, and the shared Default UI template helpers. It passes curated data to `manageScriptToolbar()` instead of duplicating CUIX logic.
 - Multiple folders may be added through repeated folder selections; file selections can contain several `.ms` files at once. The UI supports removal, reorder, label/tooltip editing, creation, replacement, and confirmation before deletion.
-- UI state is stored in the stable `Toolbar-Creator-UI.ini` beside the owning script. The dialog is floatable/dockable left/right and uses the canonical title-restart control; native title displays the highest loaded global project version.
+- UI state is stored in the stable `Toolbar-Creator-UI.ini` beside the owning script. The current dialog is floating-only (docking disabled as of project 0.37) and uses the canonical title-restart control; native title displays the highest loaded global project version.
 - `Save UI` and `Show Toolbar` both default to true. The dialog never mutates CUIX merely by opening, scanning or editing its preview list.
 
 ## Backend helper scope (project 0.03)
@@ -213,6 +213,12 @@ Toolbar-Creator is a reusable low-level UI function that allows unrelated MaxScr
 - On each new launch, set the UI INI `MainUI/Height` to the content-derived minimum before calling `DialogHost.createManagedDialog`. The shared host normally restores a saved height, so an old oversized value would otherwise leave unused space below the controls.
 - Derive the 600 px minimum from the bottommost left checkbox (560 + 24 px) and the bottom-right file log (558 + 20 px), plus 16 px bottom margin. The rollout's control-height helper uses the checkbox's declared 24 px: native CheckboxControl does not provide a `.height` property.
 - Registered dockable rollout dialogs cannot use `setDialogSize`. Retain the shared dialog host, position persistence, existing 1024 px fixed width, and manual vertical resizing during the session. On the next launch the dialog returns to content-fit height.
+
+## Floating-only dialog (project 0.37)
+
+- The UI no longer calls `DialogHost.createManagedDialog`, which registers the rollout as a native CUI dialog bar. Instead `createDialog` opens a standard floating rollout with `lockWidth:true`, `lockHeight:false`, and `autoLayoutOnResize:true`; there is no `registerDockableDialog` call, so dragging to the 3ds Max dock areas must not dock it.
+- On launch, call only `DialogHost.destroyToolDialogs "Toolbar-Creator"` to release any legacy registered instance and then create the new floating rollout. Keep the existing control-fitted 600 px initial height, fixed 1024 px width, and saved `PosX`/`PosY` from the INI; handle move, resize, close, and title-click state using `toolbarCreatorSaveFloatingDialogState()` because dock-bar-only state helpers are no longer appropriate.
+- Retain the two-phase title-button restart. When the deferred timer fires, destroy the non-dockable rollout after the Click handler exits, confirm it is closed, and then load the canonical launcher. Do not change the shared DialogHost framework or any toolbar CUIX/MacroScript contents.
 
 ## Public contract
 

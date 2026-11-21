@@ -1,5 +1,6 @@
     /*
     UI rollouts, controls and callbacks. Compile-time included by Blueprint-Manager.ms.
+    File version: 0.049 | Project version: 0.049.
     */
     /*
     Subrollout directly below image previews for millimeter-local-Z adjustments.
@@ -237,7 +238,7 @@
         dotNetControl btn_apply_setup "System.Windows.Forms.Button" pos:[150,356] width:126 height:38
         checkbutton chk_freeze "FREEZE" pos:[12,402] width:126 height:30 checked:true toolTip:"LMB: Freeze or unfreeze all blueprint planes."
         checkbutton chk_two_sided "TWO-SIDED" pos:[150,402] width:126 height:30 checked:true toolTip:"LMB: Show or cull the back faces of blueprint planes."
-        subRollout sr_sections "" pos:[12,440] width:264 height:476 scrollBar:#off
+        subRollout sr_sections "" pos:[-4,440] width:296 height:476 scrollBar:#off
 
 
         timer tmr_dialog_state interval:750 active:false
@@ -1014,7 +1015,7 @@
 
 
             /* One slot stacks OPTIONS, ALIGNMENT, POSITIONS with no inserted spacing. */
-            sr_sections.pos = [12, (chk_freeze.pos.y + chk_freeze.height + 8)]
+            sr_sections.pos = [-4, (chk_freeze.pos.y + chk_freeze.height + 8)]
             local options_height = if options_expanded then (blueprintOptionsRollout.height + 24) else 24
             local alignment_height = if alignment_expanded then (blueprintAlignmentRollout.height + 24) else 24
             local positions_height = if positions_expanded then (position_height + 24) else 24

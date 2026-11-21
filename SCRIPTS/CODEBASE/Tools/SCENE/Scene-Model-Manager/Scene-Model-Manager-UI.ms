@@ -1,7 +1,7 @@
 /*
 Scene Model Manager UI.
-File version: 0.036
-Project version: 0.037
+File version: 0.046
+Project version: 0.047
 */
 
 global scene_model_manager_rollout
@@ -23,9 +23,9 @@ if scene_model_manager_rollout != undefined then
     try (destroyDialog scene_model_manager_rollout) catch ()
 )
 
-if (scene_model_manager_project_version == undefined or scene_model_manager_project_version < 0.037) then
+if (scene_model_manager_project_version == undefined or scene_model_manager_project_version < 0.047) then
 (
-    scene_model_manager_project_version = 0.037
+    scene_model_manager_project_version = 0.047
 )
 
 scene_model_manager_title = "SCENE MODEL MANAGER " + (scene_model_manager_project_version as string)
@@ -1242,7 +1242,7 @@ rollout scene_model_manager_rollout scene_model_manager_title width:288 height:7
     button btn_restart "RESTART" pos:[12,12] width:264 height:24 \
         toolTip:"LMB: Reload the canonical Scene Model Manager entry file."
 
-    subRollout sr_sections "" pos:[0,48] width:288 height:612
+    subRollout sr_sections "" pos:[-16,48] width:320 height:612
     label lbl_footer "Source scene authoritative.\nExports use Hold/Fetch." pos:[12,672] width:264 height:36
 
     on btn_restart pressed do

@@ -1,5 +1,10 @@
 # Changes
 
+## 2026-11-21 — project 0.37
+
+- `Toolbar-Creator-UI-Core.ms` 0.21: disable CUI docking by opening Toolbar-Creator with standard `createDialog` and omitting `registerDockableDialog`. Keep fixed 1024 px width, control-fitted 600 px startup height, manual vertical resizing, and floating position persistence.
+- Clean up legacy Toolbar-Creator dialog registration before opening; the safe two-stage restart now destroys only its non-dockable rollout. Toolbar management, saved MacroScripts and CUIX contents remain untouched. Offline validation passed; in-Max UI verification pending.
+
 ## 2026-11-19 — project 0.36
 
 - `Toolbar-Creator-UI-Core.ms` 0.20: fit the dialog's startup height to its lowest controls plus 16 px bottom margin, overriding oversized Height values previously saved to the UI INI. Preserve manual vertical resize after opening and keep existing 1024 px width.
