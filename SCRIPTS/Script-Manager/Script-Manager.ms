@@ -1,5 +1,5 @@
 /*
-    Script-Manager 1.272
+    Script-Manager 1.278
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -122,8 +122,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.272,
-    project_version = 1.272,
+    file_version = 1.278,
+    project_version = 1.278,
     registry = undefined,
 
     /*
@@ -678,6 +678,8 @@ global scriptManagerTreeLoadContextHandler
 global scriptManagerTreeNewToolbarContextHandler
 global scriptManagerTreeToolbarAsGroupContextHandler
 global scriptManagerTreeNewToolbarAsGroupContextHandler
+global scriptManagerToolbarDropdownOpeningHandler
+global scriptManagerToolbarGroupDropdownOpeningHandler
 global scriptManagerTreeStartupContextHandler
 global scriptManagerRefreshButtonMouseUpHandler
 global scriptManagerInitialLoaderTickHandler
@@ -753,6 +755,30 @@ function scriptManagerTreeStartupContextHandler sender_value event_args =
 function scriptManagerGroupLoaderContextHandler sender_value event_args =
 (
     if script_manager != undefined then script_manager.showGroupLoader()
+    -- return
+)
+
+/* Builds the direct toolbar targets only when its own submenu opens.
+Keeps the root folder context menu stable during right-click.
+*/
+function scriptManagerToolbarDropdownOpeningHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.populateToolbarActionSubmenu sender_value (sender_value.Tag as string) new_first:true
+    )
+    -- return
+)
+
+/* Builds the folder-group toolbar targets only when its submenu opens.
+The group action remains a sibling of ADD TO TOOLBAR in the root menu.
+*/
+function scriptManagerToolbarGroupDropdownOpeningHandler sender_value event_args =
+(
+    if script_manager != undefined and sender_value != undefined then
+    (
+        script_manager.populateToolbarActionSubmenu sender_value (sender_value.Tag as string) as_group:true new_first:true
+    )
     -- return
 )
 
@@ -1111,8 +1137,8 @@ function scriptManagerPersistIgnoreMask manager_value requested_mask =
 
 struct script_manager_v
 (
-    file_version = 1.272,
-    project_version = 1.272,
+    file_version = 1.278,
+    project_version = 1.278,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -7251,7 +7277,16 @@ function refreshConfiguredDiscovery =
     function clearToolbarActionSubmenu menu_item =
     (
         if menu_item == undefined then return true
-        local child_items = menu_item.DropDownItems
+        local previous_popup = menu_item.DropDown
+        dotNet.removeAllEventHandlers previous_popup
+        menu_item.DropDown = dotNetObject "System.Windows.Forms.ToolStripDropDownMenu"
+        local fresh_popup = menu_item.DropDown
+        fresh_popup.BackColor = script_tree_context_menu.BackColor
+        fresh_popup.ForeColor = script_tree_context_menu.ForeColor
+        fresh_popup.ShowImageMargin = false
+        fresh_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
+        previous_popup.Dispose()
+        local child_items = fresh_popup.Items
         while child_items.Count > 0 do
         (
             local child_item = child_items.Item[0]
@@ -7276,30 +7311,17 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Clears toolbar targets and nested folder actions before a new selection.
-    Only the root menu item persists; nested entries are recreated per selection.
+    /* Clears both toolbar submenus while preserving their root-level menu items.
+    Never detach or dispose parent items during a right-click selection change.
     */
     function clearToolbarSubmenu remove_group:false =
     (
-        if script_tree_toolbar_direct_item != undefined then this.clearToolbarActionSubmenu script_tree_toolbar_direct_item
+        this.clearToolbarActionSubmenu script_tree_toolbar_item
         this.clearToolbarGroupSubmenu()
-        if script_tree_toolbar_item != undefined then script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
-        if script_tree_toolbar_children != undefined then
-        (
-            while script_tree_toolbar_children.Count > 0 do
-            (
-                local child_item = script_tree_toolbar_children.Item[0]
-                dotNet.removeAllEventHandlers child_item
-                script_tree_toolbar_children.Remove child_item
-                child_item.Dispose()
-            )
-        )
-        script_tree_toolbar_direct_item = undefined
-        script_tree_toolbar_direct_children = undefined
-        script_tree_toolbar_group_item = undefined
-        script_tree_toolbar_group_children = undefined
+        script_tree_toolbar_children = if script_tree_toolbar_item == undefined then undefined else script_tree_toolbar_item.DropDownItems
         script_tree_toolbar_new_item = undefined
         script_tree_toolbar_new_separator = undefined
+        script_tree_toolbar_group_children = if script_tree_toolbar_group_item == undefined then undefined else script_tree_toolbar_group_item.DropDownItems
         true
         -- return
     ),
@@ -7319,8 +7341,12 @@ function refreshConfiguredDiscovery =
             script_tree_group_children.Remove child_item
             child_item.Dispose()
         )
-        script_tree_group_item.Visible = script_path != undefined and this.isSupportedScriptPath script_path
-        if not(script_tree_group_item.Visible) then return true
+        /* WinForms Visible is false while the root ContextMenuStrip is closed.
+        Use the selected script path rather than inherited control visibility.
+        */
+        local valid_script = classOf script_path == String and this.isSupportedScriptPath script_path
+        script_tree_group_item.Visible = valid_script
+        if not valid_script then return true
         local group_names = this.getUserGroupNames()
         if group_names.count == 0 then
         (
@@ -7386,9 +7412,22 @@ function refreshConfiguredDiscovery =
     /* Populates a toolbar-action submenu with NEW TOOLBAR and existing targets.
     A group action creates a single dynamic group button; direct action adds scripts.
     */
-    function populateToolbarActionSubmenu menu_item context_path as_group:false new_first:false =
+    function populateToolbarActionSubmenu menu_item context_path as_group:false new_first:false backend_ready:undefined toolbar_names:undefined =
     (
         if menu_item == undefined then return false
+        /* Resolve the native toolbar list before accessing either menu collection. */
+        if backend_ready == undefined then
+        (
+            backend_ready = this.ensureToolbarCreatorBackend()
+            if backend_ready then
+            (
+                try (toolbar_names = listManagedScriptToolbars sync_live:true) catch
+                (
+                    format "[Script-Manager] Toolbar listing failed: %\n" (getCurrentException())
+                )
+            )
+        )
+        /* Use the menu item's own collection; replacing DropDown detaches it in Max. */
         local child_items = menu_item.DropDownItems
         while child_items.Count > 0 do
         (
@@ -7398,15 +7437,6 @@ function refreshConfiguredDiscovery =
             old_item.Dispose()
         )
 
-        local backend_ready = this.ensureToolbarCreatorBackend()
-        local toolbar_names = undefined
-        if backend_ready then
-        (
-            try (toolbar_names = listManagedScriptToolbars sync_live:true) catch
-            (
-                format "[Script-Manager] Toolbar listing failed: %\n" (getCurrentException())
-            )
-        )
         local new_item = dotNetObject "System.Windows.Forms.ToolStripMenuItem" "NEW TOOLBAR"
         new_item.Tag = context_path
         new_item.BackColor = script_tree_context_menu.BackColor
@@ -7469,49 +7499,18 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Builds toolbar actions immediately after inserting each parent menu item.
-    Detached ToolStripMenuItems lose their DropDownItems in 3ds Max; never populate
-    a second sibling before the first sibling's third-level menu is complete.
+    /* Refreshes two separate root-level toolbar menus without reparenting them.
+    Each menu owns its own dropdown. Folder actions stay siblings in the root menu.
     */
     function refreshToolbarSubmenu script_path =
     (
-        script_tree_toolbar_item.Visible = script_path != undefined
-        if script_path == undefined then return true
-
-        local valid_folder = classOf script_path == String and doesDirectoryExist script_path
-        script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
-        if not valid_folder then
-        (
-            this.populateToolbarActionSubmenu script_tree_toolbar_item script_path
-            return true
-        )
-
-        script_tree_toolbar_direct_item = script_tree_toolbar_children.Add "ADD TO TOOLBAR"
-        script_tree_toolbar_direct_item.BackColor = script_tree_context_menu.BackColor
-        script_tree_toolbar_direct_item.ForeColor = script_tree_context_menu.ForeColor
-        local direct_popup = script_tree_toolbar_direct_item.DropDown
-        direct_popup.BackColor = script_tree_context_menu.BackColor
-        direct_popup.ForeColor = script_tree_context_menu.ForeColor
-        direct_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
-        direct_popup.ShowImageMargin = false
-        this.populateToolbarActionSubmenu script_tree_toolbar_direct_item script_path new_first:true
-
-        script_tree_toolbar_group_item = script_tree_toolbar_children.Add "ADD TO TOOLBAR AS GROUP"
-        script_tree_toolbar_group_item.BackColor = script_tree_context_menu.BackColor
-        script_tree_toolbar_group_item.ForeColor = script_tree_context_menu.ForeColor
-        local group_popup = script_tree_toolbar_group_item.DropDown
-        group_popup.BackColor = script_tree_context_menu.BackColor
-        group_popup.ForeColor = script_tree_context_menu.ForeColor
-        group_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
-        group_popup.ShowImageMargin = false
-        this.populateToolbarActionSubmenu script_tree_toolbar_group_item script_path as_group:true new_first:true
-
-        script_tree_toolbar_direct_children = script_tree_toolbar_direct_item.DropDownItems
-        script_tree_toolbar_group_children = script_tree_toolbar_group_item.DropDownItems
+        if script_tree_toolbar_item == undefined or script_tree_toolbar_group_item == undefined then return false
+        local has_path = classOf script_path == String and script_path != ""
+        script_tree_toolbar_item.Visible = has_path
+        if has_path then script_tree_toolbar_item.Tag = script_path
         true
         -- return
     ),
-
     /* Refreshes only the folder's ADD TO TOOLBAR AS GROUP targets.
     The folder-group button continues using the existing group-creation workflow.
     */
@@ -7520,8 +7519,8 @@ function refreshConfiguredDiscovery =
         if script_tree_toolbar_group_item == undefined then return true
         local valid_folder = classOf folder_path == String and doesDirectoryExist folder_path
         script_tree_toolbar_group_item.Visible = valid_folder
-        if not valid_folder then return true
-        this.populateToolbarActionSubmenu script_tree_toolbar_group_item folder_path as_group:true new_first:true
+        if valid_folder then script_tree_toolbar_group_item.Tag = folder_path
+        true
         -- return
     ),
 
@@ -8146,14 +8145,31 @@ function refreshConfiguredDiscovery =
             hidden_group_init.Visible = false
         )
 
+        /* Create and attach both root-level actions before populating either dropdown. */
         script_tree_toolbar_item = script_tree_context_items.Add "ADD TO TOOLBAR"
-        local toolbar_popup = script_tree_toolbar_item.DropDown
-        toolbar_popup.BackColor = script_tree_context_menu.BackColor
-        toolbar_popup.ForeColor = script_tree_context_menu.ForeColor
-        toolbar_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
-        toolbar_popup.ShowImageMargin = false
+        script_tree_toolbar_group_item = script_tree_context_items.Add "ADD TO TOOLBAR AS GROUP"
+        for toolbar_parent in #(script_tree_toolbar_item, script_tree_toolbar_group_item) do
+        (
+            local toolbar_popup = toolbar_parent.DropDown
+            toolbar_popup.BackColor = script_tree_context_menu.BackColor
+            toolbar_popup.ForeColor = script_tree_context_menu.ForeColor
+            toolbar_popup.RenderMode = (dotNetClass "System.Windows.Forms.ToolStripRenderMode").System
+            toolbar_popup.ShowImageMargin = false
+        )
+        /* A real placeholder child ensures the dropdown arrow is always available.
+        DropDownOpening replaces it with NEW TOOLBAR and the live toolbar list.
+        */
+        for toolbar_parent in #(script_tree_toolbar_item, script_tree_toolbar_group_item) do
+        (
+            local placeholder = toolbar_parent.DropDownItems.Add "NEW TOOLBAR"
+            placeholder.Enabled = false
+            placeholder.BackColor = script_tree_context_menu.BackColor
+            placeholder.ForeColor = script_tree_context_menu.ForeColor
+        )
         script_tree_toolbar_children = script_tree_toolbar_item.DropDownItems
+        script_tree_toolbar_group_children = script_tree_toolbar_group_item.DropDownItems
         this.refreshToolbarSubmenu selected_path
+        this.refreshToolbarGroupSubmenu selected_path
         script_tree_assignment_separator = dotNetObject "System.Windows.Forms.ToolStripSeparator"
         script_tree_context_items.Add script_tree_assignment_separator
         script_tree_group_loader_item = script_tree_context_items.Add "GROUP MANAGER"
@@ -8171,7 +8187,7 @@ function refreshConfiguredDiscovery =
         script_tree_context_items.Add script_tree_startup_separator
         script_tree_startup_item = script_tree_context_items.Add "ADD TO STARTUP SCRIPTS"
 
-        for menu_item in #(script_tree_folder_group_item, script_tree_group_item, script_tree_toolbar_item, script_tree_group_loader_item, script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
+        for menu_item in #(script_tree_folder_group_item, script_tree_group_item, script_tree_toolbar_item, script_tree_toolbar_group_item, script_tree_group_loader_item, script_tree_open_group_item, script_tree_load_item, script_tree_startup_item, script_tree_open_explorer_item, script_tree_expand_item, script_tree_collapse_item, script_tree_expand_all_item, script_tree_expand_enabled_item, script_tree_collapse_all_item) do
         (
             menu_item.BackColor = script_tree_context_menu.BackColor
             menu_item.ForeColor = script_tree_context_menu.ForeColor
@@ -8180,6 +8196,8 @@ function refreshConfiguredDiscovery =
         script_tree_open_group_item.ToolTipText = "Load every script in this folder and its descendants into one shared rollout dialog."
         script_tree_expand_enabled_item.ToolTipText = "Expand only folders containing HOST or DIRECT scripts; collapse other branches."
 
+        dotNet.addEventHandler script_tree_toolbar_item "DropDownOpening" scriptManagerToolbarDropdownOpeningHandler
+        dotNet.addEventHandler script_tree_toolbar_group_item "DropDownOpening" scriptManagerToolbarGroupDropdownOpeningHandler
         dotNet.addEventHandler script_tree_open_group_item "Click" scriptManagerTreeOpenGroupContextHandler
         dotNet.addEventHandler script_tree_folder_group_item "Click" scriptManagerTreeFolderGroupContextHandler
         dotNet.addEventHandler script_tree_load_item "Click" scriptManagerTreeLoadContextHandler
@@ -8218,8 +8236,10 @@ function refreshConfiguredDiscovery =
 
         /* Refresh selections without disposing the root ContextMenuStrip. */
         this.refreshGroupSubmenu (if selected_is_script then selected_node.ToolTipText else undefined)
-        this.clearToolbarSubmenu()
+        /* Keep both root menu items attached when right-click selection changes. */
         this.refreshToolbarSubmenu (if has_selection then selected_node.ToolTipText else undefined)
+        /* Populate the second root dropdown in a separate MAXScript call frame. */
+        this.refreshToolbarGroupSubmenu (if has_selection then selected_node.ToolTipText else undefined)
 
         local valid_folder = has_selection and not selected_is_script and doesDirectoryExist selected_node.ToolTipText
         local folder_group_name = if valid_folder then this.getFolderUserGroupName selected_node.ToolTipText else undefined

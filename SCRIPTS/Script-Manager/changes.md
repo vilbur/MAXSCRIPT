@@ -1,3 +1,25 @@
+## 2026-11-21 - 1.278
+
+- Fix SCRIPTS script-item right-click ADD TO GROUP submenu remaining empty. WinForms ToolStripMenuItem.Visible is false while the parent context menu is closed, even for an available item. Use the selected script path to decide whether to populate the saved groups list.
+- Keep existing saved group names, NEW GROUP creation, script assignment handler, dark styling, and folder-only group actions unchanged.
+- Live 3ds Max verification: with one saved group, script submenu shows TEST-MULTI-DIRS, separator, NEW GROUP; four folder/script selection cycles preserved all three entries. No group INI changes or actual script assignment were made during testing.
+
+## 2026-11-21 - 1.277
+
+- Directory right-click menu now has two sibling root actions: ADD TO TOOLBAR and ADD TO TOOLBAR AS GROUP, each with NEW TOOLBAR, a separator, and existing custom toolbar targets.
+- Each submenu populates only on its own DropDownOpening event; root menu items remain attached, and group/toolbar data is unchanged.
+- Verified in running 3ds Max: v1.277 loaded, both DropDownOpening events fired via ShowDropDown, and both submenus contained NEW TOOLBAR, separator, vilbur-CORE and vilbur-vilTools3. Actual toolbar-button creation was not tested.
+
+## 2026-11-21 - 1.273
+
+- Version the folder toolbar menu fixes and ASCII subrollout title decorations previously saved under 1.272. Synchronize header, file_version and project_version; preserve the existing 1.272 snapshot.
+
+## 2026-11-21 - Folder toolbar menu correction
+
+- Expose ADD TO TOOLBAR AS GROUP directly in folder context menus. Script items retain ADD TO TOOLBAR.
+- Replace stale action popups with fresh dark ToolStripDropDownMenu instances before populating targets. Four folder/script switching cycles retained all four targets in live Max.
+- Toolbar creation and mass loading were not executed during this menu test.
+
 ## 2026-11-21 — 1.272
 
 - Guard GROUP MANAGER callbacks after dialog destruction; closed refresh and reopen verified in Max.
