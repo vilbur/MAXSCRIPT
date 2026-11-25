@@ -1,5 +1,5 @@
 /*
-    Script-Manager 1.278
+    Script-Manager 1.285
     Generic MaxScript loader, per-subdirectory rollout dialogs, script registry, and persisted manager UI.
 */
 
@@ -15,6 +15,27 @@ global EPOLY_TOOLS_RUNTIME_MODE
 global EPOLY_TOOLS_REGISTRY
 global epoly_tools_project_version
 global EPolyToolsIntegration
+
+global scriptManagerGetDisplayScriptName
+
+/*
+Returns a script filename for tree and list display without the trailing .ms extension.
+The original filename and full path remain unchanged for all script operations.
+*/
+function scriptManagerGetDisplayScriptName script_path =
+(
+    if script_path == undefined then return ""
+    local leaf_name = pathConfig.stripPathToLeaf (script_path as string)
+    if (toLower (getFilenameType leaf_name)) == ".ms" then
+    (
+        getFilenameFile leaf_name
+    )
+    else
+    (
+        leaf_name
+    )
+    -- return
+)
 
 global scriptManagerGetRegistrationPosition
 
@@ -122,8 +143,8 @@ struct ScriptManagerEntry_v
 
 struct ScriptManagerIntegration_v
 (
-    file_version = 1.278,
-    project_version = 1.278,
+    file_version = 1.285,
+    project_version = 1.285,
     registry = undefined,
 
     /*
@@ -659,6 +680,7 @@ global script_manager_scripts_ui
 global script_manager_title
 global toolbarCreatorResolveScriptPath
 global script_manager_group_loader_ui
+global script_manager_members_ui
 global script_manager_group_palette_ui
 global script_manager_group_color_target
 global scriptManagerGroupColorClickHandler
@@ -1137,8 +1159,8 @@ function scriptManagerPersistIgnoreMask manager_value requested_mask =
 
 struct script_manager_v
 (
-    file_version = 1.278,
-    project_version = 1.278,
+    file_version = 1.285,
+    project_version = 1.285,
     root_directory = "",
     ini_path = "",
     loaded_rollouts = #(),
@@ -1188,12 +1210,12 @@ struct script_manager_v
     ignore_rollout = undefined,
     script_rollout = undefined,
     loader_rollout_open = true,
-    preset_rollout_open = true,
-    options_rollout_open = true,
-    source_rollout_open = true,
-    show_ignore_rollout_open = true,
-    show_rollout_open = true,
-    ignore_rollout_open = true,
+    preset_rollout_open = false,
+    options_rollout_open = false,
+    source_rollout_open = false,
+    show_ignore_rollout_open = false,
+    show_rollout_open = false,
+    ignore_rollout_open = false,
     script_rollout_open = true,
     preset_rollout_content_height = 72,
     options_rollout_content_height = 54,
@@ -1242,6 +1264,8 @@ struct script_manager_v
     script_tree_group_loader_item = undefined,
     group_loader_group_items = undefined,
     group_loader_toolbar_items = undefined,
+    group_loader_member_items = undefined,
+    group_loader_member_paths = #(),
     group_loader_records = #(),
     group_loader_toolbar_names = #(),
     group_loader_selected_group = "",
@@ -4695,7 +4719,7 @@ struct script_manager_v
 
         for script_path in (this.getScriptFilesInDirectory normalized_path) do
         (
-            script_name = pathConfig.stripPathToLeaf script_path
+            script_name = scriptManagerGetDisplayScriptName script_path
             script_node = node_collection.Add script_name
             script_node.Tag = script_path
             script_node.ToolTipText = script_path
@@ -6528,79 +6552,97 @@ function refreshConfiguredDiscovery =
         -- return
     ),
 
-    /* Opens an editor for resolved scripts while preserving folder references.
+    /* Refreshes the embedded group-member list with script filenames only.
+    Full paths remain cached by row so identical filenames can be edited safely.
     */
-    function editSelectedGroupMembers =
+    function refreshGroupMemberList =
     (
         if not(this.isGroupLoaderOpen()) then return false
-        local group_name = group_loader_selected_group
-        if group_name == "" then return false
-        global script_manager_members_ui
-        try (destroyDialog script_manager_members_ui) catch ()
-        rollout script_manager_members_ui "GROUP SCRIPTS" width:640 height:430
-        (
-            local edited_group = ""
-            local member_paths = #()
-            listbox lb_members "" pos:[4,28] width:632 height:20
-            label lbl_group "" pos:[4,4] width:632 height:20
-            button btn_add "ADD TREE SELECTION" pos:[4,370] width:310 height:26
-            button btn_remove "REMOVE SELECTED SCRIPT" pos:[322,370] width:314 height:26
-            label lbl_status "" pos:[4,402] width:632 height:22
+        if group_loader_member_items == undefined then return false
+        local previous_path = ""
+        local selected_index = script_manager_group_loader_ui.lb_members.SelectedIndex + 1
+        if selected_index > 0 and selected_index <= group_loader_member_paths.count then previous_path = group_loader_member_paths[selected_index]
 
-            /* Refreshes script paths from the saved group definition.
-            */
-            function refreshMembers =
+        group_loader_member_paths = #()
+        group_loader_member_items.Clear()
+        script_manager_group_loader_ui.btn_remove_member.enabled = false
+        local group_index = script_manager_group_loader_ui.lb_groups.SelectedIndex + 1
+        local selected_group = ""
+        if group_index > 0 and group_index <= group_loader_records.count then
+        (
+            local group_record = group_loader_records[group_index]
+            selected_group = group_record[1]
+            for member_path in group_record[3] do
             (
-                local data = script_manager.resolveUserGroupScripts edited_group
-                member_paths = #()
-                for member_path in data[1] do append member_paths member_path
-                for member_path in data[2] do append member_paths member_path
-                lb_members.items = member_paths
-                lbl_group.text = edited_group
+                append group_loader_member_paths member_path
+                group_loader_member_items.Add (scriptManagerGetDisplayScriptName member_path)
             )
-            on btn_remove pressed do
+            for member_path in group_record[4] do
             (
-                local selected_index = lb_members.selection
-                if selected_index > 0 and selected_index <= member_paths.count then
+                if this.isSupportedScriptPath member_path then
                 (
-                    local excluded_paths = script_manager.getGroupExclusions edited_group
-                    appendIfUnique excluded_paths (toLower member_paths[selected_index])
-                    if script_manager.saveGroupExclusions edited_group excluded_paths then
-                    (
-                        refreshMembers()
-                        script_manager.refreshGroupLoader()
-                        lbl_status.text = "Removed from group; source file unchanged."
-                    )
-                    else lbl_status.text = "Save failed; see Listener."
+                    append group_loader_member_paths member_path
+                    group_loader_member_items.Add (scriptManagerGetDisplayScriptName member_path)
                 )
-            )
-            on btn_add pressed do
-            (
-                local added_paths = script_manager.getSelectedTreeScriptsForUserGroup()
-                local saved_paths = script_manager.getUserGroupScripts edited_group
-                local exclusions = script_manager.getGroupExclusions edited_group
-                for added_path in added_paths do
-                (
-                    appendIfUnique saved_paths added_path
-                    local excluded_index = findItem exclusions (toLower added_path)
-                    if excluded_index > 0 then deleteItem exclusions excluded_index
-                )
-                if script_manager.saveUserGroupScripts edited_group saved_paths and script_manager.saveGroupExclusions edited_group exclusions then
-                (
-                    refreshMembers()
-                    script_manager.refreshGroupLoader()
-                    lbl_status.text = (added_paths.count as string) + " selection entries added."
-                )
-                else lbl_status.text = "Save failed; see Listener."
             )
         )
-        createDialog script_manager_members_ui
-        script_manager_members_ui.edited_group = group_name
-        script_manager_members_ui.refreshMembers()
+
+        script_manager_group_loader_ui.lbl_members.text = if selected_group != "" then "GROUP SCRIPTS - " + selected_group else "GROUP SCRIPTS"
+        local restore_index = -1
+        if previous_path != "" then
+        (
+            for member_index = 1 to group_loader_member_paths.count do
+            (
+                if (toLower group_loader_member_paths[member_index]) == (toLower previous_path) then
+                (
+                    restore_index = member_index - 1
+                    exit
+                )
+            )
+        )
+        script_manager_group_loader_ui.lb_members.SelectedIndex = restore_index
+        script_manager_group_loader_ui.btn_remove_member.enabled = (restore_index >= 0)
         true
         -- return
     ),
 
+    /* Shows the full backing path for the selected script without showing paths in the list.
+    A row remains bound to its actual script path, even when filenames are identical.
+    */
+    function updateGroupMemberSelection =
+    (
+        if not(this.isGroupLoaderOpen()) then return false
+        if group_loader_selection_syncing then return true
+        local selected_index = script_manager_group_loader_ui.lb_members.SelectedIndex + 1
+        local has_member = (group_loader_selected_group != "" and selected_index > 0 and selected_index <= group_loader_member_paths.count)
+        script_manager_group_loader_ui.btn_remove_member.enabled = has_member
+        if has_member then script_manager_group_loader_ui.lbl_selection.text = group_loader_member_paths[selected_index]
+        true
+        -- return
+    ),
+
+    /* Removes the selected script from the active group without deleting its source file.
+    Persistent exclusion preserves dynamic folder references and their other members.
+    */
+    function removeSelectedGroupMember =
+    (
+        if not(this.isGroupLoaderOpen()) then return false
+        if group_loader_selected_group == "" then return false
+        local selected_index = script_manager_group_loader_ui.lb_members.SelectedIndex + 1
+        if selected_index < 1 or selected_index > group_loader_member_paths.count then return false
+        local member_path = group_loader_member_paths[selected_index]
+        local excluded_paths = this.getGroupExclusions group_loader_selected_group
+        appendIfUnique excluded_paths (toLower member_path)
+        if not(this.saveGroupExclusions group_loader_selected_group excluded_paths) then
+        (
+            script_manager_group_loader_ui.lbl_status.text = "Could not remove script; see Listener."
+            return false
+        )
+        this.refreshGroupLoader()
+        script_manager_group_loader_ui.lbl_status.text = "Removed from group; source file unchanged."
+        true
+        -- return
+    ),
 
     function resolveUserGroupScripts group_name =
     (
@@ -6829,9 +6871,29 @@ function refreshConfiguredDiscovery =
             messageBox "Select a script or a nonempty folder in the SCRIPTS tree first." title:"GROUP MANAGER"
             return false
         )
-        local paths = this.getUserGroupScripts group_name
+        local previous_paths = this.getUserGroupScripts group_name
+        local paths = for existing_path in previous_paths collect existing_path
         join paths additions
         if not(this.saveUserGroupScripts group_name paths) then return false
+        local previous_exclusions = this.getGroupExclusions group_name
+        local remaining_exclusions = #()
+        for excluded_path in previous_exclusions do
+        (
+            local selected_again = false
+            for added_path in additions while not selected_again do
+            (
+                if (toLower added_path) == (toLower excluded_path) then selected_again = true
+            )
+            if not selected_again then append remaining_exclusions excluded_path
+        )
+        if remaining_exclusions.count != previous_exclusions.count then
+        (
+            if not(this.saveGroupExclusions group_name remaining_exclusions) then
+            (
+                this.saveUserGroupScripts group_name previous_paths
+                return false
+            )
+        )
         this.refreshGroupLoader()
         true
         -- return
@@ -7025,6 +7087,8 @@ function refreshConfiguredDiscovery =
         script_manager_group_loader_ui.btn_delete_group.enabled = (group_index > 0 and group_index <= group_loader_records.count)
         script_manager_group_loader_ui.btn_add_group_to_toolbar.enabled = false
         script_manager_group_loader_ui.btn_load_toolbar.enabled = false
+        script_manager_group_loader_ui.btn_delete_toolbar.enabled = (toolbar_index > 0 and toolbar_index <= group_loader_toolbar_names.count)
+        script_manager_group_loader_ui.btn_remove_member.enabled = false
         local preview_text = "Select a user group or toolbar to view its scripts."
         if group_index > 0 and group_index <= group_loader_records.count then
         (
@@ -7059,6 +7123,7 @@ function refreshConfiguredDiscovery =
         else if source_kind == #tree and group_preview != "" then preview_text = group_preview
         else if group_preview != "" then preview_text = group_preview
         else if toolbar_preview != "" then preview_text = toolbar_preview
+        this.refreshGroupMemberList()
         script_manager_group_loader_ui.lbl_selection.text = preview_text
         group_loader_selection_syncing = false
         true
@@ -7071,7 +7136,7 @@ function refreshConfiguredDiscovery =
     function refreshGroupLoader =
     (
         if not(this.isGroupLoaderOpen()) then return false
-        if group_loader_group_items == undefined or group_loader_toolbar_items == undefined then return false
+        if group_loader_group_items == undefined or group_loader_toolbar_items == undefined or group_loader_member_items == undefined then return false
         local previous_group = group_loader_selected_group
         local previous_toolbar = group_loader_selected_toolbar
         group_loader_selection_syncing = true
@@ -7194,6 +7259,7 @@ function refreshConfiguredDiscovery =
     */
     function showGroupLoader =
     (
+        try (destroyDialog script_manager_members_ui) catch ()
         try (destroyDialog script_manager_group_loader_ui) catch ()
         local manager_directory = ScriptManagerIntegration.normalizeDirectoryPath (getFilenamePath manager_source_path)
         local ui_path = manager_directory + "Script-Manager-Group-Loader-UI.ms"
@@ -7211,7 +7277,7 @@ function refreshConfiguredDiscovery =
         try
         (
             fileIn ui_path quiet:true
-            createDialog script_manager_group_loader_ui width:520 height:642 \
+            createDialog script_manager_group_loader_ui width:1248 height:430 \
                 style:#(#style_titlebar,#style_sysmenu,#style_toolwindow,#style_resizing) \
                 lockWidth:true lockHeight:false
             -- The UI module's open event performs the initial layout and refresh.
@@ -7651,6 +7717,61 @@ function refreshConfiguredDiscovery =
         this.refreshGroupLoader()
         script_manager_group_loader_ui.lbl_status.text = "Created toolbar: " + new_name
         true
+        -- return
+    ),
+
+    /* Deletes the selected custom toolbar through Toolbar-Creator after confirmation.
+    Source scripts and user-defined groups are not deleted.
+    */
+    function deleteSelectedManagedToolbar =
+    (
+        if not(this.isGroupLoaderOpen()) then return false
+        local toolbar_index = script_manager_group_loader_ui.lb_toolbars.SelectedIndex + 1
+        if toolbar_index < 1 or toolbar_index > group_loader_toolbar_names.count then return false
+        local toolbar_name = group_loader_toolbar_names[toolbar_index]
+        if classOf toolbar_name != String or toolbar_name == "" then return false
+        if not(this.ensureToolbarCreatorBackend()) then
+        (
+            script_manager_group_loader_ui.lbl_status.text = "Toolbar-Creator backend is unavailable."
+            return false
+        )
+        if not(queryBox ("Delete custom toolbar '" + toolbar_name + "'?\n\nThe toolbar and its generated actions will be removed; user groups and source scripts will be kept.") title:"GROUP MANAGER - DELETE TOOLBAR") then return false
+
+        local delete_ok = false
+        try
+        (
+            delete_ok = manageScriptToolbar #delete toolbar_name save_ui:true
+            if delete_ok then
+            (
+                local remaining_names = listManagedScriptToolbars sync_live:true
+                if remaining_names == undefined then delete_ok = false
+                else
+                (
+                    for remaining_name in remaining_names do
+                    (
+                        if (toLower remaining_name) == (toLower toolbar_name) then delete_ok = false
+                    )
+                )
+            )
+        )
+        catch
+        (
+            format "[Script-Manager] DELETE TOOLBAR failed | toolbar:% | error:%\n" toolbar_name (getCurrentException())
+            delete_ok = false
+        )
+        if delete_ok then
+        (
+            group_loader_selected_toolbar = ""
+            this.refreshGroupLoader()
+            script_manager_group_loader_ui.lbl_status.text = "Deleted toolbar: " + toolbar_name
+        )
+        else
+        (
+            this.refreshGroupLoader()
+            script_manager_group_loader_ui.lbl_status.text = "Delete failed: " + toolbar_name + " | see Listener."
+            messageBox ("Could not delete toolbar '" + toolbar_name + "'. See the MAXScript Listener.") title:"GROUP MANAGER"
+        )
+        delete_ok
         -- return
     ),
 
@@ -9617,7 +9738,7 @@ function appendScriptFromTree script_path =
 
                     parent_nodes = this.ensureScriptTreeFolderPath tree_control.Nodes group_path group_directory node_lookup node_values
 
-                    script_leaf = pathConfig.stripPathToLeaf script_path
+                    script_leaf = scriptManagerGetDisplayScriptName script_path
                     script_node = parent_nodes.Add script_leaf
                     script_node.Tag = script_path
                     script_node.ToolTipText = script_path
@@ -9969,14 +10090,17 @@ function appendScriptFromTree script_path =
         script_tree_initialized = false
         script_filter_text = ""
 
-        preset_rollout_open = this.loadPresetRolloutOpenState()
-        options_rollout_open = this.loadOptionsRolloutOpenState()
-        source_rollout_open = this.loadSourceRolloutOpenState()
-        show_rollout_open = this.loadShowRolloutOpenState()
-        ignore_rollout_open = this.loadIgnoreRolloutOpenState()
-        show_ignore_rollout_open = show_rollout_open or ignore_rollout_open
-        script_rollout_open = this.loadScriptRolloutOpenState()
-        loader_rollout_open = preset_rollout_open or options_rollout_open or source_rollout_open or script_rollout_open
+        /* Start each manager UI with only SCRIPTS expanded, independently of prior INI states.
+        Manual rollout toggles still persist during the session, but startup is deterministic.
+        */
+        preset_rollout_open = false
+        options_rollout_open = false
+        source_rollout_open = false
+        show_rollout_open = false
+        ignore_rollout_open = false
+        show_ignore_rollout_open = false
+        script_rollout_open = true
+        loader_rollout_open = true
         this.loadShowVersionedFiles()
         this.loadShowCleanScriptsOnly()
         this.loadCollapseScriptDirs()
@@ -11314,10 +11438,20 @@ function applyHostDockState host_path dock_text =
         options_inner_offset = show_slot_height + ignore_slot_height + 8
         options_slot_height = if options_rollout_open then (options_rollout_content_height + options_inner_offset + rollout_header_height) else loader_collapsed_height
         source_slot_height = if source_rollout_open then (source_rollout_content_height + rollout_header_height) else loader_collapsed_height
-        script_slot_height = if script_rollout_open then (script_rollout_content_height + rollout_header_height) else loader_collapsed_height
+        maximum_loader_height = dialog_size.y - slot_top - bottom_action_height
+
+        /* Fill the docked manager's available height with SCRIPTS when the other
+        three main rollouts are closed. Reserve headers and the TreeView's 64 px
+        control/header margin once; keep the scrollable 1280 px layout otherwise.
+        */
+        local script_content_height = script_rollout_content_height
+        if script_rollout_open and not(preset_rollout_open or options_rollout_open or source_rollout_open) then
+        (
+            script_content_height = amax 144 (maximum_loader_height - (loader_collapsed_height * 3) - rollout_header_height)
+        )
+        script_slot_height = if script_rollout_open then (script_content_height + rollout_header_height) else loader_collapsed_height
         desired_loader_height = preset_slot_height + options_slot_height + source_slot_height + script_slot_height
 
-        maximum_loader_height = dialog_size.y - slot_top - bottom_action_height
         if maximum_loader_height < (loader_collapsed_height * 4) then maximum_loader_height = loader_collapsed_height * 4
         loader_slot_height = amin desired_loader_height maximum_loader_height
 
@@ -11396,7 +11530,7 @@ function applyHostDockState host_path dock_text =
         if script_rollout != undefined then
         (
             script_rollout.width = list_content_width
-            script_rollout.height = script_rollout_content_height
+            script_rollout.height = script_content_height
 
             script_rollout.btn_save_toolbar_ui.pos = [content_width - 74, 6]
             script_rollout.btn_create_toolbar.width = amax 20 (content_width - 180)
@@ -11406,7 +11540,7 @@ function applyHostDockState host_path dock_text =
             if tree_control != undefined then
             (
                 tree_control.Width = amax 20 (list_content_width - 12)
-                tree_control.Height = 1280
+                tree_control.Height = amax 80 (script_content_height - 64)
             )
         )
 
@@ -12028,49 +12162,155 @@ function clearLoadedRollouts =
     ),
 
     /*
-    Formats one hosted script rollout title, removing a trailing numeric | vX.Y version.
-    Existing decorations are removed before applying the consistent three-dash frame.
+    Formats hosted script rollout titles as widely spaced uppercase letters.
+    Removes version suffix and the old three-dash frame; preserves word boundaries.
     */
-function formatHostedRolloutTitle rollout_title fallback_name:"" =
-(
-    title_text = if rollout_title == undefined then "" else (trimRight (trimLeft (rollout_title as string)))
-    title_text = substituteString title_text "—" "-"
-    decoration = "---"
-
-    if title_text.count >= 8 then
+    function formatHostedRolloutTitle rollout_title fallback_name:"" =
     (
-        if (substring title_text 1 4) == (decoration + " ") and (substring title_text (title_text.count - 3) 4) == (" " + decoration) then
-        (
-            title_text = trimRight (trimLeft (substring title_text 5 (title_text.count - 8)))
-        )
-    )
+        local title_text = if rollout_title == undefined then "" else (trimRight (trimLeft (rollout_title as string)))
+        title_text = substituteString title_text "—" "-"
+        title_text = substituteString title_text "–" "-"
+        local decoration = "---"
 
-    version_marker = findString (toLower title_text) " | v"
-    if version_marker != undefined then
+        if title_text.count >= 8 then
+        (
+            if (substring title_text 1 4) == (decoration + " ") and (substring title_text (title_text.count - 3) 4) == (" " + decoration) then
+            (
+                title_text = trimRight (trimLeft (substring title_text 5 (title_text.count - 8)))
+            )
+        )
+
+        local version_marker = findString (toLower title_text) " | v"
+        if version_marker != undefined then
+        (
+            local version_text = substring title_text (version_marker + 4) (title_text.count - version_marker - 3)
+            local version_is_numeric = version_text.count > 0
+
+            if version_is_numeric then
+            (
+                if (findString "0123456789" (substring version_text 1 1)) == undefined then version_is_numeric = false
+            )
+
+            for char_index = 1 to version_text.count while version_is_numeric do
+            (
+                local version_char = substring version_text char_index 1
+                if (findString "0123456789." version_char) == undefined then version_is_numeric = false
+            )
+
+            if version_is_numeric then title_text = trimRight (substring title_text 1 (version_marker - 1))
+        )
+
+        if title_text == "" then title_text = trimRight (trimLeft fallback_name)
+        if title_text == "" then title_text = "Script"
+
+        /* Avoid doubling character gaps when the same hosted rollout is re-embedded. */
+        local letter_parts = filterString title_text " "
+        local already_spaced = (title_text == (toUpper title_text)) and letter_parts.count > 2
+        for part in letter_parts while already_spaced do
+        (
+            if part.count != 1 then already_spaced = false
+        )
+        if already_spaced then return title_text
+
+        local words = #()
+        local current_word = ""
+        local previous_char = ""
+
+        for char_index = 1 to title_text.count do
+        (
+            local current_char = substring title_text char_index 1
+            if (findString " -_/\t" current_char) != undefined then
+            (
+                if current_word != "" then
+                (
+                    append words current_word
+                    current_word = ""
+                )
+            )
+            else
+            (
+                local upper_char = toUpper current_char
+                local is_upper = (current_char == upper_char) and (current_char != (toLower current_char))
+                local previous_lower = previous_char != "" and previous_char == (toLower previous_char) and previous_char != (toUpper previous_char)
+                local previous_upper = previous_char != "" and previous_char == (toUpper previous_char) and previous_char != (toLower previous_char)
+                local next_char = if char_index < title_text.count then (substring title_text (char_index + 1) 1) else ""
+                local next_lower = next_char != "" and next_char == (toLower next_char) and next_char != (toUpper next_char)
+
+                if current_word != "" and is_upper and (previous_lower or (previous_upper and next_lower and current_word.count > 1)) then
+                (
+                    append words current_word
+                    current_word = ""
+                )
+                current_word += upper_char
+            )
+            previous_char = current_char
+        )
+
+        if current_word != "" then append words current_word
+
+        local formatted_title = ""
+        for word_index = 1 to words.count do
+        (
+            if word_index > 1 then formatted_title += "   "
+            local word_text = words[word_index]
+            for letter_index = 1 to word_text.count do
+            (
+                if letter_index > 1 then formatted_title += " "
+                formatted_title += substring word_text letter_index 1
+            )
+        )
+        formatted_title
+        -- return
+    ),
+
+    /*
+    Detects a UI companion compiled by an include directive in its parent script.
+    An included UI depends on parent scope and must not be fileIn-loaded again.
+    */
+    function isUiCompanionIncluded script_path companion_ui_path =
     (
-        version_text = substring title_text (version_marker + 4) (title_text.count - version_marker - 3)
-        version_is_numeric = version_text.count > 0
+        if classOf script_path != String or not(doesFileExist script_path) then return false
+        if classOf companion_ui_path != String or companion_ui_path == "" then return false
 
-        if version_is_numeric then
+        local companion_name = toLower (getFilenameFile companion_ui_path + getFilenameType companion_ui_path)
+        local source_stream = undefined
+        local is_included = false
+
+        try
         (
-            if (findString "0123456789" (substring version_text 1 1)) == undefined then version_is_numeric = false
+            source_stream = openFile script_path mode:"rt"
+            if source_stream != undefined then
+            (
+                while not(eof source_stream) and not is_included do
+                (
+                    local source_line = readLine source_stream
+                    if source_line != undefined then
+                    (
+                        local line_parts = filterString (trimLeft source_line) " \t"
+                        if line_parts.count > 1 then
+                        (
+                            if (toLower line_parts[1]) == "include" then
+                            (
+                                if (findString (toLower line_parts[2]) companion_name) != undefined then is_included = true
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        catch
+        (
+            format "[Script-Manager] UI include scan failed for %: %\n" script_path (getCurrentException())
         )
 
-        for char_index = 1 to version_text.count while version_is_numeric do
+        if source_stream != undefined then
         (
-            version_char = substring version_text char_index 1
-            if (findString "0123456789." version_char) == undefined then version_is_numeric = false
+            try (close source_stream) catch ()
         )
 
-        if version_is_numeric then title_text = trimRight (substring title_text 1 (version_marker - 1))
-    )
-
-    if title_text == "" then title_text = trimRight (trimLeft fallback_name)
-    if title_text == "" then title_text = "Script"
-
-    decoration + " " + title_text + " " + decoration
-    -- return
-),
+        is_included
+        -- return
+    ),
 
     /*
     Loads one current backend script and an optional sibling <BackendName>-UI.ms companion.
@@ -12087,11 +12327,13 @@ function loadManagedScript script_path script_name:"" script_key:"" group_path:"
     rollout_names = #()
     companion_ui_path = ""
     companion_ui_exists = false
+    local companion_ui_included = false
 
     if extension_text == ".ms" then
     (
         companion_ui_path = getFilenamePath script_path + getFilenameFile script_path + "-UI.ms"
         companion_ui_exists = doesFileExist companion_ui_path
+        if companion_ui_exists then companion_ui_included = this.isUiCompanionIncluded script_path companion_ui_path
     )
 
     if not embed_rollouts then
@@ -12148,7 +12390,7 @@ function loadManagedScript script_path script_name:"" script_key:"" group_path:"
         return #(false, 0, error_text)
     )
 
-    if companion_ui_exists then
+    if companion_ui_exists and not companion_ui_included then
     (
         if debug_logging then format "[Script-Manager] UI COMPANION: %\n" companion_ui_path
         companion_result = ScriptManagerIntegration.loadScript companion_ui_path runtime_mode:#embedded quiet:true

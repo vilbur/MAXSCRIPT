@@ -1,3 +1,8 @@
+## 2026-11-22 - 0.050
+
+- Honour SCRIPT_MANAGER_RUNTIME_MODE (#embedded/#library) with EPOLY_TOOLS_RUNTIME_MODE fallback: define the tool UI in every mode but create and register the separate Blueprint-Manager window only in standalone mode.
+- The existing standalone startup code is unchanged inside the guard. Live grouped-load check with Script-Manager v1.279 hosted Blueprint-Manager and Modifier-Manager in one dialog. Standalone startup was not re-tested.
+
 # Changes
 
 ## 2026-11-18 — v0.039

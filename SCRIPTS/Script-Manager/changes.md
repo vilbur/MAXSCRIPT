@@ -1,3 +1,50 @@
+## 2026-11-24 - 1.285
+
+- Initialize Script-Manager PRESETS, OPTIONS, SOURCES, SHOW and IGNORE rollouts collapsed; open only SCRIPTS on each manager initialization, independently of previously saved rollout-open INI states. Manual expand/collapse continues to work and existing filter/preset values remain unchanged.
+- When the three other main rollouts are collapsed, size SCRIPTS and its TreeView to the available manager height, subtracting the outer header area, three collapsed rollout headers, SCRIPTS header, and 64 px internal controls/margin. Recompute on docking/resize and rollout toggle. When another section is opened, retain the original 1280 px scrollable tree layout.
+- Test suite v1.238 updates height assertions and adds read-only regression part 74. Native 3ds Max live UI and docked resize test pending.
+
+## 2026-11-24 - 1.284
+
+- Hide only the trailing `.ms` extension in displayed script names in both SCRIPTS TreeView construction paths and the GROUP SCRIPTS listbox.
+- Apply the same display rule to script names in GROUP MANAGER right-click action labels; `.mcr`, `.mse`, and other suffixes remain visible.
+- Preserve original script paths in TreeNode Tag/ToolTipText, group member arrays, INI, filtering, loading, right-click actions, and toolbar references; no files are renamed.
+- Static render-site and path-identity checks completed; full 3ds Max UI verification pending.
+
+## 2026-11-24 - 1.283
+
+- Add a dedicated dark right-click menu to each GROUP MANAGER listbox: USER GROUPS, GROUP SCRIPTS and CUSTOM TOOLBARS. Every menu mirrors the action buttons below its list.
+- Build selection-specific captions at popup opening (for example `Load <toolbar name> as group`, `Add <selected tree item> to group <group name>`, `Remove <script filename> from <group name>`); disable commands when their corresponding buttons are disabled.
+- Right-click selects the row under the pointer; empty-space right-click keeps creation commands available. Retain existing validation, confirmations, group and toolbar persistence, and action callbacks. Dispose menu event handlers on dialog close.
+- Source-level checks and live isolated .NET event binding validated; complete dialog runtime verification still required.
+
+## 2026-11-24 - 1.282
+
+- Integrate the former EDIT GROUP SCRIPTS popup into GROUP MANAGER as a third, middle column between USER GROUPS and CUSTOM TOOLBARS. GROUP MANAGER now opens at 1248 x 430 with three matching list heights and vertical resize support.
+- Display only script filenames in GROUP SCRIPTS, retaining full paths internally per row and showing a selected script's full path in the shared preview. Missing script-file entries remain removable; invalid directory diagnostic strings are not displayed as scripts.
+- Move ADD TREE SELECTION and REMOVE SELECTED SCRIPT into the GROUP SCRIPTS column; delete the obsolete EDIT GROUP SCRIPTS button and standalone rollout creation. Group selection refreshes member rows, and group edits refresh without deleting actual script files.
+- Adding back an excluded script via ADD TREE SELECTION clears its persisted exclusion; deleting a member keeps the existing exclusion-based treatment for dynamic folder groups.
+- Preserve group/toolbar loading, existing saved groups, CUIX toolbar state, horizontal layout behavior, and previous release snapshots. Static checks completed; native 3ds Max UI verification pending.
+
+## 2026-11-24 - 1.281
+
+- Rework GROUP MANAGER to a horizontal 840 x 430 dialog: USER GROUPS on the left, CUSTOM TOOLBARS on the right, with independent action rows beneath each list.
+- Keep dialog width locked and resize both listbox heights together when dialog height changes; preserve selection previews, dark list styling, and all existing group/toolbar actions.
+- Add DELETE TOOLBAR beside NEW TOOLBAR, with selection-dependent enablement and a confirmation prompt. Deletion is delegated to the existing Toolbar-Creator #delete backend; user groups and source scripts remain untouched.
+- Static geometry/source checks passed. Live 3ds Max display and toolbar deletion still require testing.
+
+## 2026-11-24 - 1.280
+
+- Change mass-loaded/hosted script rollout titles from the three-dash frame to uppercase, letter-spaced text. CamelCase transitions, hyphens and spaces create three-space word gaps; individual letters are separated by single spaces (ThisIs-Tool Name -> T H I S   I S   T O O L   N A M E).
+- Preserve trailing numeric | vX.Y removal, rollout fallback names and idempotence on repeated embedding. Standalone titles and actual group/host operations are untouched.
+- Native 3ds Max isolated formatter tests passed for five cases and repeated calls. Active hosted dialogs were not recreated; visual rendering in the real mass-loaded dialog remains to be verified on next reload.
+
+## 2026-11-22 - 1.279
+
+- Skip secondary fileIn of a -UI.ms companion when its parent script already compiles it through an include directive. Preserve normal companion loading for separate UI scripts.
+- Fix grouped hosting across separate folders when Blueprint-Manager is included with Modifier-Manager; the Blueprint UI depends on parent-local variables and failed when separately loaded twice.
+- Runtime verified in 3ds Max 2026: one temporary shared host contained blueprintManagerRollout and modifierManagerUI (2 scripts, 2 rollouts). Test host and test-specific INI state were removed afterwards.
+
 ## 2026-11-21 - 1.278
 
 - Fix SCRIPTS script-item right-click ADD TO GROUP submenu remaining empty. WinForms ToolStripMenuItem.Visible is false while the parent context menu is closed, even for an available item. Use the selected script path to decide whether to populate the saved groups list.

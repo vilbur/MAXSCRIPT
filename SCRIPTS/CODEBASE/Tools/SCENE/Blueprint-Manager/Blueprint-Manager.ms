@@ -1,9 +1,15 @@
-﻿/*
-Blueprint Manager v0.049 — five reference-image planes in 3ds Max.
+/*
+Blueprint Manager v0.050 — five reference-image planes in 3ds Max.
 Runtime requires the canonical shared MaxScript UI/Default framework.
 */
+global SCRIPT_MANAGER_RUNTIME_MODE
+global EPOLY_TOOLS_RUNTIME_MODE
+
 (
-    local project_version = "0.049"
+    local project_version = "0.050"
+    local runtime_mode = SCRIPT_MANAGER_RUNTIME_MODE
+    if runtime_mode == undefined then runtime_mode = EPOLY_TOOLS_RUNTIME_MODE
+    local standalone_mode = runtime_mode == undefined or runtime_mode == #standalone
     local script_path = getSourceFileName()
     if script_path == undefined or script_path == "" then
     (
@@ -67,7 +73,9 @@ Runtime requires the canonical shared MaxScript UI/Default framework.
     Close any prior tool instance before validating the INI.
     The prior version may save its window position during its close callback.
     */
-    DialogHost.destroyToolDialogs "Blueprint-Manager"
+    if standalone_mode then
+    (
+        DialogHost.destroyToolDialogs "Blueprint-Manager"
     local initial_pos = IniSettings.getPoint2 ini_path ini_section "PosX" "PosY" default_value:[100,100]
     local initial_height = IniSettings.getInteger ini_path ini_section "Height" default_value:636
     createDialog blueprintManagerRollout width:288 height:(amax 1 initial_height) pos:initial_pos \
@@ -89,4 +97,5 @@ Runtime requires the canonical shared MaxScript UI/Default framework.
     blueprintManagerRollout.layoutControls()
     blueprintManagerRollout.saveFloatingGeometry()
     blueprintManagerRollout.tmr_dialog_state.active = true
+    )
 )

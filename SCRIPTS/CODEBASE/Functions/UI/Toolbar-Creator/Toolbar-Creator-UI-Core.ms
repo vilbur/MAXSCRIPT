@@ -1,5 +1,5 @@
 ﻿/*
-Toolbar-Creator UI core 0.21 | project 0.37.
+Toolbar-Creator UI core 0.23 | project 0.39.
 Dialog for browsing script sources and managing toolbars through the independent backend.
 
 Run Toolbar-Creator.ms or Toolbar-Creator-UI.ms to open this dialog safely.
@@ -21,9 +21,15 @@ global toolbarCreatorRestartPhase
 global toolbarCreatorRestartTarget
 global toolbarCreatorUiFileLogTooltip
 global toolbar_creator_ui_min_height
+global toolbar_creator_registration_offset
+global toolbar_creator_is_registering
+global toolbar_creator_is_closing
 
-toolbarCreatorUiCoreFileVersion = 0.21
-toolbarCreatorUiProjectVersion = 0.37
+toolbarCreatorUiCoreFileVersion = 0.23
+toolbarCreatorUiProjectVersion = 0.39
+toolbar_creator_registration_offset = [0,0]
+toolbar_creator_is_registering = false
+toolbar_creator_is_closing = false
 toolbar_creator_ui_min_height = (amax (560 + 24) (558 + 20)) + 16
 
 toolbar_creator_ui_source_file = getSourceFileName()
@@ -109,7 +115,18 @@ function toolbarCreatorRestartTick sender event_args =
             (
                 if toolbarCreatorUiRollout.isDisplayed then
                 (
-                    try (destroyDialog toolbarCreatorUiRollout) catch ()
+                    /* Registry cleanup unregisters the CUI bar before destroying it. */
+                    toolbar_creator_is_closing = true
+                    try (DialogHost.destroyToolDialogs "Toolbar-Creator") catch ()
+                    if toolbarCreatorUiRollout.isDisplayed and toolbarCreatorUiRollout.dialogBar then
+                    (
+                        try (cui.UnRegisterDialogBar toolbarCreatorUiRollout) catch ()
+                    )
+                    if toolbarCreatorUiRollout.isDisplayed and not toolbarCreatorUiRollout.dialogBar then
+                    (
+                        try (destroyDialog toolbarCreatorUiRollout) catch ()
+                    )
+                    toolbar_creator_is_closing = false
                 )
                 close_ok = not toolbarCreatorUiRollout.isDisplayed
             )
@@ -195,21 +212,32 @@ function toolbarCreatorRequestRestart =
 )
 
 /*
-Save position and height for a floating, non-dockable dialog.
+Save floating geometry as pre-registration coordinates so CUI registration cannot cause position drift.
 */
 function toolbarCreatorSaveFloatingDialogState =
 (
-    local dialog_pos = try (getDialogPos toolbarCreatorUiRollout) catch (undefined)
-    if dialog_pos != undefined then
+    if toolbar_creator_is_registering or toolbar_creator_is_closing then
     (
-        IniSettings.setPoint2 toolbar_creator_ui_ini_path "MainUI" "PosX" "PosY" dialog_pos
+        false
     )
-    local dialog_height = try (toolbarCreatorUiRollout.height) catch (undefined)
-    if dialog_height != undefined then
+    else
     (
-        IniSettings.setInteger toolbar_creator_ui_ini_path "MainUI" "Height" (amax toolbar_creator_ui_min_height dialog_height)
+        local dialog_pos = try (getDialogPos toolbarCreatorUiRollout) catch (undefined)
+        if dialog_pos != undefined then
+        (
+            if toolbarCreatorUiRollout.dialogBar then
+            (
+                dialog_pos -= toolbar_creator_registration_offset
+                IniSettings.setPoint2 toolbar_creator_ui_ini_path "MainUI" "PosX" "PosY" dialog_pos
+            )
+        )
+        local dialog_height = try (toolbarCreatorUiRollout.height) catch (undefined)
+        if dialog_height != undefined then
+        (
+            IniSettings.setInteger toolbar_creator_ui_ini_path "MainUI" "Height" (amax toolbar_creator_ui_min_height dialog_height)
+        )
+        true
     )
-    true
     -- return
 )
 
@@ -1276,14 +1304,49 @@ rollout toolbarCreatorUiRollout toolbar_creator_ui_caption width:1024 height:600
 )
 
 /*
-Create the tool as an ordinary floating dialog, without CUI dialog-bar registration.
-Remove only legacy Toolbar-Creator registrations, preserving all other dialogs.
+Register as a native CUI floating-only dialog bar without any docking flags.
+Release only Toolbar-Creator's previous registered dialog before creation.
 */
 if not (DialogHost.destroyToolDialogs "Toolbar-Creator") then
 (
-    throw "Toolbar-Creator could not release its previous dockable dialog."
+    throw "Toolbar-Creator could not release its previous registered dialog."
+)
+if toolbarCreatorUiRollout.dialogBar then
+(
+    if not (DialogHost.unregisterDockableDialog toolbarCreatorUiRollout) then
+    (
+        throw "Toolbar-Creator could not unregister its previous dialog."
+    )
 )
 try (destroyDialog toolbarCreatorUiRollout) catch ()
 toolbar_creator_startup_pos = IniSettings.getPoint2 toolbar_creator_ui_ini_path "MainUI" "PosX" "PosY" default_value:[100,100]
-createDialog toolbarCreatorUiRollout width:1024 height:toolbar_creator_ui_min_height pos:toolbar_creator_startup_pos lockWidth:true lockHeight:false autoLayoutOnResize:true
-windows.processPostedMessages()
+toolbar_creator_is_registering = true
+try
+(
+    createDialog toolbarCreatorUiRollout width:1024 height:toolbar_creator_ui_min_height pos:toolbar_creator_startup_pos lockWidth:true lockHeight:false autoLayoutOnResize:true
+    toolbar_creator_pre_register_pos = getDialogPos toolbarCreatorUiRollout
+    cui.RegisterDialogBar toolbarCreatorUiRollout style:#(#cui_floatable)
+    if not toolbarCreatorUiRollout.dialogBar or (cui.getDockState toolbarCreatorUiRollout) != #cui_floatable then
+    (
+        throw "Toolbar-Creator CUI floating-only registration failed."
+    )
+    toolbar_creator_registration_offset = (getDialogPos toolbarCreatorUiRollout) - toolbar_creator_pre_register_pos
+    if not (DialogHost.registerToolDialog "Toolbar-Creator" toolbarCreatorUiRollout) then
+    (
+        throw "Toolbar-Creator could not enter its dialog registry."
+    )
+    toolbar_creator_is_registering = false
+    windows.processPostedMessages()
+)
+catch
+(
+    toolbar_creator_registration_error = getCurrentException()
+    toolbar_creator_is_registering = false
+    toolbar_creator_is_closing = true
+    try (DialogHost.destroyToolDialogs "Toolbar-Creator") catch ()
+    if toolbarCreatorUiRollout.dialogBar then try (cui.UnRegisterDialogBar toolbarCreatorUiRollout) catch ()
+    try (destroyDialog toolbarCreatorUiRollout) catch ()
+    toolbar_creator_is_closing = false
+    format "[Toolbar-Creator UI] Registration error: %\n" toolbar_creator_registration_error
+    throw
+)

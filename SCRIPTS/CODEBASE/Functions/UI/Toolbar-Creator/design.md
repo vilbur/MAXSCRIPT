@@ -220,6 +220,17 @@ Toolbar-Creator is a reusable low-level UI function that allows unrelated MaxScr
 - On launch, call only `DialogHost.destroyToolDialogs "Toolbar-Creator"` to release any legacy registered instance and then create the new floating rollout. Keep the existing control-fitted 600 px initial height, fixed 1024 px width, and saved `PosX`/`PosY` from the INI; handle move, resize, close, and title-click state using `toolbarCreatorSaveFloatingDialogState()` because dock-bar-only state helpers are no longer appropriate.
 - Retain the two-phase title-button restart. When the deferred timer fires, destroy the non-dockable rollout after the Click handler exits, confirm it is closed, and then load the canonical launcher. Do not change the shared DialogHost framework or any toolbar CUIX/MacroScript contents.
 
+## Floating-only CUI registration (project 0.38)
+
+- After `createDialog`, call native `cui.RegisterDialogBar toolbarCreatorUiRollout style:#(#cui_floatable)` with no `#cui_dock_*` flags. Verify `.dialogBar` and `cui.getDockState` is `#cui_floatable`; then register the rollout under `"Toolbar-Creator"` using the existing DialogHost registry.
+- On the deferred restart, unregister the dialog bar before `destroyDialog`; do not synchronously destroy it from a .NET Click handler. Preserve legacy instance cleanup and leave other registered tool dialogs untouched.
+- Native registration shifts the screen-space position. Measure that shift from `getDialogPos` before and after registration and subtract it when saving the next pre-registration launch coordinates, preventing repeat-launch position drift. Do not change the shared DialogHost or toolbar CUIX contents.
+- Keep the existing fixed 1024 px width, fitted 600 px startup height and manual vertical resizing. The dialog remains floating-only, but is now discoverable through native CUI dialog-bar registration.
+
+## Registration exception compatibility (project 0.39)
+
+- MAXScript permits only a bare `throw` inside a `catch` block. Capture and print the original exception before cleanup, then rethrow it without an argument. This corrects the compilation failure in UI core 0.22 while preserving the floating-only registration behavior.
+
 ## Public contract
 
 The supported public APIs are `manageScriptToolbar` and `collectToolbarScripts`. The prefixed helpers are implementation details.

@@ -1,5 +1,14 @@
 # Changes
 
+## 2026-11-24 — project 0.39
+
+- `Toolbar-Creator-UI-Core.ms` 0.23: fix the MaxScript compiler restriction on rethrowing an exception inside a `catch` block. The previous 0.22 source was rejected on live reload; capture the original diagnostic, perform registered-dialog cleanup, then use bare `throw` to rethrow it. Native live UI retest pending.
+
+## 2026-11-24 — project 0.38
+
+- `Toolbar-Creator-UI-Core.ms` 0.22: restore CUI registration with `cui.RegisterDialogBar ... style:#(#cui_floatable)` only. The registered dialog remains floating-only and cannot dock to any edge; the UI remains vertically resizable.
+- Register the rollout in the existing DialogHost registry, unregister before destruction during deferred restart, and measure native registration position shift so saved floating coordinates do not drift on repeated launches. Backend and toolbars unchanged. Live probe of float-only registration/unregistration passed in 3ds Max 2026; full Toolbar-Creator UI smoke test pending. The initial 0.22 release failed compilation due to an invalid `throw` expression inside a `catch` block; fixed in 0.23.
+
 ## 2026-11-21 — project 0.37
 
 - `Toolbar-Creator-UI-Core.ms` 0.21: disable CUI docking by opening Toolbar-Creator with standard `createDialog` and omitting `registerDockableDialog`. Keep fixed 1024 px width, control-fitted 600 px startup height, manual vertical resizing, and floating position persistence.

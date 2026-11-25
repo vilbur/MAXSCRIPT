@@ -1,10 +1,10 @@
 /*
-    Script-Manager regression test 1.237.
+    Script-Manager regression test 1.238.
     Tests production version identity, source selection, filters, persistent tri-state load modes, toolbar generation, tree menus, and dedicated script-load behavior.
 */
 
-global script_manager_test_file_version = 1.237
-global script_manager_test_project_version = 1.270
+global script_manager_test_file_version = 1.238
+global script_manager_test_project_version = 1.285
 global script_manager_test_root = getFilenamePath (getSourceFileName())
 global script_manager_test_passed = true
 global script_manager_test_original_root
@@ -129,7 +129,7 @@ function partOfTest1 =
     source_tree_ok = script_manager.getSourceTreeControl() != undefined and script_manager.getSourceRootPathControl() != undefined and isProperty script_manager #saveSourceRootDirectory and isProperty script_manager #loadSourceRootDirectory and isProperty script_manager #applyPendingSourceOptions and isProperty script_manager #handleManualRefresh
     script_tree_ok = script_manager.getScriptTreeControl() != undefined and script_manager.getScriptIgnoreMaskControl() != undefined and isProperty script_manager #applyPendingScriptOptions and isProperty script_manager #saveScriptIgnoreMask and isProperty script_manager #loadScriptIgnoreMask and isProperty script_manager #buildScriptIgnorePatterns and isProperty script_manager #doesScriptTreeNameMatchIgnore and isProperty script_manager #isScriptTreeDirectoryIgnored and isProperty script_manager #isScriptTreeScriptIgnored and isProperty script_manager #shouldDisplayScriptTreeDirectory and isProperty script_manager #ensureScriptTreeFolderPath and isProperty script_manager #getScriptTreeSourceDisplayPath and isProperty script_manager #available_group_tree_paths and isProperty script_manager #available_script_tree_group_paths
     source_height_ok = source_tree_ok and script_manager_sources_ui.tv_sources.height == 640
-    script_height_ok = script_tree_ok and script_manager_scripts_ui.tv_scripts.height == 1280
+    script_height_ok = script_tree_ok and script_manager_scripts_ui.tv_scripts.height == (script_manager_scripts_ui.height - 64)
     source_mixed_ui_ok = source_tree_ok and not(script_manager_sources_ui.tv_sources.CheckBoxes) and script_manager_sources_ui.tv_sources.ImageList != undefined and script_manager_sources_ui.tv_sources.ImageList.Images.Count >= 3
     tristate_ui_ok = script_tree_ok and not(script_manager_scripts_ui.tv_scripts.CheckBoxes) and script_manager_scripts_ui.tv_scripts.ImageList != undefined and script_manager_scripts_ui.tv_scripts.ImageList.Images.Count >= 3
     loader_only_ok = not(isProperty script_manager_ui #sr_tools)
@@ -2754,7 +2754,7 @@ function partOfTest44 =
         script_manager_options_ui.sr_ignore.rollouts[1] == script_manager_ignore_ui
 
     tree_ok = script_manager_scripts_ui.tv_scripts.pos == [6,60] and \
-        script_manager_scripts_ui.tv_scripts.height == 1280 and \
+        script_manager_scripts_ui.tv_scripts.height == (script_manager_scripts_ui.height - 64) and \
         script_manager_scripts_ui.btn_load_scripts.pos == [6,6]
 
     if production_text != undefined then
@@ -3192,19 +3192,24 @@ function partOfTest48 =
 )
 
 /*
-Verifies SOURCES is 640 px and SCRIPTS remains 1280 px after layout.
-Checks the declared controls and the resized layout without loading any managed scripts.
+Verifies SOURCES stays at 640 px and SCRIPTS always fills its rollout.
+With only SCRIPTS expanded, the TreeView also fits the available dock height.
 */
 function partOfTest49 =
 (
     source_tree = script_manager.getSourceTreeControl()
     script_tree = script_manager.getScriptTreeControl()
     source_ok = source_tree != undefined and source_tree.Height == 640 and script_manager.source_rollout_content_height == 652
-    script_ok = script_tree != undefined and script_tree.Height == 1280 and script_manager.script_rollout_content_height == 1344
+    script_ok = script_tree != undefined and script_tree.Height == (script_manager_scripts_ui.height - 64) and script_manager.script_rollout_content_height == 1344
     minimum_ok = script_manager.script_tree_required_height >= 1280 and script_manager.getScriptTreeRequiredHeight() >= 1280
 
     layout_ok = script_manager.layoutManager [script_manager_ui.width, script_manager_ui.height]
-    resized_ok = layout_ok and source_tree.Height == 640 and script_tree.Height == 1280
+    resized_ok = layout_ok and source_tree.Height == 640 and script_tree.Height == (script_manager_scripts_ui.height - 64)
+    if script_manager.script_rollout_open and not(script_manager.preset_rollout_open or script_manager.options_rollout_open or script_manager.source_rollout_open) then
+    (
+        local expected_loader_height = script_manager_ui.height - 54
+        resized_ok = resized_ok and script_manager_ui.sr_loader.height == expected_loader_height
+    )
     test_ok = source_ok and script_ok and minimum_ok and resized_ok
     if not test_ok then script_manager_test_passed = false
     format "PART 49 | sources:% | scripts:% | minimum:% | resized:% | PASS:%\n" source_ok script_ok minimum_ok resized_ok test_ok
@@ -4143,6 +4148,31 @@ function partOfTest73 =
     -- return
 )
 
+/*
+Verifies the deterministic collapsed startup defaults and adaptive SCRIPTS layout.
+This regression is read-only and does not toggle or save live rollout states.
+*/
+function partOfTest74 =
+(
+    local production_path = script_manager_test_root + "..\\Script-Manager.ms"
+    local source_text = readScriptManagerTestFileText production_path
+    local startup_ok = source_text != undefined and \
+        (findString source_text "/* Start each manager UI with only SCRIPTS expanded") != undefined and \
+        (findString source_text "        preset_rollout_open = false\n        options_rollout_open = false\n        source_rollout_open = false") != undefined and \
+        (findString source_text "        show_rollout_open = false\n        ignore_rollout_open = false\n        show_ignore_rollout_open = false\n        script_rollout_open = true") != undefined
+    local sizing_ok = source_text != undefined and \
+        (findString source_text "script_content_height = amax 144 (maximum_loader_height - (loader_collapsed_height * 3) - rollout_header_height)") != undefined and \
+        (findString source_text "tree_control.Height = amax 80 (script_content_height - 64)") != undefined
+    local tree = script_manager.getScriptTreeControl()
+    local runtime_ok = tree != undefined and tree.Height == (script_manager_scripts_ui.height - 64)
+    local test_ok = startup_ok and sizing_ok and runtime_ok
+    if not test_ok then script_manager_test_passed = false
+    format "PART 74 | startup:% | sizing:% | runtime:% | PASS:%\n" startup_ok sizing_ok runtime_ok test_ok
+    test_ok
+    -- return
+)
+
+partOfTest74()
 partOfTest66()
 partOfTest67()
 partOfTest68()
